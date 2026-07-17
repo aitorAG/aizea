@@ -1,0 +1,127 @@
+"use server";
+
+// Server actions for the OpenRouter / LLM settings page.
+// All access goes through the Settings Prisma row (singleton id="default")
+// and invalidates the in-process config cache so the next LLM call sees
+// the new values without waiting for the 30s TTL.
+
+import { db } from "@/lib/db";
+import { invalidateConfigCache } from "@/lib/config-service";
+import { revalidatePath } from "next/cache";
+
+export interface SettingsView {
+  openrouterApiKey: string | null;
+  chatModel: string;
+  embedModel: string;
+  doclingBaseUrl: string;
+  /** True when the row is stored in the DB; false when it is purely the env/defaults. */
+  persisted: boolean;
+  /** True when at least one field is currently coming from a non-default source. */
+  apiKeyPresent: boolean;
+}
+
+/** Read the current effective settings. Safe to call from server components. */
+export async function getSettingsAction(): Promise<SettingsView> {
+  const row = await db.settings.findUnique({ where: { id: "default" } });
+  if (!row) {
+    return {
+      openrouterApiKey: null,
+      chatModel: "deepseek/deepseek-chat",
+      embedModel: "openai/text-embedding-3-small",
+      doclingBaseUrl: "http://127.0.0.1:5001",
+      persisted: false,
+      apiKeyPresent: false,
+    };
+  }
+  return {
+    openrouterApiKey: row.openrouterApiKey,
+    chatModel: row.chatModel,
+    embedModel: row.embedModel,
+    doclingBaseUrl: row.doclingBaseUrl,
+    persisted: true,
+    apiKeyPresent: row.openrouterApiKey !== null && row.openrouterApiKey.length > 0,
+  };
+}
+
+export interface UpdateSettingsInput {
+  apiKey?: string | null;
+  chatModel?: string;
+  embedModel?: string;
+  doclingBaseUrl?: string;
+}
+
+export interface UpdateSettingsResult {
+  ok: true;
+  persisted: true;
+}
+
+export interface UpdateSettingsError {
+  ok: false;
+  error: string;
+}
+
+/**
+ * Persist the supplied settings to the Settings row, then invalidate the
+ * in-memory config cache so subsequent LLM calls see the new values.
+ * Empty / null apiKey clears the DB field (falls back to env).
+ */
+export async function updateSettingsAction(
+  input: UpdateSettingsInput
+): Promise<UpdateSettingsResult | UpdateSettingsError> {
+  const chatModel = (input.chatModel ?? "").trim();
+  const embedModel = (input.embedModel ?? "").trim();
+  const doclingBaseUrl = (input.doclingBaseUrl ?? "").trim();
+
+  if (chatModel.length === 0) {
+    return { ok: false, error: "Chat model no puede estar vacío." };
+  }
+  if (embedModel.length === 0) {
+    return { ok: false, error: "Embed model no puede estar vacío." };
+  }
+  if (doclingBaseUrl.length === 0) {
+    return { ok: false, error: "Docling base URL no puede estar vacía." };
+  }
+  // API key length check applies only when a non-empty value is provided.
+  // Empty / null means "clear" and is handled below.
+  if (
+    typeof input.apiKey === "string" &&
+    input.apiKey.trim().length > 0 &&
+    input.apiKey.trim().length < 8
+  ) {
+    return {
+      ok: false,
+      error: "API key demasiado corta. OpenRouter keys empiezan por 'sk-or-v1-'.",
+    };
+  }
+
+  const apiKey =
+    input.apiKey === undefined
+      ? undefined
+      : input.apiKey === null || input.apiKey.trim().length === 0
+        ? null
+        : input.apiKey.trim();
+
+  await db.settings.upsert({
+    where: { id: "default" },
+    update: {
+      ...(apiKey !== undefined ? { openrouterApiKey: apiKey } : {}),
+      chatModel,
+      embedModel,
+      doclingBaseUrl,
+    },
+    create: {
+      id: "default",
+      openrouterApiKey: apiKey ?? null,
+      chatModel,
+      embedModel,
+      doclingBaseUrl,
+    },
+  });
+
+  // Force the next config-service call to read the DB.
+  invalidateConfigCache();
+  revalidatePath("/settings");
+  revalidatePath("/");
+
+  return { ok: true, persisted: true };
+}

@@ -1,0 +1,51 @@
+export function buildHtmlDesignTemplate(
+  title: string,
+  description: string,
+  script: string,
+  relevance: string,
+  narrative: string,
+  designInstructions: string
+): { system: string; user: string } {
+  const system = `Eres un diseñador de diapositivas para proyección en aula universitaria. Generas HTML para slides de ingeniería.
+
+REGLAS ABSOLUTAS — si las rompes el diseño se ve mal:
+1. El HTML DEBE caber en EXACTAMENTE 1280x720px. Nada puede desbordarse.
+2. Usa este contenedor raíz OBLIGATORIO:
+   <div style="width:1280px;height:720px;overflow:hidden;box-sizing:border-box;font-family:system-ui,sans-serif;background:#fff;padding:60px 80px;display:flex;flex-direction:column;">
+3. NO incluyas etiquetas <html>, <head>, <body>, <!DOCTYPE>.
+4. Solo CSS inline o en una etiqueta <style> dentro del div raíz. NO archivos externos.
+5. NO scrollbars. NO desbordamiento. Si el contenido es mucho, reduce fuentes o padding.
+6. NO uses vw, vh, %, rem respecto al viewport — todo en px o % respecto al contenedor.
+7. Fuentes grandes para proyección: título 32-40px, subtítulos 22-26px, cuerpo 18-20px, notas 14-16px.
+8. Fórmulas LaTeX: escríbelas como texto ($$...$$ o $...$), se renderizarán luego.
+9. Colores: fondo blanco, texto #1a1a1a, acento azul #1a56db, gris suave #6b7280.
+10. Prioriza CLARIDAD y LEGIBILIDAD sobre decoración. Menos es más.
+
+ESTRUCTURA RECOMENDADA:
+- Título arriba (grande, centrado o alineado izquierda)
+- Cuerpo central con el contenido principal (scroll interno si es necesario, max-height 400px)
+- Pie opcional con fuente/fórmula clave
+
+Responde ÚNICAMENTE: {"html": "<div style=\"...\">...</div>"}`;
+
+  const user = `DISEÑA UNA DIAPOSITIVA DE 1280x720px PARA PROYECCIÓN EN CLASE:
+
+Título: ${title}
+Descripción: ${description}
+
+Contenido principal (guion):
+${script || "No disponible"}
+
+Relevancia del tema:
+${relevance || "No disponible"}
+
+Narrativa para el profesor:
+${narrative || "No disponible"}
+
+Instrucciones adicionales:
+${designInstructions || "Diseño académico limpio. Destaca fórmulas y conceptos clave."}
+
+IMPORTANTE: La diapositiva se proyectará en un aula. Todo debe caber en 1280x720px sin scroll. Usa fuentes grandes. Prioriza la claridad visual.`;
+
+  return { system, user };
+}
