@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+
+# local test artifacts
+.test-artifacts/
+.playwright-cache/
+
+# logs and debug output
+*.log
+*.err
+*.out
+build-output.log
+
+# lancedb
+lancedb-data/
+
+# env files (already handled by inner .gitignore, belt-and-suspenders)
+.env
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db

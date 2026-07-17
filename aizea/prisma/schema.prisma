@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+enum SlideStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+model Course {
+  id         String   @id @default(uuid())
+  name       String
+  llmContext String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  materials  Material[]
+  slides     Slide[]
+  figures    Figure[]
+  topicNodes TopicNode[]
+  topicGroups TopicGroup[]
+}
+
+model Material {
+  id        String   @id @default(uuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  filename  String
+  /// @deprecated Use TextChunk for chunked access
+  content   String
+  pageCount Int      @default(0)
+  fileSize  Int?
+  fileType  String?
+  createdAt DateTime @default(now())
+
+  chunks        TextChunk[]
+  semanticUnits SemanticUnit[]
+
+  @@index([courseId, createdAt])
+}
+
+model Slide {
+  id          String      @id @default(uuid())
+  courseId    String
+  course      Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  order       Int         @default(0)
+  figureRefs  String      @default("[]")
+  htmlDesign  String?
+  status      SlideStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  boxes SlideBox[]
+
+  @@index([courseId, order])
+  @@index([courseId, status])
+}
+
+model SlideBox {
+  id      String @id @default(uuid())
+  slideId String
+  slide   Slide  @relation(fields: [slideId], references: [id], onDelete: Cascade)
+  type    String
+  content String
+
+  @@index([slideId, type])
+}
+
+model TextChunk {
+  id         String   @id @default(uuid())
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  content    String
+  embedding  String?
+  tokenCount Int
+
+  @@index([materialId, chunkIndex])
+}
+
+model Figure {
+  id        String   @id @default(uuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  filename  String
+  caption   String?
+  pageNum   Int?
+  tags      String   @default("[]")
+  createdAt DateTime @default(now())
+
+  @@index([courseId, createdAt])
+}
+
+model SemanticUnit {
+  id         String   @id @default(uuid())
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  content    String
+  order      Int
+  pageStart  Int?
+  pageEnd    Int?
+  sectionRef String?
+  createdAt  DateTime @default(now())
+
+  representation UnitRepresentation?
+
+  @@index([materialId, order])
+}
+
+model UnitRepresentation {
+  id            String       @id @default(uuid())
+  unitId        String       @unique
+  unit          SemanticUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  concepts      String       @default("[]")
+  mainIdeas     String       @default("[]")
+  formulas      String       @default("[]")
+  figures       String       @default("[]")
+  prerequisites String       @default("[]")
+  introduces    String       @default("[]")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model TopicNode {
+  id               String      @id @default(uuid())
+  courseId         String
+  course           Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  parentId         String?
+  parent           TopicNode?  @relation("TopicTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children         TopicNode[] @relation("TopicTree")
+  name             String
+  summary          String?
+  depth            Int         @default(0)
+  isLeaf           Boolean     @default(false)
+  version          Int         @default(1)
+  sourceMaterialId String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([courseId, parentId])
+  @@index([courseId, version])
+}
+
+model TopicGroup {
+  id            String   @id @default(uuid())
+  courseId      String
+  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  name          String
+  description   String
+  importance    Float    @default(0.5)
+  concepts      String   @default("[]")
+  sourceUnitIds String   @default("[]")
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([courseId, version])
+}
+
+model Settings {
+  id               String   @id @default("default")
+  openrouterApiKey String?
+  chatModel        String   @default("deepseek/deepseek-chat")
+  embedModel       String   @default("openai/text-embedding-3-small")
+  doclingBaseUrl   String   @default("http://127.0.0.1:5001")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model ProcessingJob {
+  id          String   @id
+  type        String
+  status      String
+  progress    Int      @default(0)
+  total       Int      @default(100)
+  currentStep String?
+  error       String?
+  courseId    String?
+  materialId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type, status])
+  @@index([courseId, createdAt])
+}

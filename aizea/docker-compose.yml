@@ -1,0 +1,20 @@
+services:
+  docling-serve:
+    image: quay.io/docling-project/docling-serve-cpu:v1.26.0
+    container_name: docling-serve
+    ports:
+      - "127.0.0.1:5001:5001"
+    environment:
+      - DOCLING_SERVE_ENABLE_UI=false
+    volumes:
+      - docling-models:/opt/app-root/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  docling-models:
