@@ -36,7 +36,8 @@ next-env.d.ts
 
 # prisma
 prisma/dev.db
-prisma/dev.db-journal
+prisma/dev.db-*
+prisma/test*.db
 
 # uploads (keep directory, ignore files)
 public/uploads/*
