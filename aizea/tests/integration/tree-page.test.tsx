@@ -47,6 +47,8 @@ const mockEmptyCourse = {
 
 const mockGetCourseTree = vi.fn();
 const mockGetJobStatus = vi.fn();
+const mockStartPipeline = vi.fn();
+const mockRouterRefresh = vi.fn();
 
 vi.mock("@/lib/actions/tree", () => ({
   getCourseTreeAction: (...args: unknown[]) => mockGetCourseTree(...args),
@@ -54,7 +56,7 @@ vi.mock("@/lib/actions/tree", () => ({
 
 vi.mock("@/lib/actions/pipeline", () => ({
   getJobStatusAction: (...args: unknown[]) => mockGetJobStatus(...args),
-  startPipelineAction: vi.fn().mockResolvedValue({ ok: true, jobs: {} }),
+  startPipelineAction: (...args: unknown[]) => mockStartPipeline(...args),
 }));
 
 vi.mock("@/lib/actions/slide", () => ({
@@ -129,7 +131,7 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("notFound");
   },
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), refresh: mockRouterRefresh }),
 }));
 
 // Mock the server-side db / action calls used by the page.
@@ -149,6 +151,16 @@ import { TreePageClient } from "@/app/courses/[id]/tree/tree-client";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockStartPipeline.mockResolvedValue({
+    ok: true,
+    empty: false,
+    jobs: {
+      segmentationJobId: "job-seg",
+      extractionJobId: "job-ext",
+      integrationJobId: "job-int",
+      treeBuildingJobId: "job-tree",
+    },
+  });
   mockGetJobStatus.mockResolvedValue({
     ok: true,
     job: {
@@ -283,6 +295,40 @@ describe("<TreePageClient />", () => {
       expect(
         screen.getByRole("button", { name: /generar.*diapositiva/i })
       ).toBeInTheDocument();
+    });
+  });
+
+  // v1.5 / Task 2.4 — regression guard for "el front no se actualiza
+  // de forma dinámica". Clicking "Generar árbol" on the empty state
+  // must call `router.refresh()` so the server component re-runs
+  // and the freshly-generated TopicNode rows flow into the client.
+  it("calls router.refresh() when 'Generar árbol' is clicked (auto-refresh fix)", async () => {
+    vi.mocked(db.course.findUnique).mockResolvedValue(mockEmptyCourse as never);
+    vi.mocked(db.topicNode.findMany).mockResolvedValue([] as never);
+    mockGetCourseTree.mockResolvedValue({ ok: true, tree: [] });
+
+    const user = userEvent.setup();
+    render(
+      <TreePageClient
+        courseId="course-2"
+        courseName="Curso sin árbol"
+        initialNodes={[]}
+      />
+    );
+    // Sanity check: the empty state is shown with the "Generar
+    // árbol" button visible.
+    const generateButton = await screen.findByRole("button", {
+      name: /generar.*árbol|generar.*arbol/i,
+    });
+    expect(mockRouterRefresh).not.toHaveBeenCalled();
+    await user.click(generateButton);
+    // The handler is async — wait for both the server action and
+    // the subsequent router.refresh() to fire.
+    await waitFor(() => {
+      expect(mockStartPipeline).toHaveBeenCalledWith("course-2");
+    });
+    await waitFor(() => {
+      expect(mockRouterRefresh).toHaveBeenCalled();
     });
   });
 });

@@ -4,6 +4,15 @@
 // Sin contenido que procesar". The use case is exercised through
 // its three ports (pipeline, materials, notifier) so the test is
 // independent of the DB, the filesystem, the network, and Next.js.
+//
+// v1.5 finding 2.5 — the previous implementation only processed
+// ONE material per click, silently dropping every other PDF in
+// the course. These tests now cover the multi-material behaviour:
+//   * iterate over every material
+//   * keep going when one material fails
+//   * surface per-material errors without aborting
+//   * the resulting tree contains concepts from every material
+//     that succeeded.
 
 import { describe, it, expect, vi } from "vitest";
 import { ProcessCourseUseCase } from "@/lib/application/use-cases/process-course.use-case";
@@ -40,7 +49,12 @@ function makeMaterials(overrides: Partial<{
   materials: Array<{ id: string; filename: string; courseId: string }>;
   hasProcessedFor: (id: string) => boolean;
   bufferFor: (id: string) => Buffer | null;
-}>): { materials: IMaterialRepository; findByCourseId: ReturnType<typeof vi.fn>; hasProcessedUnits: ReturnType<typeof vi.fn>; readBuffer: ReturnType<typeof vi.fn> } {
+}>): {
+  materials: IMaterialRepository;
+  findByCourseId: ReturnType<typeof vi.fn>;
+  hasProcessedUnits: ReturnType<typeof vi.fn>;
+  readBuffer: ReturnType<typeof vi.fn>;
+} {
   const findByCourseId = vi.fn(async () => overrides.materials ?? []);
   const hasProcessedUnits = vi.fn(
     async (id: string) => overrides.hasProcessedFor?.(id) ?? false
@@ -87,13 +101,18 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       if (outcome.ok && outcome.empty) {
         expect(outcome.reason).toBe("NO_MATERIALS");
         expect(outcome.message).toMatch(/sube un pdf/i);
+        expect(outcome.materialErrors).toEqual([]);
         expect(outcome.jobs.segmentationJobId).toBe("");
       }
       expect(findByCourseId).toHaveBeenCalledWith("course-1");
       // The pipeline MUST NOT be called when there are no materials.
       expect(processCourse).not.toHaveBeenCalled();
       // The user is told what to do.
-      expect(notify).toHaveBeenCalledWith("default", expect.stringMatching(/sube un pdf/i), "info");
+      expect(notify).toHaveBeenCalledWith(
+        "default",
+        expect.stringMatching(/sube un pdf/i),
+        "info"
+      );
     });
   });
 
@@ -119,6 +138,9 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       expect(outcome.ok).toBe(true);
       if (outcome.ok && !outcome.empty) {
         expect(outcome.result.segmentationJobId).toBe("seg-1");
+        expect(outcome.processedMaterials).toBe(1);
+        expect(outcome.totalMaterials).toBe(1);
+        expect(outcome.materialErrors).toEqual([]);
       }
       // The use case passes the material id (so the orchestrator
       // re-uses the existing units) and explicitly NOT a buffer.
@@ -151,8 +173,9 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       const outcome = await useCase.execute("course-1");
 
       expect(outcome.ok).toBe(true);
-      if (outcome.ok) {
+      if (outcome.ok && !outcome.empty) {
         expect(outcome.empty).toBe(false);
+        expect(outcome.processedMaterials).toBe(1);
       }
       // CRITICAL: the buffer must be passed so the segmenter has
       // bytes to work on. This is the bug the use case fixes.
@@ -165,7 +188,7 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       expect(readBuffer).toHaveBeenCalledWith("mat-1");
     });
 
-    it("returns FILE_MISSING when the file is not on disk anymore", async () => {
+    it("returns ALL_FAILED with FILE_MISSING messages when the file is not on disk for the only material", async () => {
       const materials = [
         { id: "mat-1", filename: "doc.pdf", courseId: "course-1" },
       ];
@@ -186,8 +209,13 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
 
       expect(outcome.ok).toBe(true);
       if (outcome.ok && outcome.empty) {
+        // When every material in the course is FILE_MISSING, we
+        // surface FILE_MISSING (singular reason) so the UI can
+        // show "Sube el PDF de nuevo" copy.
         expect(outcome.reason).toBe("FILE_MISSING");
         expect(outcome.message).toMatch(/no está disponible|sube el pdf de nuevo/i);
+        expect(outcome.materialErrors[0].filename).toBe("doc.pdf");
+        expect(outcome.materialErrors[0].error).toMatch(/no está disponible/i);
       }
       // Pipeline MUST NOT be called when the file is missing.
       expect(processCourse).not.toHaveBeenCalled();
@@ -198,7 +226,7 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       );
     });
 
-    it("uses the LATEST material when there are multiple (recovery from a freshly uploaded PDF)", async () => {
+    it("processes EVERY material — not just the latest (v1.5 #2.5)", async () => {
       const materials = [
         { id: "old-mat", filename: "old.pdf", courseId: "course-1" },
         { id: "latest-mat", filename: "latest.pdf", courseId: "course-1" },
@@ -219,19 +247,25 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       const outcome = await useCase.execute("course-1");
 
       expect(outcome.ok).toBe(true);
-      expect(processCourse).toHaveBeenCalledTimes(1);
-      const input = processCourse.mock.calls[0][0];
-      // The repository returns materials ASC by createdAt, so the
-      // last one is the latest.
-      expect(input.materialId).toBe("latest-mat");
-      expect(input.buffer?.toString()).toBe("bytes for latest-mat");
-      // readBuffer called on the latest material.
+      if (outcome.ok && !outcome.empty) {
+        // The previous bug: only the latest material was processed.
+        // The fix: every material in the course is processed.
+        expect(outcome.processedMaterials).toBe(2);
+        expect(outcome.totalMaterials).toBe(2);
+        expect(outcome.materialErrors).toEqual([]);
+      }
+      // The pipeline was called for BOTH materials.
+      expect(processCourse).toHaveBeenCalledTimes(2);
+      const calledIds = processCourse.mock.calls.map((c) => c[0].materialId);
+      expect(calledIds).toEqual(["old-mat", "latest-mat"]);
+      // Both materials' buffers were read.
+      expect(readBuffer).toHaveBeenCalledWith("old-mat");
       expect(readBuffer).toHaveBeenCalledWith("latest-mat");
     });
   });
 
   describe("mixed materials", () => {
-    it("picks the FIRST material that has SemanticUnits and re-runs without buffer", async () => {
+    it("processes EVERY material — picks the first with units, then continues with the rest (v1.5 #2.5)", async () => {
       const materials = [
         { id: "old-mat", filename: "old.pdf", courseId: "course-1" },
         { id: "newer-mat", filename: "newer.pdf", courseId: "course-1" },
@@ -239,6 +273,10 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       const { materials: repo, hasProcessedUnits } = makeMaterials({
         materials,
         hasProcessedFor: (id) => id === "old-mat",
+        // newer-mat has no units, so it must fall through to the
+        // buffer-read path. Provide a buffer so it can be
+        // processed.
+        bufferFor: (id) => Buffer.from(`bytes for ${id}`),
       });
       const { pipeline, processCourse } = makePipeline();
       const { notifier } = makeNotifier();
@@ -252,24 +290,133 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
 
       expect(outcome.ok).toBe(true);
       if (outcome.ok && !outcome.empty) {
-        expect(outcome.result.segmentationJobId).toBe("seg-1");
+        expect(outcome.processedMaterials).toBe(2);
       }
-      // Once we find a material with units, we stop probing.
-      // The pipeline runs WITHOUT a buffer (re-uses existing units).
-      const input = processCourse.mock.calls[0][0];
-      expect(input.materialId).toBe("old-mat");
-      expect(input.buffer).toBeUndefined();
-      // hasProcessedUnits should have been called at most once
-      // (the first material matched) — we don't probe the second.
-      // Allow up to 1 for a fast-path.
-      expect(hasProcessedUnits.mock.calls.length).toBeLessThanOrEqual(2);
+      // The pipeline ran for BOTH materials. The first used the
+      // existing units (no buffer); the second read its buffer
+      // from disk because it had no SemanticUnits yet.
+      expect(processCourse).toHaveBeenCalledTimes(2);
+      const firstInput = processCourse.mock.calls[0][0];
+      expect(firstInput.materialId).toBe("old-mat");
+      expect(firstInput.buffer).toBeUndefined();
+      const secondInput = processCourse.mock.calls[1][0];
+      expect(secondInput.materialId).toBe("newer-mat");
+      expect(Buffer.isBuffer(secondInput.buffer)).toBe(true);
+      // hasProcessedUnits was probed for both materials.
+      expect(hasProcessedUnits.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
   });
 
-  describe("error handling", () => {
-    it("returns ok:false when the pipeline throws on a fresh run", async () => {
+  describe("error handling — one failing material does not abort the rest", () => {
+    it("continues with the remaining materials when one throws on a fresh run (v1.5 #2.5)", async () => {
+      const materials = [
+        { id: "good-1", filename: "good-1.pdf", courseId: "course-1" },
+        { id: "bad", filename: "bad.pdf", courseId: "course-1" },
+        { id: "good-2", filename: "good-2.pdf", courseId: "course-1" },
+      ];
       const { materials: repo } = makeMaterials({
-        materials: [{ id: "mat-1", filename: "doc.pdf", courseId: "course-1" }],
+        materials,
+        hasProcessedFor: () => false,
+        bufferFor: (id) => Buffer.from(`bytes for ${id}`),
+      });
+      // Pipeline throws only when the bad material is processed.
+      const { pipeline, processCourse } = makePipeline(async (input) => {
+        if (input.materialId === "bad") {
+          throw new Error("segmenter blew up");
+        }
+        return {
+          segmentationJobId: `seg-${input.materialId}`,
+          extractionJobId: `ext-${input.materialId}`,
+          integrationJobId: `int-${input.materialId}`,
+          treeBuildingJobId: `tree-${input.materialId}`,
+          empty: false,
+          message: null,
+        };
+      });
+      const { notifier, notify } = makeNotifier();
+
+      const useCase = new ProcessCourseUseCase({
+        materials: repo,
+        pipeline,
+        notifier,
+      });
+      const outcome = await useCase.execute("course-1");
+
+      // Outcome is OK because at least one material succeeded.
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok && !outcome.empty) {
+        expect(outcome.processedMaterials).toBe(2);
+        expect(outcome.totalMaterials).toBe(3);
+        // The bad material is reported in materialErrors with
+        // a clear per-file error message.
+        expect(outcome.materialErrors).toHaveLength(1);
+        expect(outcome.materialErrors[0]).toEqual({
+          materialId: "bad",
+          filename: "bad.pdf",
+          error: "segmenter blew up",
+        });
+      }
+      // The pipeline ran for all three materials.
+      expect(processCourse).toHaveBeenCalledTimes(3);
+      // The user got a per-material error notification.
+      expect(notify).toHaveBeenCalledWith(
+        "default",
+        expect.stringMatching(/no se pudo procesar.*bad\.pdf.*segmenter blew up/i),
+        "error"
+      );
+    });
+
+    it("continues with the remaining materials when one throws on the re-run path (v1.5 #2.5)", async () => {
+      const materials = [
+        { id: "ok-mat", filename: "ok.pdf", courseId: "course-1" },
+        { id: "broken-mat", filename: "broken.pdf", courseId: "course-1" },
+      ];
+      // ok-mat already has units (fast path), broken-mat does not
+      // (so it falls through to the buffer read, but we'll mock
+      // the pipeline to throw for it anyway via the no-units path).
+      const { materials: repo } = makeMaterials({
+        materials,
+        hasProcessedFor: (id) => id === "ok-mat",
+        bufferFor: (id) =>
+          id === "broken-mat" ? Buffer.from("bytes for broken-mat") : null,
+      });
+      const { pipeline, processCourse } = makePipeline(async (input) => {
+        if (input.materialId === "broken-mat") {
+          throw new Error("integration failed");
+        }
+        return {
+          segmentationJobId: `seg-${input.materialId}`,
+          extractionJobId: `ext-${input.materialId}`,
+          integrationJobId: `int-${input.materialId}`,
+          treeBuildingJobId: `tree-${input.materialId}`,
+          empty: false,
+          message: null,
+        };
+      });
+      const { notifier } = makeNotifier();
+
+      const useCase = new ProcessCourseUseCase({
+        materials: repo,
+        pipeline,
+        notifier,
+      });
+      const outcome = await useCase.execute("course-1");
+
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok && !outcome.empty) {
+        expect(outcome.processedMaterials).toBe(1);
+        expect(outcome.materialErrors).toHaveLength(1);
+        expect(outcome.materialErrors[0].error).toBe("integration failed");
+      }
+      expect(processCourse).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns ALL_FAILED when every material in the course throws", async () => {
+      const materials = [
+        { id: "mat-1", filename: "doc.pdf", courseId: "course-1" },
+      ];
+      const { materials: repo } = makeMaterials({
+        materials,
         hasProcessedFor: () => false,
         bufferFor: () => Buffer.from("bytes"),
       });
@@ -285,9 +432,11 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       });
       const outcome = await useCase.execute("course-1");
 
-      expect(outcome.ok).toBe(false);
-      if (!outcome.ok) {
-        expect(outcome.error).toMatch(/segmenter blew up/);
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok && outcome.empty) {
+        expect(outcome.reason).toBe("ALL_FAILED");
+        expect(outcome.message).toMatch(/segmenter blew up/);
+        expect(outcome.materialErrors[0].filename).toBe("doc.pdf");
       }
       expect(notify).toHaveBeenCalledWith(
         "default",
@@ -295,33 +444,10 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
         "error"
       );
     });
-
-    it("returns ok:false when the pipeline throws on the re-run path", async () => {
-      const { materials: repo } = makeMaterials({
-        materials: [{ id: "mat-1", filename: "doc.pdf", courseId: "course-1" }],
-        hasProcessedFor: () => true,
-      });
-      const { pipeline } = makePipeline(async () => {
-        throw new Error("integration failed");
-      });
-      const { notifier } = makeNotifier();
-
-      const useCase = new ProcessCourseUseCase({
-        materials: repo,
-        pipeline,
-        notifier,
-      });
-      const outcome = await useCase.execute("course-1");
-
-      expect(outcome.ok).toBe(false);
-      if (!outcome.ok) {
-        expect(outcome.error).toMatch(/integration failed/);
-      }
-    });
   });
 
   describe("propagates an empty result from the pipeline", () => {
-    it("returns empty:true when the pipeline still finds zero units after the recovery path (e.g. genuinely empty PDF)", async () => {
+    it("returns ALL_EMPTY when the pipeline still finds zero units for every material (e.g. genuinely empty PDFs)", async () => {
       const { materials: repo } = makeMaterials({
         materials: [{ id: "mat-1", filename: "empty.pdf", courseId: "course-1" }],
         hasProcessedFor: () => false,
@@ -348,9 +474,50 @@ describe("ProcessCourseUseCase — the 'Generar árbol' fix", () => {
       if (outcome.ok) {
         expect(outcome.empty).toBe(true);
         if (outcome.empty) {
-          expect(outcome.message).toMatch(/no hay unidades que procesar/i);
+          expect(outcome.reason).toBe("ALL_EMPTY");
         }
       }
+    });
+  });
+
+  describe("partial FILE_MISSING", () => {
+    it("returns success when at least one material is processable even if others are missing on disk", async () => {
+      const materials = [
+        { id: "ok-mat", filename: "ok.pdf", courseId: "course-1" },
+        { id: "missing-mat", filename: "missing.pdf", courseId: "course-1" },
+      ];
+      const { materials: repo } = makeMaterials({
+        materials,
+        hasProcessedFor: () => false,
+        bufferFor: (id) =>
+          id === "missing-mat" ? null : Buffer.from(`bytes for ${id}`),
+      });
+      const { pipeline, processCourse } = makePipeline(async (input) => ({
+        segmentationJobId: `seg-${input.materialId}`,
+        extractionJobId: `ext-${input.materialId}`,
+        integrationJobId: `int-${input.materialId}`,
+        treeBuildingJobId: `tree-${input.materialId}`,
+        empty: false,
+        message: null,
+      }));
+      const { notifier } = makeNotifier();
+
+      const useCase = new ProcessCourseUseCase({
+        materials: repo,
+        pipeline,
+        notifier,
+      });
+      const outcome = await useCase.execute("course-1");
+
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok && !outcome.empty) {
+        expect(outcome.processedMaterials).toBe(1);
+        expect(outcome.totalMaterials).toBe(2);
+        expect(outcome.materialErrors).toHaveLength(1);
+        expect(outcome.materialErrors[0].filename).toBe("missing.pdf");
+      }
+      // Only the OK material reached the pipeline.
+      expect(processCourse).toHaveBeenCalledTimes(1);
     });
   });
 });

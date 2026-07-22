@@ -22,6 +22,7 @@ export default async function SlidesPage({ params }: SlidesPageProps) {
           description: true,
           order: true,
           htmlDesign: true,
+          parentSlideId: true,
         },
       },
       materials: {
@@ -45,6 +46,7 @@ export default async function SlidesPage({ params }: SlidesPageProps) {
     description: s.description,
     order: s.order,
     htmlDesign: s.htmlDesign,
+    parentSlideId: s.parentSlideId,
     hasContent: false, // will be determined by boxes count
   }));
 

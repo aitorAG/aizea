@@ -13,14 +13,30 @@
 //
 //   1. Are there any materials for this course? If not →
 //      NO_MATERIALS. Surface a clear message.
-//   2. Has any of them been segmented before? If not, the previous
-//      segmentation likely failed (e.g. docling was down). Read the
-//      file from disk and re-run the pipeline with the buffer.
-//   3. If the file is missing on disk → FILE_MISSING. Tell the
-//      user to re-upload.
-//   4. Otherwise → re-run the pipeline on the existing data (the
-//      fast path: re-build the tree on top of already-segmented
-//      units).
+//   2. For EACH material in the course:
+//      a. Has it been segmented before? If so, re-run the pipeline
+//         on the existing units (the fast path: re-build the tree
+//         on top of already-segmented units).
+//      b. Otherwise, the previous segmentation likely failed
+//         (e.g. docling was down). Read the file from disk and
+//         re-run the pipeline with the buffer. The orchestrator's
+//         segmenter is now resilient to docling failures
+//         (text-only fallback) so this run will succeed even if
+//         docling is still down.
+//      c. If the file is missing on disk → FILE_MISSING for that
+//         material. Continue with the others (don't abort the
+//         whole run).
+//      d. If the pipeline throws for one material, surface a clear
+//         per-material error and keep going with the remaining
+//         materials. v1.5 finding 2.5: a single failing PDF must
+//         not break the generation for the rest of the course.
+//
+//   3. The integration + tree-building phases run inside the
+//      pipeline service and operate at the COURSE level (not the
+//      material level), so each pipeline call re-builds the tree
+//      over the union of all materials' SemanticUnits. After the
+//      loop, the tree contains concepts from every material that
+//      succeeded — that is the unified tree v1.5 #2.5 requires.
 //
 // This design makes the entire class of bugs impossible: the use
 // case never invokes the pipeline with a `courseId` alone when
@@ -36,14 +52,39 @@ import type {
 } from "@/lib/application/ports/pipeline.port";
 import type { INotifier } from "@/lib/application/ports/notifier.port";
 
+/** Per-material failure surface. The use case collects one of these
+ *  for every material that could not be processed so the action
+ *  layer (and the user) can see exactly which file broke the run
+ *  without aborting the rest of the course. */
+export interface MaterialProcessingError {
+  materialId: string;
+  filename: string;
+  error: string;
+}
+
 /** Discriminated result returned to the action layer. The action
- *  translates each variant into a stable wire shape for the client. */
+ *  translates each variant into a stable wire shape for the client.
+ *
+ *  The `jobs` field is the LAST material's job ids. The banner only
+ *  needs a single coherent set to render "generating tree" copy and
+ *  the `processedMaterials` count tells the user how many of their
+ *  files made it. `materialErrors` lists the ones that did not. */
 export type ProcessCourseOutcome =
-  | { ok: true; result: ProcessCourseResult; empty: false }
+  | {
+      ok: true;
+      result: ProcessCourseResult;
+      empty: false;
+      /** Number of materials that successfully produced units. */
+      processedMaterials: number;
+      /** Total materials in the course. */
+      totalMaterials: number;
+      /** Per-material failures (file missing, pipeline error, etc.). */
+      materialErrors: MaterialProcessingError[];
+    }
   | {
       ok: true;
       empty: true;
-      reason: "NO_MATERIALS" | "FILE_MISSING";
+      reason: "NO_MATERIALS" | "FILE_MISSING" | "ALL_EMPTY" | "ALL_FAILED";
       message: string;
       jobs: {
         segmentationJobId: string;
@@ -51,6 +92,8 @@ export type ProcessCourseOutcome =
         integrationJobId: string;
         treeBuildingJobId: string;
       };
+      /** Per-material failures (when reason is "ALL_FAILED"). */
+      materialErrors: MaterialProcessingError[];
     }
   | { ok: false; error: string };
 
@@ -96,136 +139,217 @@ export class ProcessCourseUseCase {
           integrationJobId: "",
           treeBuildingJobId: "",
         },
+        materialErrors: [],
       };
     }
 
-    // 2. State check: has any material been segmented before?
+    // 2. Iterate over EVERY material and try to process it.
     //
-    // We check ALL materials (not just the latest) because the user
-    // might have uploaded multiple PDFs over time and any one of
-    // them may already have units. We stop at the first one that
-    // has units — that's the material we'd re-run on top of.
-    const processedMaterial = await this.findProcessedMaterial(materials);
+    // The previous implementation picked ONE material (the first
+    // with units, or the latest as a recovery fallback) and
+    // returned. That silently dropped every other material in the
+    // course. v1.5 #2.5: the user uploaded two PDFs and only saw
+    // the tree of the first. We now loop over all of them.
+    const errors: MaterialProcessingError[] = [];
+    const empties: Array<{ materialId: string; filename: string }> = [];
+    const results: ProcessCourseResult[] = [];
+    const allJobs = emptyJobs();
 
-    if (processedMaterial) {
-      // Happy path: re-run the pipeline on the existing units. The
-      // orchestrator will load them from the DB and re-do phases
-      // 3+4 (integration, tree-building) only.
-      try {
-        const result = await this.pipeline.processCourse({
-          courseId,
-          materialId: processedMaterial.id,
-        });
-        if (result.empty) {
-          // The orchestrator reports empty even when the input was
-          // fine. We surface that as an empty outcome (the user
-          // gets a "no units to process" message from the result).
-          return {
-            ok: true,
-            empty: true,
-            reason: "NO_MATERIALS",
-            message:
-              result.message ?? "No hay unidades que procesar.",
-            jobs: {
-              segmentationJobId: result.segmentationJobId,
-              extractionJobId: result.extractionJobId,
-              integrationJobId: result.integrationJobId,
-              treeBuildingJobId: result.treeBuildingJobId,
-            },
-          };
+    for (const material of materials) {
+      const outcome = await this.processOneMaterial(courseId, material);
+      if (outcome.kind === "success") {
+        results.push(outcome.result);
+        // Keep the most recent job ids so the banner can show a
+        // coherent "generating" state. The tree will reflect ALL
+        // successful materials by the time the loop ends because
+        // integration + tree-building operate at the course level.
+        if (outcome.result.segmentationJobId) {
+          allJobs.segmentationJobId = outcome.result.segmentationJobId;
         }
-        return { ok: true, empty: false, result };
-      } catch (err) {
-        return this.handlePipelineError(err, "pipeline-failed");
+        if (outcome.result.extractionJobId) {
+          allJobs.extractionJobId = outcome.result.extractionJobId;
+        }
+        if (outcome.result.integrationJobId) {
+          allJobs.integrationJobId = outcome.result.integrationJobId;
+        }
+        if (outcome.result.treeBuildingJobId) {
+          allJobs.treeBuildingJobId = outcome.result.treeBuildingJobId;
+        }
+      } else if (outcome.kind === "empty") {
+        // The file was OK but the segmenter found no text. Track
+        // it separately so we can distinguish "the file is
+        // empty" (ALL_EMPTY) from "the pipeline crashed"
+        // (ALL_FAILED) at the end of the loop.
+        empties.push({
+          materialId: material.id,
+          filename: material.filename,
+        });
+      } else {
+        errors.push({
+          materialId: material.id,
+          filename: material.filename,
+          error: outcome.error,
+        });
+        this.notifier.notify(
+          this.notifyUserId,
+          `No se pudo procesar "${material.filename}": ${outcome.error}`,
+          "error"
+        );
       }
     }
 
-    // 3. Recovery path: no material has been segmented. This means
-    // the original upload's pipeline run failed before producing
-    // any units (most commonly because docling-serve was down).
-    // Read the latest material's file from disk and re-run with
-    // the buffer. The orchestrator's segmenter is now resilient to
-    // docling failures (text-only fallback) so this run will
-    // succeed even if docling is still down.
-    const latest = materials[materials.length - 1];
-    const buffer = await this.materials.readBuffer(latest.id);
-    if (!buffer) {
-      this.notifier.notify(
-        this.notifyUserId,
-        "El archivo no está disponible. Sube el PDF de nuevo.",
-        "error"
-      );
+    // 3. No material produced any units. Distinguish the cause so
+    // the UI can show a useful message:
+    //   - FILE_MISSING: every material's file was missing on disk
+    //   - ALL_EMPTY: every material was readable but had no text
+    //   - ALL_FAILED: the pipeline crashed on every material
+    if (results.length === 0) {
+      const onlyFileMissing =
+        errors.length > 0 &&
+        errors.every((e) =>
+          /no está disponible|sube el pdf de nuevo/i.test(e.error)
+        );
+      if (onlyFileMissing && errors.length === materials.length) {
+        return {
+          ok: true,
+          empty: true,
+          reason: "FILE_MISSING",
+          message:
+            "El archivo no está disponible. Sube el PDF de nuevo.",
+          jobs: emptyJobs(),
+          materialErrors: errors,
+        };
+      }
+      if (
+        empties.length > 0 &&
+        errors.length === 0 &&
+        empties.length === materials.length
+      ) {
+        return {
+          ok: true,
+          empty: true,
+          reason: "ALL_EMPTY",
+          message:
+            "No hay unidades que procesar. Sube archivos con texto extraíble.",
+          jobs: emptyJobs(),
+          materialErrors: [],
+        };
+      }
+      if (errors.length === materials.length) {
+        // Every material threw — return ALL_FAILED so the action
+        // layer can surface the per-material errors.
+        return {
+          ok: true,
+          empty: true,
+          reason: "ALL_FAILED",
+          message: errors
+            .map((e) => `${e.filename}: ${e.error}`)
+            .join(" · "),
+          jobs: emptyJobs(),
+          materialErrors: errors,
+        };
+      }
+      // Mixed: some errors and some empty. The user uploaded files
+      // that had no extractable text. Surface that.
       return {
         ok: true,
         empty: true,
-        reason: "FILE_MISSING",
+        reason: "ALL_EMPTY",
         message:
-          "El archivo no está disponible. Sube el PDF de nuevo.",
-        jobs: {
-          segmentationJobId: "",
-          extractionJobId: "",
-          integrationJobId: "",
-          treeBuildingJobId: "",
-        },
+          "No hay unidades que procesar. Sube archivos con texto extraíble.",
+        jobs: emptyJobs(),
+        materialErrors: errors,
+      };
+    }
+
+    // 4. At least one material produced units. The tree the user
+    // sees is the result of the LAST successful pipeline call —
+    // which is fine because the integration + tree-building phases
+    // run at the COURSE level over the union of every material's
+    // SemanticUnits. The final tree contains concepts from every
+    // material that made it through the loop.
+    const lastResult = results[results.length - 1];
+    return {
+      ok: true,
+      empty: false,
+      result: lastResult,
+      processedMaterials: results.length,
+      totalMaterials: materials.length,
+      materialErrors: errors,
+    };
+  }
+
+  /** Process a single material. Returns one of three kinds:
+   *   - "success"  : pipeline produced at least one SemanticUnit
+   *   - "empty"    : the file was readable but yielded zero units
+   *   - "error"    : something went wrong (file missing, thrown error)
+   *  The loop in `execute()` decides what to do with each kind. */
+  private async processOneMaterial(
+    courseId: string,
+    material: { id: string; filename: string }
+  ): Promise<
+    | { kind: "success"; result: ProcessCourseResult }
+    | { kind: "empty" }
+    | { kind: "error"; error: string }
+  > {
+    // 2a. Has this material been segmented before? If so, re-run
+    // the pipeline on the existing units (the fast path).
+    const hasUnits = await this.materials.hasProcessedUnits(material.id);
+    if (hasUnits) {
+      try {
+        const result = await this.pipeline.processCourse({
+          courseId,
+          materialId: material.id,
+        });
+        if (result.empty) {
+          return { kind: "empty" };
+        }
+        return { kind: "success", result };
+      } catch (err) {
+        return { kind: "error", error: errorMessage(err) };
+      }
+    }
+
+    // 2b. No SemanticUnits yet — the original upload's pipeline
+    // run likely failed (e.g. docling-serve was down). Read the
+    // file from disk and re-run with the buffer so the segmenter
+    // has bytes to work on. The orchestrator's segmenter is now
+    // resilient to docling failures (text-only fallback) so this
+    // run will succeed even if docling is still down.
+    const buffer = await this.materials.readBuffer(material.id);
+    if (!buffer) {
+      return {
+        kind: "error",
+        error: "El archivo no está disponible. Sube el PDF de nuevo.",
       };
     }
 
     try {
       const result = await this.pipeline.processCourse({
         courseId,
-        materialId: latest.id,
+        materialId: material.id,
         buffer,
         force: true,
       });
       if (result.empty) {
-        return {
-          ok: true,
-          empty: true,
-          reason: "NO_MATERIALS",
-          message:
-            result.message ?? "No hay unidades que procesar.",
-          jobs: {
-            segmentationJobId: result.segmentationJobId,
-            extractionJobId: result.extractionJobId,
-            integrationJobId: result.integrationJobId,
-            treeBuildingJobId: result.treeBuildingJobId,
-          },
-        };
+        return { kind: "empty" };
       }
-      this.notifier.notify(
-        this.notifyUserId,
-        "Procesando el árbol conceptual con el material subido.",
-        "info"
-      );
-      return { ok: true, empty: false, result };
+      return { kind: "success", result };
     } catch (err) {
-      return this.handlePipelineError(err, "pipeline-failed");
+      return { kind: "error", error: errorMessage(err) };
     }
   }
+}
 
-  /** Find the first material that has SemanticUnits. Returns
-   *  `undefined` when none of the materials has been segmented. */
-  private async findProcessedMaterial(
-    materials: Array<{ id: string }>
-  ): Promise<{ id: string } | undefined> {
-    for (const m of materials) {
-      if (await this.materials.hasProcessedUnits(m.id)) {
-        return m;
-      }
-    }
-    return undefined;
-  }
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
-  private handlePipelineError(
-    err: unknown,
-    fallbackReason: string
-  ): ProcessCourseOutcome {
-    const message = err instanceof Error ? err.message : String(err);
-    this.notifier.notify(
-      this.notifyUserId,
-      `El pipeline falló: ${message}`,
-      "error"
-    );
-    return { ok: false, error: `${fallbackReason}: ${message}` };
-  }
+function emptyJobs() {
+  return {
+    segmentationJobId: "",
+    extractionJobId: "",
+    integrationJobId: "",
+    treeBuildingJobId: "",
+  };
 }

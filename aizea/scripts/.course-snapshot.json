@@ -1,0 +1,318 @@
+{
+  "courses": [
+    {
+      "id": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "name": "fisica test 3 pags",
+      "slideCount": 16,
+      "materialCount": 1
+    },
+    {
+      "id": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "name": "fisica test 3 pags 2",
+      "slideCount": 17,
+      "materialCount": 1
+    },
+    {
+      "id": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "name": "fisica test 3 pags 3",
+      "slideCount": 16,
+      "materialCount": 2
+    }
+  ],
+  "slides": [
+    {
+      "id": "ef331899-b3b1-46ef-bcd9-0852f5f8fc21",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Chumacera de camisa",
+      "order": 0
+    },
+    {
+      "id": "2b6d8660-8972-4343-827f-e11a3a39eb7d",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Lubricación",
+      "order": 0
+    },
+    {
+      "id": "de13e34b-bfe5-4f7c-b660-d564af86cbb8",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Mecánica de fluidos",
+      "order": 0
+    },
+    {
+      "id": "f6e8997c-aee8-412a-9cfc-8941f2da0c62",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Mecánica de lubricación",
+      "order": 1
+    },
+    {
+      "id": "fe2fe85e-5d84-4c1e-8777-dc55d3a54233",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Componentes mecánicos",
+      "order": 1
+    },
+    {
+      "id": "e055201e-dd9b-46ce-8ea9-4c2746369a21",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Lubricación y fricción",
+      "order": 1
+    },
+    {
+      "id": "325a5a70-d4d4-4994-8270-19e32cc5f873",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Propiedades de los fluidos",
+      "order": 2
+    },
+    {
+      "id": "2a071a71-6d61-4f83-9413-09d83925c8a7",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Propiedades de los fluidos",
+      "order": 2
+    },
+    {
+      "id": "1c50d8ce-4b85-4000-bfb2-8c60c843cf60",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Propiedades de los fluidos",
+      "order": 2
+    },
+    {
+      "id": "305467a1-43a7-4236-bc30-dd06cfeade7f",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Coeficiente de fricción",
+      "order": 3
+    },
+    {
+      "id": "f660997c-8a07-430d-bcf0-4e9caf535878",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Teoría de la fricción",
+      "order": 3
+    },
+    {
+      "id": "48a4b4c0-999c-4d5c-843e-c0482d789d03",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Chumacera de camisa",
+      "order": 3
+    },
+    {
+      "id": "7980bc03-6967-4e83-902a-7998a337e4e8",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Cojinetes",
+      "order": 4
+    },
+    {
+      "id": "6ffadb4e-ecb2-424d-824d-2bb90eaa0755",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Tipos de lubricación",
+      "order": 4
+    },
+    {
+      "id": "1aa83e5b-5c79-4802-90dd-cb22bc665009",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Coeficiente de fricción",
+      "order": 4
+    },
+    {
+      "id": "2bb74823-9af0-4d8d-bf95-1ff63e170dc8",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Densidad",
+      "order": 5
+    },
+    {
+      "id": "d2f67b8f-1934-4845-914c-f5aa7e1de56f",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Chumacera de camisa",
+      "order": 5
+    },
+    {
+      "id": "04978c28-12fe-4642-89d7-f88c32670e1f",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Cojinete antifricción",
+      "order": 5
+    },
+    {
+      "id": "77c927cd-e785-4993-96eb-d1db1f8d548f",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Ecuación de Petroff",
+      "order": 6
+    },
+    {
+      "id": "15324177-45f9-48bf-badb-b35139a362d4",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Coeficiente de fricción",
+      "order": 6
+    },
+    {
+      "id": "ac8243b2-a4fa-4926-b3bd-372713238a93",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Densidad",
+      "order": 6
+    },
+    {
+      "id": "3f42551e-cfdc-4416-b353-5f09c2691bf4",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Fluidos newtonianos",
+      "order": 7
+    },
+    {
+      "id": "a109db1a-ca96-43a5-8836-7068ae252c4b",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Cojinete antifricción",
+      "order": 7
+    },
+    {
+      "id": "d7a763d7-579f-4cf5-9e51-f462d7701247",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Ecuación de Petroff",
+      "order": 7
+    },
+    {
+      "id": "e8117e67-7eca-4aa3-81cb-cb98f4839833",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Lubricación",
+      "order": 8
+    },
+    {
+      "id": "c9b574fb-5fe5-4bc6-a22d-745c93e08c5b",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Densidad",
+      "order": 8
+    },
+    {
+      "id": "95e684b4-cc6d-4631-899c-9a62634e384d",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Fluidos newtonianos",
+      "order": 8
+    },
+    {
+      "id": "7398a658-2505-46da-b805-f1540ea43d65",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Viscosidad",
+      "order": 9
+    },
+    {
+      "id": "3dc67525-b799-465e-a798-7de05708b0b7",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Ecuación de Petroff",
+      "order": 9
+    },
+    {
+      "id": "00eb8115-1610-48f8-8755-323046e75c2a",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Lubricación",
+      "order": 9
+    },
+    {
+      "id": "0a753ff6-0168-4e07-98a8-2b812139fddf",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Árbol",
+      "order": 10
+    },
+    {
+      "id": "533fc6cb-cbe2-418c-9a72-3bb9b454ee9d",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Fluidos newtonianos",
+      "order": 10
+    },
+    {
+      "id": "f989758a-7269-40bb-b575-0d9fa873219d",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Viscosidad",
+      "order": 10
+    },
+    {
+      "id": "90be0eed-0088-4c1a-8627-abf305ffb656",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Chumacera de camisa",
+      "order": 11
+    },
+    {
+      "id": "bf627c64-40eb-4378-a940-434b4a1cd31d",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Holgura",
+      "order": 11
+    },
+    {
+      "id": "7824c079-151d-4104-ae6c-6cbc51253da0",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Centipoise",
+      "order": 11
+    },
+    {
+      "id": "76cf4d0d-9b6d-49d1-af07-d5c8d1d002e0",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Poise",
+      "order": 12
+    },
+    {
+      "id": "33ff5f7e-d012-48ff-9f29-85203e761542",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Unidades de viscosidad",
+      "order": 12
+    },
+    {
+      "id": "de60986d-bea7-4ed2-b544-1772ab9b6665",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Poise",
+      "order": 12
+    },
+    {
+      "id": "9926a67e-d840-46d5-b6f6-578b87e67450",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Reyn",
+      "order": 13
+    },
+    {
+      "id": "1cb01719-d256-430a-a7be-24e76eab9338",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Viscosidad",
+      "order": 13
+    },
+    {
+      "id": "3413fdc7-a5cb-454e-94cd-71572524b554",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Reyn",
+      "order": 13
+    },
+    {
+      "id": "ae2537d9-8899-4661-9d64-a39ee8ff88d0",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Stoke",
+      "order": 14
+    },
+    {
+      "id": "61c44f56-bba4-4b70-b434-ed3c26abd233",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Unidad Poise",
+      "order": 14
+    },
+    {
+      "id": "d3b34923-dc1c-4751-8ffd-f96aef435707",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Stoke",
+      "order": 14
+    },
+    {
+      "id": "b6957dfd-aa82-4093-bd6a-6624ae3d5999",
+      "courseId": "eb18c671-5184-4461-b01e-c0cf800cccb6",
+      "title": "Viscosímetro Saybolt",
+      "order": 15
+    },
+    {
+      "id": "b76e74e7-f5ba-46eb-9c07-43ed41aefb4a",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Nuevo nodo",
+      "order": 15
+    },
+    {
+      "id": "d5e03f6c-f03a-4cd0-8c61-6ff9803eb0a3",
+      "courseId": "7a00a748-9aea-4b77-bc2e-2834e4313538",
+      "title": "Chumacera de camisa",
+      "order": 15
+    },
+    {
+      "id": "343922a3-0f18-42ea-8484-7c074be30cc3",
+      "courseId": "eda23dbf-2f84-40d3-ba4b-e14814f6aaa0",
+      "title": "Combinado",
+      "order": 16
+    }
+  ]
+}

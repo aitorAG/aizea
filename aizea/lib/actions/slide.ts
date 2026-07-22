@@ -44,3 +44,35 @@ export async function addManualSlide(
 ) {
   return createSlide(courseId, title, description);
 }
+
+/**
+ * v1.9 / Issue 3+4 — Create a minimal slide skeleton (title +
+ * description only) for each supplied TopicNode id. NO LLM call,
+ * NO htmlDesign, NO SlideBox rows. The user is expected to drive
+ * content generation from the slides page.
+ *
+ * Returns the list of newly-created slides. The caller (the tree
+ * page) is responsible for showing the user-facing feedback (toast
+ * + navigation) — this action is intentionally thin so it can be
+ * reused from other surfaces (e.g. a future "Add to slides" button
+ * in the tree node context menu) without taking on a UI contract.
+ */
+export async function createMinimalSlides(
+  courseId: string,
+  selectedNodeIds: string[]
+): Promise<
+  { id: string; courseId: string; title: string; description: string; order: number }[]
+> {
+  const created = await slideService.createMinimalSlidesFromTree(
+    courseId,
+    selectedNodeIds
+  );
+  // The slides list page is the primary surface the user lands on
+  // after the action runs; revalidate BOTH `/courses/${id}` (the
+  // overview shows a slide count) and `/courses/${id}/slides` (the
+  // page they get navigated to) so the cached server payload
+  // doesn't lag behind the write.
+  revalidatePath(`/courses/${courseId}`);
+  revalidatePath(`/courses/${courseId}/slides`);
+  return created;
+}

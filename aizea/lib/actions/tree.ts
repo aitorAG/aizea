@@ -15,6 +15,9 @@
 
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { chatJSON } from "@/lib/domain/llm/LLMClient";
+import { PromptManager } from "@/lib/domain/prompts/PromptManager";
+import type { SubcontentProposal } from "@/lib/domain/prompts/templates/split-subcontents.template";
 import type { TopicNode } from "@/lib/types/pipeline";
 
 // ---------- result types ----------
@@ -24,6 +27,16 @@ export type GetCourseTreeResult =
   | { ok: false; error: string };
 
 export type UpdateTreeNodeResult =
+  | { ok: true; node: TopicNode }
+  | { ok: false; error: string };
+
+/**
+ * Result of a single-field summary update. Kept as its own type
+ * (instead of reusing `UpdateTreeNodeResult`) so the inline summary
+ * editor in `TreeNode` can narrow on `ok` without confusing the
+ * caller about which fields were changed.
+ */
+export type UpdateTopicNodeSummaryResult =
   | { ok: true; node: TopicNode }
   | { ok: false; error: string };
 
@@ -73,6 +86,64 @@ function toTopicNode(row: {
   };
 }
 
+// Hard limits on the number of children a single Split can produce.
+// The LLM is asked for 2-5 but we clamp defensively in case it
+// returns more.
+const SPLIT_MIN_CHILDREN = 1;
+const SPLIT_MAX_CHILDREN = 5;
+
+const promptManager = new PromptManager();
+
+/**
+ * Normalise a single sub-content entry coming back from the LLM.
+ * Trims strings, drops empty names, clamps summary length. Returns
+ * null when the entry is unusable.
+ */
+function normaliseSubcontent(
+  raw: unknown
+): { name: string; summary: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const name = typeof r.name === "string" ? r.name.trim() : "";
+  if (name.length === 0) return null;
+  const summaryRaw = typeof r.summary === "string" ? r.summary.trim() : "";
+  const summary = summaryRaw.slice(0, 400);
+  return { name: name.slice(0, 120), summary };
+}
+
+/**
+ * Ask the LLM to propose 2-5 sub-contents for the given node. The
+ * shape is validated and clamped; an empty array means the response
+ * was unusable (caller falls back to a single child).
+ *
+ * The LLM call is wrapped in try/catch so a transient network error
+ * surfaces as a clean empty result — the Split action then performs
+ * the deterministic fallback instead of failing the whole request.
+ */
+async function proposeSubcontents(
+  nodeName: string,
+  nodeSummary: string | null
+): Promise<{ name: string; summary: string }[]> {
+  try {
+    const { system, user } =
+      promptManager.buildSplitSubcontentsPrompt(nodeName, nodeSummary);
+    const response = await chatJSON<{ subcontents?: SubcontentProposal[] }>([
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ]);
+    if (!response || !Array.isArray(response.subcontents)) return [];
+    const cleaned: { name: string; summary: string }[] = [];
+    for (const raw of response.subcontents) {
+      const entry = normaliseSubcontent(raw);
+      if (entry) cleaned.push(entry);
+      if (cleaned.length >= SPLIT_MAX_CHILDREN) break;
+    }
+    return cleaned;
+  } catch {
+    return [];
+  }
+}
+
 // ---------- actions ----------
 
 /**
@@ -120,6 +191,47 @@ export async function updateTreeNodeAction(
       ...(data.summary !== undefined ? { summary: data.summary } : {}),
       version: existing.version + 1,
     },
+  });
+  revalidatePath(`/courses/${existing.courseId}/tree`);
+  return { ok: true, node: toTopicNode(updated) };
+}
+
+/**
+ * Update ONLY the `summary` field of a single TopicNode. The slide
+ * generation pipeline reads this field as the high-level content
+ * of the box, so it is the primary authoring surface after the
+ * tree has been bootstrapped.
+ *
+ * Why a dedicated action (instead of reusing `updateTreeNodeAction`):
+ *   - The inline summary editor in `TreeNode` only ever needs to
+ *     write the summary, not the name. A dedicated action lets the
+ *     server enforce that contract (the name is left untouched) and
+ *     gives us a single, narrow place to add summary-specific
+ *     validation (e.g. max length) in a future wave without
+ *     re-reading the full update path.
+ *   - The action bumps the node's `version` like the generic one,
+ *     so downstream cache invalidation still triggers.
+ *   - An empty string is normalised to `null` so the column never
+ *     stores a meaningless "". The inline editor already trims
+ *     before sending, but we re-normalise defensively.
+ */
+export async function updateTopicNodeSummaryAction(
+  nodeId: string,
+  summary: string | null
+): Promise<UpdateTopicNodeSummaryResult> {
+  const existing = await db.topicNode.findUnique({ where: { id: nodeId } });
+  if (!existing) {
+    return { ok: false, error: "Nodo no encontrado." };
+  }
+  const normalised =
+    summary === null
+      ? null
+      : summary.trim().length === 0
+        ? null
+        : summary.trim();
+  const updated = await db.topicNode.update({
+    where: { id: nodeId },
+    data: { summary: normalised, version: existing.version + 1 },
   });
   revalidatePath(`/courses/${existing.courseId}/tree`);
   return { ok: true, node: toTopicNode(updated) };
@@ -238,10 +350,16 @@ export async function mergeTreeNodesAction(
 }
 
 /**
- * Split a node into two children. The original node is kept as a
- * container; we create two new children under it with the original
- * name and a derived second name. No LLM is involved — this is a
- * deterministic helper for the TreeViewer's "split" button.
+ * Split a node into N children based on the content. The LLM is
+ * asked to propose 2-5 sub-contents that make sense as separate
+ * children of the target node; one child is created per proposal.
+ *
+ * If the LLM call fails (network, validation, empty response) we
+ * fall back to a single child that carries the original content,
+ * so the action never blocks the user just because the model is
+ * unavailable.
+ *
+ * The original node is kept as a container and is no longer a leaf.
  */
 export async function splitTreeNodeAction(
   nodeId: string
@@ -256,37 +374,40 @@ export async function splitTreeNodeAction(
       error: "No se puede dividir un nodo en el nivel máximo de profundidad.",
     };
   }
-  const first = await db.topicNode.create({
-    data: {
-      courseId: target.courseId,
-      parentId: target.id,
-      name: target.name,
-      summary: target.summary,
-      depth: target.depth + 1,
-      isLeaf: true,
-      version: target.version + 1,
-      sourceMaterialId: target.sourceMaterialId,
-    },
-  });
-  const second = await db.topicNode.create({
-    data: {
-      courseId: target.courseId,
-      parentId: target.id,
-      name: `${target.name} (parte 2)`,
-      summary: null,
-      depth: target.depth + 1,
-      isLeaf: true,
-      version: target.version + 1,
-      sourceMaterialId: target.sourceMaterialId,
-    },
-  });
+
+  const proposed = await proposeSubcontents(target.name, target.summary);
+
+  // Fallback: keep one child with the original content so the Split
+  // action is still useful when the LLM is unreachable.
+  const children =
+    proposed.length >= SPLIT_MIN_CHILDREN
+      ? proposed
+      : [{ name: target.name, summary: target.summary ?? "" }];
+
+  const created: TopicNode[] = [];
+  for (const child of children) {
+    const row = await db.topicNode.create({
+      data: {
+        courseId: target.courseId,
+        parentId: target.id,
+        name: child.name,
+        summary: child.summary.length > 0 ? child.summary : null,
+        depth: target.depth + 1,
+        isLeaf: true,
+        version: target.version + 1,
+        sourceMaterialId: target.sourceMaterialId,
+      },
+    });
+    created.push(toTopicNode(row));
+  }
+
   // After splitting, the original is no longer a leaf.
   await db.topicNode.update({
     where: { id: target.id },
     data: { isLeaf: false, version: target.version + 1 },
   });
   revalidatePath(`/courses/${target.courseId}/tree`);
-  return { ok: true, nodes: [toTopicNode(first), toTopicNode(second)] };
+  return { ok: true, nodes: created };
 }
 
 export interface AddTreeNodeInput {

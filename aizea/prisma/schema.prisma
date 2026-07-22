@@ -56,6 +56,10 @@ model Slide {
   figureRefs  String      @default("[]")
   htmlDesign  String?
   status      SlideStatus @default(PENDING)
+  parentSlideId String?
+  parentSlide   Slide?    @relation("SlideTree", fields: [parentSlideId], references: [id], onDelete: SetNull)
+  childSlides   Slide[]   @relation("SlideTree")
+  sourceNodeId  String?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -63,6 +67,7 @@ model Slide {
 
   @@index([courseId, order])
   @@index([courseId, status])
+  @@index([courseId, parentSlideId])
 }
 
 model SlideBox {

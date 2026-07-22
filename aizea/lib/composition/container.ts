@@ -53,9 +53,14 @@ export function createContainer(overrides: ContainerOverrides = {}): Container {
 
   return {
     processCourse: new ProcessCourseUseCase({ pipeline, materials, notifier }),
+    // uploadMaterial does NOT receive `pipeline` (v1.5 finding
+    // 1.7): the upload use case is intentionally decoupled from
+    // the pipeline. The pipeline only runs on explicit
+    // "Generar árbol" via `processCourse`. The use case's only
+    // concerns are persistence + the best-effort extraction
+    // side-effects (RAG, figures, layout).
     uploadMaterial: new UploadMaterialUseCase({
       materials,
-      pipeline,
       notifier,
       pdfExtractor,
       figureExtractor,

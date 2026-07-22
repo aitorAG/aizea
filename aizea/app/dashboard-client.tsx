@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/components/toast";
 import { revalidateDashboard } from "@/lib/actions/revalidate";
 import { useCourseAdapter } from "@/lib/adapters/useCourseAdapter";
+import { CourseStatusIcons } from "@/components/course/CourseStatusIcons";
 import type { CourseListItem } from "./page";
 
 interface DashboardClientProps {
@@ -61,6 +62,7 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
       //    a nice-to-have, not a precondition.
       setCreateOpen(false);
       setNewName("");
+      router.refresh(); // v1.8: ensure course list updates when returning
       router.push(`/courses/${course.id}/materials`);
       toast({
         title: "Curso creado",
@@ -201,6 +203,15 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
                     </div>
                   </div>
                 </Link>
+
+                {/* Status icons (tree / slides) — visually separated from
+                    the action buttons by a 1px left border + extra
+                    padding. The icons are navigational, not mutating. */}
+                <CourseStatusIcons
+                  courseId={course.id}
+                  hasTree={course.hasTree}
+                  hasSlides={course.hasSlides}
+                />
 
                 {/* Action buttons */}
                 <div className="flex items-center gap-1 shrink-0">

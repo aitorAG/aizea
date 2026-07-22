@@ -249,7 +249,10 @@ describe("listActiveJobsAction", () => {
 
   it("returns pending and running jobs plus RECENT completed/failed jobs (old ones excluded)", async () => {
     const now = new Date();
-    const longAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 h ago
+    // 1 minute ago — well outside the 30s recent window. Anything
+    // older than 30s in a terminal state is considered historical
+    // and must NOT appear (v1.5 #2.3).
+    const longAgo = new Date(Date.now() - 60 * 1000);
     await testDb.processingJob.create({
       data: { id: "j-pending", type: "segmentation", status: "pending" },
     });
@@ -263,7 +266,7 @@ describe("listActiveJobsAction", () => {
         courseId: "c-1",
       },
     });
-    // Recent completed / failed (within the window) — included.
+    // Recent completed / failed (within the 30s window) — included.
     await testDb.processingJob.create({
       data: {
         id: "j-done",
@@ -282,7 +285,7 @@ describe("listActiveJobsAction", () => {
         updatedAt: now,
       },
     });
-    // Old completed / failed (outside the window) — excluded.
+    // Old completed / failed (outside the 30s window) — excluded.
     await testDb.processingJob.create({
       data: {
         id: "j-old-done",
@@ -312,6 +315,175 @@ describe("listActiveJobsAction", () => {
       expect(ids).toContain("j-failed");
       expect(ids).not.toContain("j-old-done");
       expect(ids).not.toContain("j-old-failed");
+    }
+  });
+
+  it("EXCLUDES terminal jobs older than 30 seconds (v1.5 #2.3 regression)", async () => {
+    // 31s old — just past the cutoff. Must NOT appear.
+    const justOverCutoff = new Date(Date.now() - 31 * 1000);
+    // 5 minutes old — also outside. Must NOT appear.
+    const wayOld = new Date(Date.now() - 5 * 60 * 1000);
+    await testDb.processingJob.create({
+      data: {
+        id: "j-just-over",
+        type: "tree-building",
+        status: "completed",
+        updatedAt: justOverCutoff,
+      },
+    });
+    await testDb.processingJob.create({
+      data: {
+        id: "j-way-old",
+        type: "tree-building",
+        status: "completed",
+        updatedAt: wayOld,
+      },
+    });
+    // A running job from yesterday is still in-flight and must appear.
+    await testDb.processingJob.create({
+      data: {
+        id: "j-still-running",
+        type: "extraction",
+        status: "running",
+        progress: 10,
+        updatedAt: wayOld,
+      },
+    });
+
+    const result = await listActiveJobsAction();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const ids = result.jobs.map((j) => j.jobId);
+      expect(ids).not.toContain("j-just-over");
+      expect(ids).not.toContain("j-way-old");
+      expect(ids).toContain("j-still-running");
+    }
+  });
+
+  it("INCLUDES terminal jobs within the 30-second window so the banner survives a reload", async () => {
+    // 5s old — well within the 30s window. Must appear.
+    const veryRecent = new Date(Date.now() - 5 * 1000);
+    await testDb.processingJob.create({
+      data: {
+        id: "j-very-recent-done",
+        type: "tree-building",
+        status: "completed",
+        updatedAt: veryRecent,
+      },
+    });
+    await testDb.processingJob.create({
+      data: {
+        id: "j-very-recent-failed",
+        type: "extraction",
+        status: "failed",
+        updatedAt: veryRecent,
+      },
+    });
+
+    const result = await listActiveJobsAction();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const ids = result.jobs.map((j) => j.jobId);
+      expect(ids).toContain("j-very-recent-done");
+      expect(ids).toContain("j-very-recent-failed");
+    }
+  });
+
+  it("filters by courseId when provided (only jobs for the current course are returned)", async () => {
+    // Same status, different courses.
+    await testDb.processingJob.create({
+      data: {
+        id: "j-mine",
+        type: "extraction",
+        status: "running",
+        courseId: "course-current",
+      },
+    });
+    await testDb.processingJob.create({
+      data: {
+        id: "j-other",
+        type: "extraction",
+        status: "running",
+        courseId: "course-other",
+      },
+    });
+
+    const result = await listActiveJobsAction({ courseId: "course-current" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const ids = result.jobs.map((j) => j.jobId);
+      expect(ids).toContain("j-mine");
+      expect(ids).not.toContain("j-other");
+      // Every returned job belongs to the requested course.
+      for (const j of result.jobs) {
+        expect(j.courseId).toBe("course-current");
+      }
+    }
+  });
+
+  it("returns jobs for every course when courseId is omitted", async () => {
+    await testDb.processingJob.create({
+      data: {
+        id: "j-mine",
+        type: "extraction",
+        status: "running",
+        courseId: "course-current",
+      },
+    });
+    await testDb.processingJob.create({
+      data: {
+        id: "j-other",
+        type: "extraction",
+        status: "running",
+        courseId: "course-other",
+      },
+    });
+
+    const result = await listActiveJobsAction();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const ids = result.jobs.map((j) => j.jobId);
+      expect(ids).toContain("j-mine");
+      expect(ids).toContain("j-other");
+    }
+  });
+
+  it("orders results by updatedAt DESC (newest first)", async () => {
+    const oldest = new Date(Date.now() - 5_000);
+    const middle = new Date(Date.now() - 3_000);
+    const newest = new Date(Date.now() - 1_000);
+    // Created in arbitrary order to prove the order comes from the
+    // server, not from the create() sequence.
+    await testDb.processingJob.create({
+      data: {
+        id: "j-newest",
+        type: "extraction",
+        status: "running",
+        updatedAt: newest,
+      },
+    });
+    await testDb.processingJob.create({
+      data: {
+        id: "j-oldest",
+        type: "extraction",
+        status: "running",
+        updatedAt: oldest,
+      },
+    });
+    await testDb.processingJob.create({
+      data: {
+        id: "j-middle",
+        type: "extraction",
+        status: "running",
+        updatedAt: middle,
+      },
+    });
+
+    const result = await listActiveJobsAction();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const ids = result.jobs.map((j) => j.jobId);
+      expect(ids).toEqual(["j-newest", "j-middle", "j-oldest"]);
     }
   });
 
@@ -357,9 +529,10 @@ describe("listActiveJobsAction", () => {
     }
   });
 
-  it("includes recently-cancelled jobs (within the recent window) so the banner survives a reload", async () => {
+  it("includes recently-cancelled jobs (within the 30s window) so the banner survives a reload", async () => {
     const now = new Date();
-    const longAgo = new Date(Date.now() - 60 * 60 * 1000);
+    // 1 minute ago — outside the 30s window. Must NOT appear (v1.5 #2.3).
+    const longAgo = new Date(Date.now() - 60 * 1000);
     await testDb.processingJob.create({
       data: {
         id: "j-recent-cancel",

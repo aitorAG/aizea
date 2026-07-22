@@ -262,7 +262,6 @@ describe("Server Actions delegate to Application Services", () => {
       const { container } = await import("@/lib/composition/container");
       (container.uploadMaterial.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         material: { id: "material-1", content: "pdf text" },
-        pipelineResult: null,
       });
       const result = await uploadMaterial("course-1", formData);
       expect(container.uploadMaterial.execute).toHaveBeenCalled();

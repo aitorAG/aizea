@@ -6,13 +6,26 @@ import type {
 
 /**
  * Per-job state held by the pipeline store. One `JobInfo` per active
- * ProcessingJob; the store keeps them in a Map keyed by jobId so the
- * UI can render N independent banners for N independent jobs.
+ * ProcessingJob; the store keeps them in a Map keyed by jobId. The
+ * banner groups rows with the same `runId` (or `courseId` as a
+ * fallback) so a single user-triggered pipeline run renders ONE
+ * banner even though the orchestrator creates FOUR phase jobs.
  *
  * Fields:
  *   - `jobId`:        stable ProcessingJob.id from the DB
+ *   - `runId`:        client-generated UUID that ties the 4 phase
+ *                     jobs of one pipeline run together. Null when
+ *                     the job was hydrated from the server (e.g.
+ *                     after a page reload), in which case the
+ *                     banner falls back to grouping by `courseId`.
  *   - `courseId`:     which course this job belongs to (lets the UI
  *                     scope notifications / "go to course" links)
+ *   - `courseName`:   human-readable name of the course. Optional
+ *                     because the server may hydrate a job whose
+ *                     course has been deleted. When present, the
+ *                     banner surfaces it next to the job title so
+ *                     the user can tell at a glance which course the
+ *                     job belongs to.
  *   - `phase`:        which pipeline phase this row tracks
  *   - `status`:       DB status ('pending' | 'running' | 'completed' | 'failed')
  *   - `progress`:     0..100 percentage reported by the job
@@ -28,7 +41,12 @@ import type {
  */
 export interface JobInfo {
   jobId: string;
+  runId: string | null;
   courseId: string | null;
+  /** Display name of the course. Hydrated by `listActiveJobsAction`
+   *  from the `course.name` column. May be null when the course
+   *  was deleted or the action was unable to read it. */
+  courseName: string | null;
   phase: PipelinePhase;
   status: ProcessingStatus;
   progress: number;
@@ -45,7 +63,13 @@ export interface JobInfo {
  *  except the identifiers. */
 export interface JobInput {
   jobId: string;
+  /** Optional — see `JobInfo.runId`. When omitted on `addJob` the
+   *  store keeps the existing value (or null). */
+  runId?: string | null;
   courseId?: string | null;
+  /** Optional — see `JobInfo.courseName`. When omitted on
+   *  `addJob` the store keeps the existing value (or null). */
+  courseName?: string | null;
   phase: PipelinePhase;
   status?: ProcessingStatus;
   progress?: number;
@@ -80,6 +104,17 @@ interface PipelineActions {
   undismissJob(jobId: string): void;
   /** Remove a job entirely from the store. */
   removeJob(jobId: string): void;
+  /** Mark every job that shares the given groupKey (a runId, or
+   *  a courseId when runId is absent) as dismissed. The banner
+   *  calls this when the user dismisses one banner — closing the
+   *  "Generando árbol" banner should hide the whole pipeline run,
+   *  not just the visible representative job. */
+  dismissByGroupKey(groupKey: string): void;
+  /** Remove every job that shares the given groupKey from the
+   *  store. Used after the action returns and we swap the
+   *  client-side placeholder for the real phase jobs (so the
+   *  polling loop doesn't continue to fetch a fake jobId). */
+  removeByGroupKey(groupKey: string): void;
   /** Bulk hydrate from server rows. Existing jobs are merged;
    *  missing jobs are added. The server is the source of truth
    *  for status/progress/error. */
@@ -115,7 +150,15 @@ function mergeJob(
   const progressChanged = existing ? existing.progress !== progress : true;
   const base: JobInfo = existing ?? {
     jobId: input.jobId,
+    // runId is set on the FIRST addJob that introduces this job
+    // (a server-hydrated job leaves it null and the banner falls
+    // back to grouping by courseId). Once set, the runId sticks:
+    // re-merging with `runId: null` would silently re-orphan the
+    // job from its pipeline run, which is exactly the bug this
+    // field exists to prevent.
+    runId: input.runId ?? null,
     courseId: input.courseId ?? null,
+    courseName: input.courseName ?? null,
     phase: input.phase,
     status,
     progress,
@@ -138,7 +181,13 @@ function mergeJob(
     : base.lastProgressAt; // new entry: keep the value chosen above
   return {
     ...base,
+    // Honour a non-undefined `runId` so a server-hydrated row
+    // can be re-parented to a client runId (and stay parented
+    // when the input omits the field).
+    runId: input.runId !== undefined ? input.runId : base.runId,
     courseId: input.courseId !== undefined ? input.courseId : base.courseId,
+    courseName:
+      input.courseName !== undefined ? input.courseName : base.courseName,
     phase: input.phase ?? base.phase,
     status,
     progress,
@@ -215,6 +264,31 @@ export const usePipelineStore = create<PipelineState & PipelineActions>(
         return { jobs: next };
       }),
 
+    dismissByGroupKey: (groupKey) =>
+      set((state) => {
+        let changed = false;
+        const next = new Map(state.jobs);
+        for (const [jobId, job] of state.jobs) {
+          if (job.dismissed) continue;
+          if (groupKeyForJob(job) !== groupKey) continue;
+          next.set(jobId, { ...job, dismissed: true });
+          changed = true;
+        }
+        return changed ? { jobs: next } : state;
+      }),
+
+    removeByGroupKey: (groupKey) =>
+      set((state) => {
+        let changed = false;
+        const next = new Map(state.jobs);
+        for (const [jobId, job] of state.jobs) {
+          if (groupKeyForJob(job) !== groupKey) continue;
+          next.delete(jobId);
+          changed = true;
+        }
+        return changed ? { jobs: next } : state;
+      }),
+
     hydrateJobs: (rows) =>
       set((state) => {
         if (rows.length === 0) return state;
@@ -252,6 +326,14 @@ export interface ActiveJobView extends JobInfo {
  *  - jobs the user has dismissed (`dismissed === true`).
  *    X-button is the only way to clear the banner; reload clears all
  *    `dismissed` flags.
+ *
+ * NOTE: this returns the raw per-job view. The banner historically
+ * rendered one row per `JobInfo`, which meant 4 stacked banners for a
+ * single pipeline run (one per phase). That stacking is now
+ * collapsed in `getBannerGroups` — the banner consumes groups, not
+ * raw jobs. This helper is kept for code that legitimately needs the
+ * flat per-job view (e.g. the polling loop, which must still fetch
+ * every active job).
  */
 export function getActiveJobs(state: PipelineState): ActiveJobView[] {
   const now = Date.now();
@@ -269,6 +351,147 @@ export function getActiveJobs(state: PipelineState): ActiveJobView[] {
   // Oldest first so the bottom of the stack is the most recent.
   out.sort((a, b) => a.startedAt - b.startedAt);
   return out;
+}
+
+/** A group of jobs that belong to the same user-triggered pipeline
+ *  run. The banner renders ONE banner per group.
+ *
+ *  Aggregation rules:
+ *   - `groupKey`     : the runId when present, otherwise the
+ *                      courseId (so server-hydrated jobs — which
+ *                      have no client runId — still collapse to a
+ *                      single banner per course).
+ *   - `jobIds`       : every jobId in the group. The polling loop
+ *                      iterates this list; the dismiss handler
+ *                      marks every member as dismissed.
+ *   - `representative`: the job that drives the visible UI
+ *                      (title, current step, phase chip, progress
+ *                      bar). The choice is the most-relevant job:
+ *                      a running job always wins over a pending or
+ *                      completed one; ties go to the most recently
+ *                      started job so the banner naturally walks
+ *                      through phases as the orchestrator moves
+ *                      forward.
+ *   - `phase`        : the representative's phase. The chip
+ *                      visualisation in `<PipelineJobBanner />`
+ *                      works on a single phase field, so the
+ *                      representative's phase IS the banner's
+ *                      current phase.
+ *   - `status` / `isComplete` / `hasFailed` : derived from the
+ *                      whole group — the banner is "failed" if any
+ *                      job in the group failed, "completed" only
+ *                      when every job in the group is completed.
+ *   - `progress`     : the active (or latest) job's progress, since
+ *                      each phase's progress is 0..100 for its
+ *                      own slice, not the whole pipeline.
+ *   - `startedAt`    : the earliest `startedAt` in the group (when
+ *                      the pipeline actually started).
+ *   - `lastProgressAt` : the most recent `lastProgressAt` (so stuck
+ *                      detection still works on a per-group basis).
+ *   - `dismissed`    : derived from the whole group (mirrors the
+ *                      raw per-job flag). */
+export interface BannerGroup {
+  groupKey: string;
+  jobIds: string[];
+  representative: ActiveJobView;
+  /** True when every job in the group has been marked as
+   *  dismissed. The banner skips dismissed groups. */
+  dismissed: boolean;
+}
+
+/** Stable identifier for grouping a job with its siblings. Prefers
+ *  the client runId; falls back to the courseId so server-hydrated
+ *  rows (which have no runId) still collapse to a single banner
+ *  per course. Returns null only when BOTH are missing (an
+ *  orphan job — e.g. from an old session) which the banner then
+ *  treats as a singleton group. */
+export function groupKeyForJob(
+  job: { jobId?: string; runId?: string | null; courseId?: string | null }
+): string {
+  if (job.runId) return `run:${job.runId}`;
+  if (job.courseId) return `course:${job.courseId}`;
+  return `orphan:${job.jobId ?? "unknown"}`;
+}
+
+/** Aggregation rank for picking the representative job. Higher
+ *  values win. */
+function representativeRank(j: ActiveJobView): number {
+  // A "running" job is the most informative — it is the one the
+  // user wants to see right now. A "pending" job is more relevant
+  // than a "completed" one (it's next in line). "completed" /
+  // "failed" / "cancelled" only appear as fallback when nothing
+  // else exists in the group.
+  if (j.status === "running") return 4;
+  if (j.status === "pending") return 3;
+  if (j.status === "completed") return 2;
+  if (j.status === "failed") return 1;
+  // "cancelled" or any other future status: lowest priority.
+  return 0;
+}
+
+/** Pick the most informative member of a group. Within the same
+ *  rank, prefer the most recently started so the banner naturally
+ *  walks through phases. */
+function pickRepresentative(jobs: ActiveJobView[]): ActiveJobView {
+  let best = jobs[0];
+  let bestRank = representativeRank(best);
+  for (let i = 1; i < jobs.length; i++) {
+    const j = jobs[i];
+    const r = representativeRank(j);
+    if (
+      r > bestRank ||
+      (r === bestRank && j.startedAt > best.startedAt)
+    ) {
+      best = j;
+      bestRank = r;
+    }
+  }
+  return best;
+}
+
+/**
+ * Group the raw active jobs into banner-shaped groups, one per
+ * pipeline run. The GlobalPipelineBanner iterates this list and
+ * renders exactly one `<PipelineJobBanner />` per group, which
+ * collapses the 4 phase jobs created by a single user click into
+ * a single banner.
+ *
+ * Pure function over the store state — easy to test in isolation.
+ */
+export function getBannerGroups(state: PipelineState): BannerGroup[] {
+  const active = getActiveJobs(state);
+  if (active.length === 0) return [];
+
+  // Bucket jobs by groupKey. We seed from the per-job view (not
+  // the raw map) so dismissed jobs are excluded up front.
+  const buckets = new Map<string, ActiveJobView[]>();
+  for (const job of active) {
+    const key = groupKeyForJob(job);
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.push(job);
+    } else {
+      buckets.set(key, [job]);
+    }
+  }
+
+  const groups: BannerGroup[] = [];
+  for (const [groupKey, members] of buckets) {
+    const representative = pickRepresentative(members);
+    groups.push({
+      groupKey,
+      jobIds: members.map((j) => j.jobId),
+      representative,
+      dismissed: false,
+    });
+  }
+
+  // Oldest first so the bottom of the stack is the most recent —
+  // matches the per-job ordering from `getActiveJobs`.
+  groups.sort(
+    (a, b) => a.representative.startedAt - b.representative.startedAt
+  );
+  return groups;
 }
 
 // Dev-only: expose the store on `window.__pipelineStore` so QA scripts
