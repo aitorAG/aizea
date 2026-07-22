@@ -39,6 +39,18 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // v1.10 / Wave 2 — per-slide status palette. Mirrors the
+        // --status-* CSS variables defined in app/globals.css so
+        // `border-l-status-pending` etc. resolve to the same
+        // HSL values as `hsl(var(--status-pending))`. The Slides
+        // hierarchy and the global progress bar both consume
+        // these so the visual treatment stays consistent across
+        // every place a slide can be rendered.
+        status: {
+          pending: "hsl(var(--status-pending))",
+          completed: "hsl(var(--status-completed))",
+          failed: "hsl(var(--status-failed))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

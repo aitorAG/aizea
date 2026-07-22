@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#3b82f6" />
+    <title>AIzea — Sin conexión</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --fg: #0f172a;
+        --muted: #475569;
+        --primary: #3b82f6;
+        --card: #ffffff;
+        --border: #e2e8f0;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      .wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.15);
+        padding: 40px 32px;
+        max-width: 460px;
+        width: 100%;
+        text-align: center;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--primary);
+        background: rgba(59, 130, 246, 0.1);
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        padding: 4px 10px;
+        border-radius: 999px;
+        margin-bottom: 18px;
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--primary);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 0 0 24px;
+        color: var(--muted);
+        line-height: 1.55;
+        font-size: 15px;
+      }
+      .logo {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 2px;
+        font-weight: 700;
+        font-size: 18px;
+        margin-bottom: 4px;
+      }
+      .logo .a { color: var(--primary); }
+      .logo .r { color: var(--fg); }
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      button {
+        cursor: pointer;
+        font: inherit;
+        font-weight: 600;
+        border-radius: 10px;
+        padding: 12px 16px;
+        border: 1px solid transparent;
+        transition: transform 0.05s ease, background 0.15s ease;
+      }
+      button:active { transform: translateY(1px); }
+      .primary {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+      }
+      .primary:hover { background: #2563eb; }
+      .secondary {
+        background: transparent;
+        color: var(--fg);
+        border-color: var(--border);
+      }
+      .secondary:hover { background: #f1f5f9; }
+      .hint {
+        margin-top: 18px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card" role="status" aria-live="polite">
+        <div class="logo" aria-hidden="true">
+          <span class="a">AI</span><span class="r">zea</span>
+        </div>
+        <div class="badge"><span class="dot"></span> Sin conexión</div>
+        <h1>No hay conexión a internet</h1>
+        <p>
+          Parece que ahora mismo no tenemos red. Los cursos y diapositivas
+          que ya hayas abierto deberían seguir disponibles desde la
+          memoria de la aplicación. Vuelve a intentarlo cuando vuelvas a
+          estar en línea.
+        </p>
+        <div class="actions">
+          <button class="primary" type="button" onclick="location.reload()">
+            Reintentar
+          </button>
+          <button class="secondary" type="button" onclick="history.length > 1 ? history.back() : (location.href = '/')">
+            Volver
+          </button>
+        </div>
+        <div class="hint">AIzea — Preparación de Materiales Docentes</div>
+      </div>
+    </div>
+  </body>
+</html>

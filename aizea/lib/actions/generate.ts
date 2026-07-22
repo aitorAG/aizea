@@ -41,6 +41,12 @@ export async function generateSlideContent(
   const result = await slideService.generateSlideContent(slideId);
   if (slide) {
     revalidatePath(`/courses/${slide.courseId}/slides/${slideId}`);
+    // v1.5 / Auto-refresh — the slides list page derives `hasContent`
+    // from the box count, so we also invalidate the list path. Without
+    // this, the server returns stale `hasContent=false` rows even
+    // though the boxes were just written, and the client has to
+    // hard-reload to see the green "Listo" badge.
+    revalidatePath(`/courses/${slide.courseId}/slides`);
   }
   return result;
 }

@@ -26,6 +26,22 @@
     --radius: 0.75rem;
     /* Set by <GlobalPipelineBanner /> on mount, unset on unmount. */
     --pipeline-banner-h: 0px;
+    /*
+     * v1.10 / Wave 2 — semantic status tokens for per-slide
+     * generation indicators. The slides hierarchy and the global
+     * progress bar both read these so the same slide always shows
+     * the same border colour regardless of which view is rendering
+     * it. The HSL components match the Tailwind amber/emerald/red
+     * 500 ramps so swapping between the design-system tokens and
+     * the Tailwind classes is a no-op for the eye.
+     *
+     *   --status-pending  : pending / generating_content / generating_html
+     *   --status-completed: terminal success
+     *   --status-failed   : terminal failure
+     */
+    --status-pending: 38 92% 50%;
+    --status-completed: 160 84% 39%;
+    --status-failed: 0 84% 60%;
   }
 
   * {
@@ -52,4 +68,133 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.5rem 0;
+}
+
+/*
+ * v1.7 / Issue 3.1 + v1.8 / Issue 3.2 — visual hierarchy for the slides list.
+ *
+ * Each slide row in SlidesHierarchy carries `data-depth="<n>"` and
+ * `style="--depth: <n>"`. The `paddingLeft` on the row scales
+ * proportionally with depth (28px per level + 16px base), and a
+ * 2px `::before` vertical rail drawn in a semi-transparent
+ * `--foreground` colour connects every non-root slide to the row
+ * above it.
+ *
+ * The rail sits at `depth * 28 + 8` so it lands inside each
+ * indent slot rather than at a fixed x position — this means
+ * 3+ level hierarchies stay aligned as the tree deepens.
+ *
+ * `:not([data-depth="0"])` keeps root slides line-free so the
+ * list doesn't read as a single vertical stripe.
+ *
+ * v1.8 fix: the original `hsl(var(--border))` (220 15% 88%) was so
+ * light it disappeared against the white card background. We now
+ * use `--foreground` at 20% opacity — high enough contrast to be
+ * visible at a glance, low enough to stay subordinate to the card
+ * content. Width bumped from 1.5px → 2px so the rail reads on
+ * high-DPI displays.
+ */
+.slide-tree-item {
+  position: relative;
+}
+.slide-tree-item[data-depth]:not([data-depth="0"])::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--depth) * 28px + 8px);
+  top: 0;
+  bottom: 0;
+  border-left: 2px solid hsl(var(--foreground) / 0.2);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/*
+ * v1.5 / Task 3.2 + v1.7 / Issue 2.1 — fullscreen mode for the conceptual tree.
+ *
+ * The Maximize2 / Minimize2 button in TreeControls (components/TreeViewer/
+ * TreeControls.tsx) sets `data-tree-fullscreen="true"` on the <body> via
+ * tree-client.tsx. The page-level "Árbol conceptual" header is already
+ * hidden by a class toggle inside that component, but the following
+ * elements live OUTSIDE the tree-client's React tree, so we hide them
+ * from CSS here instead of threading a context through the layout:
+ *
+ *  - The global top <header> from app/layout.tsx (the "AIzea" nav bar).
+ *  - The CheckpointBar mounted by app/courses/[id]/layout.tsx.
+ *  - The .pb-24 / .sm:pb-28 bottom padding on the course <main>, which
+ *    otherwise leaves a permanent gap below the tree canvas.
+ *
+ * We also reset the <main> element's padding + max-width so the tree
+ * canvas can span the full viewport (otherwise the layout's `max-w-6xl`
+ * would clamp the canvas to a centered column).
+ *
+ * Finally, the tree-client wrapper is forced to 100vw × 100vh in
+ * fullscreen so the React Flow canvas uses every pixel of the screen
+ * — the in-page toolbar stays visible because the user explicitly asked
+ * for it to remain on screen.
+ *
+ * The attribute is removed on unmount, so navigating away from the tree
+ * page naturally restores the bar — no explicit reset needed.
+ */
+/*
+ * v1.8 / Issue 2.3 — root-cause fix.
+ *
+ * Previous bug: the `.pb-24` selector also matched the <main>
+ * element (the course layout sets `pb-24 sm:pb-28` on <main>),
+ * so `display: none !important` on `.pb-24` hid the entire
+ * main and the tree page went white in fullscreen. The intended
+ * behaviour was to drop the bottom padding the layout adds so
+ * the canvas can reach the viewport bottom — NOT to hide main.
+ *
+ * Fix: scope the `display: none` only to the global <header> and
+ * the CheckpointBar, and reset the main's bottom padding to 0
+ * (without removing the element). Also target the `sm:pb-28`
+ * variant explicitly because the course layout uses
+ * `pb-24 sm:pb-28` (only one of them is present at a time).
+ */
+body[data-tree-fullscreen="true"] header,
+body[data-tree-fullscreen="true"] [data-testid="checkpoint-bar"] { display: none !important; }
+body[data-tree-fullscreen="true"] .pb-24,
+body[data-tree-fullscreen="true"] .sm\:pb-28 { padding-bottom: 0 !important; }
+body[data-tree-fullscreen="true"] main { padding: 0 !important; max-width: 100% !important; }
+body[data-tree-fullscreen="true"] [data-tree-fullscreen="true"] {
+  width: 100vw !important;
+  height: 100vh !important;
+}
+
+/* v1.8 Issue 3.1 — ensure main content stays below the sticky header */
+main { position: relative; z-index: 0; }
+
+/*
+ * v1.10 / Wave 2 — per-slide status border.
+ *
+ * The SlidesHierarchy paints the left border of every slide row
+ * based on its current status (pending / generating / completed /
+ * failed). Tailwind's `border-l-4 border-l-status-<x>` utilities
+ * generate the production CSS, but a stable `.slide-card` class
+ * + `.status-<x>` data attribute is also exposed here so
+ * Playwright / E2E tests can select rows without depending on
+ * Tailwind's generated class names (which can change across
+ * build hashes).
+ *
+ * The width is 3px (not the 4px Tailwind class) to keep the
+ * indicator visually subordinate to the card body. The colour
+ * tokens are `--status-*` so the whole app stays in sync if we
+ * ever need to retune the palette.
+ */
+.slide-card {
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-left-color: transparent;
+  transition: border-color 200ms ease-out;
+}
+.slide-card[data-status="pending"],
+.slide-card[data-status="generating_content"],
+.slide-card[data-status="generating_html"] {
+  border-left-color: hsl(var(--status-pending));
+}
+.slide-card[data-status="completed"] {
+  border-left-color: hsl(var(--status-completed));
+}
+.slide-card[data-status="failed"] {
+  border-left-color: hsl(var(--status-failed));
 }

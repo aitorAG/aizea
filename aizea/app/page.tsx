@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { getCourseStatus } from "@/lib/utils/course-status";
 import { DashboardClient } from "./dashboard-client";
 
 export const revalidate = 60;
@@ -9,6 +10,11 @@ export interface CourseListItem {
   name: string;
   slideCount: number;
   materialCount: number;
+  topicNodeCount: number;
+  /** Derived from `topicNodeCount > 0` — used to colour the tree icon. */
+  hasTree: boolean;
+  /** Derived from `slideCount > 0` — used to colour the slides icon. */
+  hasSlides: boolean;
   updatedAt: string;
 }
 
@@ -23,18 +29,29 @@ export default async function DashboardPage() {
     orderBy: { updatedAt: "desc" },
     include: {
       _count: {
-        select: { slides: true, materials: true },
+        // One aggregate query returns slide, material and topic-node
+        // counts. Cheaper than three separate counts.
+        select: { slides: true, materials: true, topicNodes: true },
       },
     },
   });
 
-  const courseList: CourseListItem[] = courses.map((course) => ({
-    id: course.id,
-    name: course.name,
-    slideCount: course._count.slides,
-    materialCount: course._count.materials,
-    updatedAt: course.updatedAt.toISOString(),
-  }));
+  const courseList: CourseListItem[] = courses.map((course) => {
+    const status = getCourseStatus({
+      topicNodeCount: course._count.topicNodes,
+      slideCount: course._count.slides,
+    });
+    return {
+      id: course.id,
+      name: course.name,
+      slideCount: status.slideCount,
+      materialCount: course._count.materials,
+      topicNodeCount: status.topicNodeCount,
+      hasTree: status.hasTree,
+      hasSlides: status.hasSlides,
+      updatedAt: course.updatedAt.toISOString(),
+    };
+  });
 
   return (
     <div className="space-y-8">

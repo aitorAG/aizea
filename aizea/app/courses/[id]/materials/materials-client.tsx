@@ -48,6 +48,13 @@ function MaterialsClient({
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
+  // Real byte-level upload progress, 0..100. Reset to 0 at the
+  // start of each file so the bar starts from the left and grows
+  // as `xhr.upload.onprogress` fires. Replaces the previous
+  // indeterminate CSS animation (issue v1.5 finding 1.1 — the
+  // bar only had two visual states: 50% from the start and
+  // 100% at the end).
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -79,54 +86,96 @@ function MaterialsClient({
 
       setUploading(true);
 
-      for (const file of validFiles) {
-        setUploadingFileName(file.name);
-        try {
-          const formData = new FormData();
-          formData.append("file", file);
-          const result = await materialAdapter.uploadMaterial(formData);
-          // ROOT-CAUSE FIX for "Materials uploaded don't appear in the
-          // list": the server returns the new material, but the local
-          // `materials` state is initialized from `initialMaterials` and
-          // is never updated. We optimistically append the new row
-          // BEFORE the server revalidation completes so the user sees
-          // their file appear immediately — and we also call
-          // router.refresh() to pull the canonical row (with real
-          // createdAt, pageCount, etc.) from the DB.
-          const newMaterial: MaterialItem = {
-            id: result.id,
-            filename: result.filename ?? file.name,
-            fileSize: file.size,
-            fileType: file.type || file.name.split(".").pop()?.toLowerCase() || null,
-            pageCount: 0,
-            createdAt: new Date().toISOString(),
-          };
-          setMaterials((prev) => [
-            newMaterial,
-            ...prev.filter((m) => m.id !== result.id),
-          ]);
-          toast({
-            title: "Archivo subido",
-            description: `"${file.name}" se ha subido correctamente. El procesamiento del árbol conceptual se ha iniciado.`,
-            variant: "success",
-          });
-        } catch (err) {
-          toast({
-            title: "Error al subir",
-            description: `No se pudo subir "${file.name}": ${err instanceof Error ? err.message : "Error desconocido"}`,
-            variant: "error",
-          });
+      // v1.8.1 / Issue 2 — wrap the whole batch in try/finally so
+      // `setUploading(false)` runs on EVERY exit path (success,
+      // error inside the per-file try/catch, revalidation throw,
+      // router.refresh throw). The previous version reset
+      // uploading after the loop but the optimistic
+      // `setMaterials` + `toast` + `revalidateMaterials` +
+      // `router.refresh` chain could throw and leave the spinner
+      // stuck. The per-file try/catch still shields the loop from
+      // individual file failures.
+      try {
+        for (const file of validFiles) {
+          setUploadingFileName(file.name);
+          // Reset the bar so the next file starts at 0%, not at
+          // whatever the previous file ended at.
+          setUploadProgress(0);
+          try {
+            const formData = new FormData();
+            formData.append("file", file);
+            const result = await materialAdapter.uploadMaterial(formData, {
+              onProgress: setUploadProgress,
+            });
+            // ROOT-CAUSE FIX for "Materials uploaded don't appear in the
+            // list": the server returns the new material, but the local
+            // `materials` state is initialized from `initialMaterials` and
+            // is never updated. We optimistically append the new row
+            // BEFORE the server revalidation completes so the user sees
+            // their file appear immediately — and we also call
+            // router.refresh() to pull the canonical row (with real
+            // createdAt, pageCount, etc.) from the DB.
+            const newMaterial: MaterialItem = {
+              id: result.id,
+              filename: result.filename ?? file.name,
+              fileSize: file.size,
+              fileType: file.type || file.name.split(".").pop()?.toLowerCase() || null,
+              pageCount: 0,
+              createdAt: new Date().toISOString(),
+            };
+            setMaterials((prev) => [
+              newMaterial,
+              ...prev.filter((m) => m.id !== result.id),
+            ]);
+            toast({
+              title: "Archivo subido",
+              // v1.5 finding 1.7: upload ONLY persists the file.
+              // The pipeline (segmentation, extraction, tree
+              // building) is gated behind the explicit
+              // "Generar árbol" CTA. Telling the user that
+              // processing has started here is misleading — the
+              // upload is now < 2s and no jobs are created.
+              description: `"${file.name}" se ha subido correctamente. Ve a "Generar árbol" para procesarlo.`,
+              variant: "success",
+            });
+          } catch (err) {
+            toast({
+              title: "Error al subir",
+              description: `No se pudo subir "${file.name}": ${err instanceof Error ? err.message : "Error desconocido"}`,
+              variant: "error",
+            });
+          }
         }
+      } finally {
+        // v1.8.1 / Issue 2 — ALWAYS clear the uploading state on
+        // exit. The spinner is the only signal the user has that
+        // their file is being processed; if we forget to clear it
+        // the upload UI appears hung forever.
+        setUploadingFileName(null);
+        setUploadProgress(0);
+        setUploading(false);
       }
 
-      setUploadingFileName(null);
-      setUploading(false);
-      await revalidateMaterials(courseId);
-      // Force the server component to re-render so we get the
-      // canonical rows (pageCount, createdAt, etc.) — the optimistic
-      // append above gave us instant feedback; this refresh gives us
-      // truth.
-      router.refresh();
+      // `revalidateMaterials` + `router.refresh` are best-effort —
+      // the upload itself has already committed, so a failure here
+      // should NOT block the spinner from clearing (handled above)
+      // nor surface as a scary error. The user will see the file
+      // in the optimistic list; the next navigation will pull the
+      // canonical row.
+      try {
+        await revalidateMaterials(courseId);
+        // Force the server component to re-render so we get the
+        // canonical rows (pageCount, createdAt, etc.) — the optimistic
+        // append above gave us instant feedback; this refresh gives us
+        // truth.
+        router.refresh();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[materials] post-upload revalidation failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
     },
     [courseId, toast, materialAdapter, router]
   );
@@ -189,10 +238,13 @@ function MaterialsClient({
       await updateCourseContext(courseId, context);
       toast({
         title: "Contexto guardado",
-        description: "Continuando con la generación de diapositivas...",
+        // F3: the next phase is the conceptual tree (phase 2), NOT
+        // the slides (phase 3). The user must land on /tree to either
+        // see the existing tree or the empty-state CTA "Generar árbol".
+        description: "Continuando al árbol conceptual...",
         variant: "success",
       });
-      router.push(`/courses/${courseId}/slides`);
+      router.push(`/courses/${courseId}/tree`);
     } catch (err) {
       toast({
         title: "Error al guardar",
@@ -259,20 +311,33 @@ function MaterialsClient({
               >
                 {uploadingFileName ?? "Por favor, espera"}
               </p>
-              {/* Indeterminate progress bar so the user has a visible
-                  "in-flight" cue at a glance. Server-side progress is
-                  not exposed by the upload action, so a striped
-                  animation is the honest signal. */}
+              {/* Real percent-based progress bar. `uploadProgress`
+                  is driven by `xhr.upload.onprogress` in the
+                  adapter, so it grows from 0% to 100% as the
+                  request body streams. This replaces the previous
+                  indeterminate CSS animation that only had two
+                  visual states (issue v1.5 finding 1.1). */}
               <div
-                className="mt-3 h-1 w-40 overflow-hidden rounded-full bg-muted"
+                className="mt-3 h-1.5 w-40 overflow-hidden rounded-full bg-muted"
                 role="progressbar"
                 aria-label="Progreso de subida"
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-valuenow={undefined}
+                aria-valuenow={uploadProgress}
+                data-testid="upload-progress-bar"
               >
-                <div className="h-full w-1/2 animate-[indeterminate_1.4s_ease-in-out_infinite] rounded-full bg-primary" />
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-150 ease-out"
+                  style={{ width: `${uploadProgress}%` }}
+                  data-testid="upload-progress-fill"
+                />
               </div>
+              <p
+                className="mt-1 text-xs tabular-nums text-muted-foreground"
+                data-testid="upload-progress-text"
+              >
+                {uploadProgress}%
+              </p>
             </>
           ) : (
             <>
@@ -347,18 +412,33 @@ function MaterialsClient({
       </section>
 
       {/* Bottom actions */}
-      <div className="flex items-center justify-between border-t border-border pt-6">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      <div className="space-y-3 border-t border-border pt-6">
+        {/* F3: explicit hint so the user knows what "continuar" means —
+            the next phase is the conceptual tree, not the slides. */}
+        <p
+          id="save-and-continue-hint"
+          className="text-xs text-muted-foreground"
         >
-          <ArrowLeft className="h-4 w-4" />
-          Volver
-        </Link>
-        <Button onClick={handleSaveAndContinue} loading={saving}>
-          <Save className="h-4 w-4" />
-          Guardar y continuar
-        </Button>
+          Al guardar, continuarás a la <strong>fase 2: árbol conceptual</strong>.
+          Si ya existe un árbol, lo verás. Si no, podrás generarlo.
+        </p>
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Volver
+          </Link>
+          <Button
+            onClick={handleSaveAndContinue}
+            loading={saving}
+            data-testid="save-and-continue"
+          >
+            <Save className="h-4 w-4" />
+            Guardar y continuar
+          </Button>
+        </div>
       </div>
     </div>
   );

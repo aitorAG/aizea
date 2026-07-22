@@ -11,22 +11,23 @@
 //      non-fatal).
 //   5. Run the structural layout parser (best-effort; failures are
 //      non-fatal — the segmenter has its own text-only fallback).
-//   6. Kick off the pipeline WITH the buffer so the segmenter
-//      actually has bytes to work on (this was the original bug:
-//      the upload used to spawn the pipeline without the buffer).
+//
+// The pipeline is INTENTIONALLY NOT triggered here. v1.5 finding
+// 1.7: the user wants upload to be fast (< 2s) and the pipeline
+// (segmentation, extraction, integration, tree-building) to only
+// run on the explicit "Generar árbol" click. Previously the upload
+// use case also called `pipeline.processCourse(...)` which made
+// the upload take 30s+ and fired a banner the user did not
+// expect. The pipeline now runs only from `ProcessCourseUseCase`,
+// which the "Generar árbol" CTA invokes.
 //
 // Each side-effect is its own port-friendly collaborator. The use
 // case is in the application layer because it composes
 // infrastructure-level collaborators into a coherent business
-// operation. It depends on the IPipelineService port (NOT on
-// `PipelineService` directly) so the test for this use case is a
-// unit test.
+// operation. It does NOT depend on `IPipelineService` — the
+// pipeline is owned by `ProcessCourseUseCase`.
 
 import type { IMaterialRepository } from "@/lib/application/ports/material-repository.port";
-import type {
-  IPipelineService,
-  ProcessCourseResult,
-} from "@/lib/application/ports/pipeline.port";
 import type { INotifier } from "@/lib/application/ports/notifier.port";
 import type { Material } from "@/lib/domain/entities/material";
 
@@ -69,12 +70,10 @@ export interface UploadMaterialInput {
 
 export interface UploadMaterialOutcome {
   material: Material;
-  pipelineResult: ProcessCourseResult | null;
 }
 
 export interface UploadMaterialUseCaseDeps {
   materials: IMaterialRepository;
-  pipeline: IPipelineService;
   notifier: INotifier;
   pdfExtractor: IPdfTextExtractor;
   figureExtractor: IFigureExtractor;
@@ -84,7 +83,6 @@ export interface UploadMaterialUseCaseDeps {
 
 export class UploadMaterialUseCase {
   private readonly materials: IMaterialRepository;
-  private readonly pipeline: IPipelineService;
   private readonly notifier: INotifier;
   private readonly pdfExtractor: IPdfTextExtractor;
   private readonly figureExtractor: IFigureExtractor;
@@ -93,7 +91,6 @@ export class UploadMaterialUseCase {
 
   constructor(deps: UploadMaterialUseCaseDeps) {
     this.materials = deps.materials;
-    this.pipeline = deps.pipeline;
     this.notifier = deps.notifier;
     this.pdfExtractor = deps.pdfExtractor;
     this.figureExtractor = deps.figureExtractor;
@@ -164,33 +161,15 @@ export class UploadMaterialUseCase {
       );
     }
 
-    // 6. Kick off the pipeline WITH the buffer so the segmenter
-    // can produce SemanticUnits from the actual bytes. This is
-    // the root-cause fix: previously the upload spawned the
-    // pipeline with `(courseId, materialId)` and no buffer, so
-    // the orchestrator fell back to "load existing units" — which
-    // don't exist for a brand-new upload → `empty:true` → "sin
-    // contenido que procesar". The buffer MUST be passed.
-    let pipelineResult: ProcessCourseResult | null = null;
-    try {
-      pipelineResult = await this.pipeline.processCourse({
-        courseId: input.courseId,
-        materialId: material.id,
-        buffer: input.buffer,
-      });
-    } catch (err) {
-      console.warn(
-        "[UploadMaterialUseCase] pipeline failed:",
-        err instanceof Error ? err.message : err
-      );
-    }
-
+    // Notify the user that the file is in. The pipeline only runs
+    // on explicit "Generar árbol" — do NOT fire "procesando árbol"
+    // here, that was the v1.5 finding 1.7 bug.
     this.notifier.notify(
       input.userId,
-      "Material subido, procesando árbol...",
+      "Material subido. Ve a \"Generar árbol\" para procesarlo.",
       "info"
     );
 
-    return { material, pipelineResult };
+    return { material };
   }
 }

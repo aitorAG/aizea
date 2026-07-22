@@ -43,6 +43,19 @@ vi.mock("next/cache", () => ({
   revalidatePath: () => undefined,
 }));
 
+// Mock the LLM client so the Split action can be exercised without
+// hitting OpenRouter. `splitTreeNodeAction` calls chatJSON to
+// propose sub-contents; tests control the response via mockChatJSON.
+const { mockChatJSON, mockChat } = vi.hoisted(() => ({
+  mockChatJSON: vi.fn(),
+  mockChat: vi.fn(),
+}));
+
+vi.mock("@/lib/domain/llm/LLMClient", () => ({
+  chatJSON: mockChatJSON,
+  chat: mockChat,
+}));
+
 let getCourseTreeAction: typeof import("@/lib/actions/tree").getCourseTreeAction;
 let updateTreeNodeAction: typeof import("@/lib/actions/tree").updateTreeNodeAction;
 let deleteTreeNodeAction: typeof import("@/lib/actions/tree").deleteTreeNodeAction;
@@ -229,26 +242,155 @@ describe("mergeTreeNodesAction", () => {
 });
 
 describe("splitTreeNodeAction", () => {
-  it("splits the node into two children (split into halves by name length)", async () => {
+  beforeEach(() => {
+    mockChatJSON.mockReset();
+  });
+
+  it("rejects when the node does not exist", async () => {
+    mockChatJSON.mockResolvedValue({ subcontents: [] });
+    const result = await splitTreeNodeAction("non-existent");
+    expect(result.ok).toBe(false);
+  });
+
+  it("creates one child per sub-content proposed by the LLM (default happy path)", async () => {
+    mockChatJSON.mockResolvedValue({
+      subcontents: [
+        { name: "Sub A", summary: "Desc A" },
+        { name: "Sub B", summary: "Desc B" },
+        { name: "Sub C", summary: "Desc C" },
+      ],
+    });
     const course = await testDb.course.create({ data: { name: "Test" } });
     const node = await testDb.topicNode.create({
-      data: { courseId: course.id, name: "Node", depth: 0, version: 1, summary: "abcd" },
+      data: {
+        courseId: course.id,
+        name: "Padre",
+        depth: 0,
+        version: 1,
+        summary: "Resumen del padre",
+      },
     });
     const result = await splitTreeNodeAction(node.id);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.nodes.length).toBe(2);
-      // Both should be children of the original (or the original is removed and
-      // these are new roots). Implementation: original kept, two new children.
-      for (const n of result.nodes) {
-        expect(n.parentId).toBe(node.id);
+      expect(result.nodes.length).toBe(3);
+      const names = result.nodes.map((n) => n.name);
+      expect(names).toEqual(["Sub A", "Sub B", "Sub C"]);
+      for (const child of result.nodes) {
+        expect(child.parentId).toBe(node.id);
+        expect(child.depth).toBe(1);
       }
     }
   });
 
-  it("rejects when the node does not exist", async () => {
-    const result = await splitTreeNodeAction("non-existent");
-    expect(result.ok).toBe(false);
+  it("sends a prompt that includes the node name and summary to the LLM", async () => {
+    mockChatJSON.mockResolvedValue({
+      subcontents: [
+        { name: "A", summary: "a" },
+        { name: "B", summary: "b" },
+      ],
+    });
+    const course = await testDb.course.create({ data: { name: "Test" } });
+    const node = await testDb.topicNode.create({
+      data: {
+        courseId: course.id,
+        name: "Termodinámica",
+        depth: 0,
+        version: 1,
+        summary: "Calor y energía",
+      },
+    });
+    await splitTreeNodeAction(node.id);
+    expect(mockChatJSON).toHaveBeenCalledTimes(1);
+    const messages = mockChatJSON.mock.calls[0][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const user = messages.find((m) => m.role === "user");
+    expect(user).toBeDefined();
+    expect(user!.content).toContain("Termodinámica");
+    expect(user!.content).toContain("Calor y energía");
+  });
+
+  it("clamps the number of children to at most 5 even if the LLM proposes more", async () => {
+    mockChatJSON.mockResolvedValue({
+      subcontents: [
+        { name: "A", summary: "a" },
+        { name: "B", summary: "b" },
+        { name: "C", summary: "c" },
+        { name: "D", summary: "d" },
+        { name: "E", summary: "e" },
+        { name: "F", summary: "f" },
+        { name: "G", summary: "g" },
+      ],
+    });
+    const course = await testDb.course.create({ data: { name: "Test" } });
+    const node = await testDb.topicNode.create({
+      data: { courseId: course.id, name: "Padre", depth: 0, version: 1 },
+    });
+    const result = await splitTreeNodeAction(node.id);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.nodes.length).toBe(5);
+    }
+  });
+
+  it("falls back to a single child with the original content when the LLM returns an empty array", async () => {
+    mockChatJSON.mockResolvedValue({ subcontents: [] });
+    const course = await testDb.course.create({ data: { name: "Test" } });
+    const node = await testDb.topicNode.create({
+      data: {
+        courseId: course.id,
+        name: "Padre",
+        summary: "Resumen",
+        depth: 0,
+        version: 1,
+      },
+    });
+    const result = await splitTreeNodeAction(node.id);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.nodes.length).toBe(1);
+      expect(result.nodes[0].name).toBe("Padre");
+      expect(result.nodes[0].summary).toBe("Resumen");
+      expect(result.nodes[0].parentId).toBe(node.id);
+    }
+  });
+
+  it("falls back to a single child when the LLM throws", async () => {
+    mockChatJSON.mockRejectedValue(new Error("OpenRouter down"));
+    const course = await testDb.course.create({ data: { name: "Test" } });
+    const node = await testDb.topicNode.create({
+      data: {
+        courseId: course.id,
+        name: "Padre",
+        summary: "Resumen",
+        depth: 0,
+        version: 1,
+      },
+    });
+    const result = await splitTreeNodeAction(node.id);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.nodes.length).toBe(1);
+      expect(result.nodes[0].name).toBe("Padre");
+    }
+  });
+
+  it("flips the original node's isLeaf to false after the split", async () => {
+    mockChatJSON.mockResolvedValue({
+      subcontents: [
+        { name: "A", summary: "a" },
+        { name: "B", summary: "b" },
+      ],
+    });
+    const course = await testDb.course.create({ data: { name: "Test" } });
+    const node = await testDb.topicNode.create({
+      data: { courseId: course.id, name: "Padre", depth: 0, version: 1, isLeaf: true },
+    });
+    await splitTreeNodeAction(node.id);
+    const after = await testDb.topicNode.findUnique({ where: { id: node.id } });
+    expect(after?.isLeaf).toBe(false);
   });
 });
 

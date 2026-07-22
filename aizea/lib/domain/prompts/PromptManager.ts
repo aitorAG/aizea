@@ -7,6 +7,7 @@ import {
   type ConceptGroup,
 } from "./templates/integrate-concepts.template";
 import { buildBuildTreeTemplate } from "./templates/build-tree.template";
+import { buildSplitSubcontentsTemplate } from "./templates/split-subcontents.template";
 import type {
   Concept,
   SemanticUnit,
@@ -60,5 +61,17 @@ export class PromptManager {
 
   buildBuildTreePrompt(groups: TopicGroup[]): { system: string; user: string } {
     return buildBuildTreeTemplate(groups);
+  }
+
+  /**
+   * Prompt used by the Split action to ask the LLM to propose
+   * sub-contents of a single node. The LLM returns 2-5
+   * {name, summary} pairs that are turned into child TopicNodes.
+   */
+  buildSplitSubcontentsPrompt(
+    nodeName: string,
+    nodeSummary: string | null
+  ): { system: string; user: string } {
+    return buildSplitSubcontentsTemplate(nodeName, nodeSummary);
   }
 }

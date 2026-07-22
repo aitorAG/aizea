@@ -2,8 +2,14 @@
 //
 // The use case orchestrates the upload side-effects (PDF text
 // extraction, file persistence, RAG indexing, figure extraction,
-// layout parser, pipeline trigger) via the duck-typed ports
-// defined inline. None of the production services are imported.
+// layout parser) via the duck-typed ports defined inline. None of
+// the production services are imported.
+//
+// v1.5 finding 1.7: the upload use case does NOT trigger the
+// pipeline. The pipeline (segmentation, extraction, integration,
+// tree-building) is owned by `ProcessCourseUseCase` and only runs
+// on the explicit "Generar árbol" click. These tests therefore do
+// not inject a `pipeline` dependency.
 
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -14,15 +20,10 @@ import {
   type IRagIndexer,
 } from "@/lib/application/use-cases/upload-material.use-case";
 import type { IMaterialRepository } from "@/lib/application/ports/material-repository.port";
-import type {
-  IPipelineService,
-  ProcessCourseResult,
-} from "@/lib/application/ports/pipeline.port";
 import type { INotifier } from "@/lib/application/ports/notifier.port";
 
 function makeDeps(overrides: {
   createMaterial?: any;
-  processCourse?: any;
   extractText?: any;
   figureExtract?: any;
   layoutParse?: any;
@@ -39,24 +40,13 @@ function makeDeps(overrides: {
     fileType: data.fileType,
     createdAt: new Date().toISOString(),
   }));
-  const processCourse =
-    overrides.processCourse ??
-    vi.fn(async () => ({
-      segmentationJobId: "seg-1",
-      extractionJobId: "ext-1",
-      integrationJobId: "int-1",
-      treeBuildingJobId: "tree-1",
-      empty: false,
-      message: null,
-    } as ProcessCourseResult));
   const extractText =
     overrides.extractText ??
     vi.fn(async () => ({ text: "extracted text", pages: 3 }));
   const figureExtract =
     overrides.figureExtract ?? vi.fn(async () => []);
   const layoutParse =
-    overrides.layoutParse ??
-    vi.fn(async () => ({ pageCount: 3 }));
+    overrides.layoutParse ?? vi.fn(async () => ({ pageCount: 3 }));
   const indexMaterial =
     overrides.indexMaterial ?? vi.fn(async () => undefined);
   const notify = overrides.notify ?? vi.fn();
@@ -68,7 +58,6 @@ function makeDeps(overrides: {
     readBuffer: vi.fn(),
     create: createMaterial,
   } as unknown as IMaterialRepository;
-  const pipeline = { processCourse } as unknown as IPipelineService;
   const notifier = { notify } as unknown as INotifier;
   const pdfExtractor = { extractText } as IPdfTextExtractor;
   const figureExtractor = { extractAndSave: figureExtract } as IFigureExtractor;
@@ -77,14 +66,12 @@ function makeDeps(overrides: {
 
   return {
     materials,
-    pipeline,
     notifier,
     pdfExtractor,
     figureExtractor,
     layoutParser,
     ragIndexer,
     createMaterial,
-    processCourse,
     extractText,
     figureExtract,
     layoutParse,
@@ -94,7 +81,7 @@ function makeDeps(overrides: {
 }
 
 describe("UploadMaterialUseCase", () => {
-  it("extracts text, creates the material, indexes for RAG, extracts figures, runs the layout parser, and triggers the pipeline with the buffer", async () => {
+  it("extracts text, creates the material, indexes for RAG, extracts figures, runs the layout parser, and notifies the user — but does NOT trigger the pipeline", async () => {
     const deps = makeDeps();
 
     const useCase = new UploadMaterialUseCase(deps);
@@ -107,10 +94,12 @@ describe("UploadMaterialUseCase", () => {
       userId: "user-1",
     });
 
+    // Outcome is { material } only — v1.5 finding 1.7 removed
+    // the pipelineResult field because the upload no longer
+    // runs the pipeline.
     expect(result.material.id).toBe("mat-1");
     expect(result.material.filename).toBe("123_doc.pdf");
-    // Pipeline result is propagated.
-    expect(result.pipelineResult?.segmentationJobId).toBe("seg-1");
+    expect((result as any).pipelineResult).toBeUndefined();
 
     // 1. Text extracted
     expect(deps.extractText).toHaveBeenCalledTimes(1);
@@ -142,23 +131,31 @@ describe("UploadMaterialUseCase", () => {
       "123_doc.pdf"
     );
 
-    // 6. Pipeline triggered WITH the buffer (this is the
-    // root-cause fix: previously the upload spawned the pipeline
-    // without the buffer, so the segmenter loaded zero existing
-    // units and returned empty:true).
-    expect(deps.processCourse).toHaveBeenCalledTimes(1);
-    const pipelineInput = deps.processCourse.mock.calls[0][0];
-    expect(pipelineInput.courseId).toBe("course-1");
-    expect(pipelineInput.materialId).toBe("mat-1");
-    expect(Buffer.isBuffer(pipelineInput.buffer)).toBe(true);
-    expect(pipelineInput.buffer.toString()).toBe("pdf bytes");
-
-    // 7. User is notified.
+    // 6. User is notified — the message tells the user the
+    // pipeline will only run on "Generar árbol", NOT on upload.
     expect(deps.notify).toHaveBeenCalledWith(
       "user-1",
-      expect.stringMatching(/material subido/i),
+      expect.stringMatching(/Material subido/i),
       "info"
     );
+    expect(deps.notify.mock.calls[0][1]).toContain("Generar árbol");
+    // CRITICAL: the previous message said "procesando árbol" —
+    // verify that string is no longer present so the test catches
+    // any regression of the v1.5 finding 1.7 bug.
+    expect(deps.notify.mock.calls[0][1]).not.toMatch(/procesando árbol/i);
+  });
+
+  it("does NOT have a pipeline dependency in its constructor (v1.5 finding 1.7 decoupling)", () => {
+    // Type-level check: UploadMaterialUseCaseDeps must not
+    // include a `pipeline` key. The constructor should compile
+    // and run with the six documented deps only.
+    const deps = makeDeps();
+    const useCase = new UploadMaterialUseCase(deps);
+    expect(useCase).toBeInstanceOf(UploadMaterialUseCase);
+    // The deps object has no `pipeline` key — this is a
+    // structural assertion that catches any regression where
+    // someone re-adds the pipeline dep to the use case.
+    expect((deps as any).pipeline).toBeUndefined();
   });
 
   it("still creates the material even if PDF text extraction fails", async () => {
@@ -202,9 +199,7 @@ describe("UploadMaterialUseCase", () => {
       userId: "user-1",
     });
 
-    // Material + pipeline still ran.
     expect(result.material.id).toBe("mat-1");
-    expect(deps.processCourse).toHaveBeenCalled();
   });
 
   it("still completes the upload when figure extraction fails (e.g. docling down)", async () => {
@@ -245,33 +240,5 @@ describe("UploadMaterialUseCase", () => {
     });
 
     expect(result.material.id).toBe("mat-1");
-    // Pipeline still triggered — the use case does not gate the
-    // pipeline on layout-parser success. The segmenter has its
-    // own text-only fallback.
-    expect(deps.processCourse).toHaveBeenCalled();
-  });
-
-  it("does NOT fail the upload when the pipeline itself throws — returns the material and a null pipelineResult", async () => {
-    const deps = makeDeps({
-      processCourse: vi.fn(async () => {
-        throw new Error("pipeline down");
-      }),
-    });
-
-    const useCase = new UploadMaterialUseCase(deps);
-    const result = await useCase.execute({
-      courseId: "course-1",
-      filename: "doc.pdf",
-      fileType: "application/pdf",
-      fileSize: 100,
-      buffer: Buffer.from("bytes"),
-      userId: "user-1",
-    });
-
-    // The upload still succeeded; the user can click "Generar
-    // árbol" later and the ProcessCourseUseCase will read the
-    // buffer from disk and recover.
-    expect(result.material.id).toBe("mat-1");
-    expect(result.pipelineResult).toBeNull();
   });
 });

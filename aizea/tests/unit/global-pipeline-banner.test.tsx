@@ -25,6 +25,14 @@ vi.mock("@/components/toast", () => ({
   }),
 }));
 
+// Mock next/navigation so `usePathname` returns whatever the test
+// configures via `mockPathname`. By default returns a course path
+// so the banner's hydration scoping logic runs in "scoped" mode.
+let mockPathname = "/courses/00000000-0000-0000-0000-000000000001/tree";
+vi.mock("next/navigation", () => ({
+  usePathname: () => mockPathname,
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   // Default: no jobs to hydrate (each test can override).
@@ -34,6 +42,8 @@ beforeEach(() => {
     jobId: "any",
     status: "cancelled",
   });
+  // Reset to a known course path so tests behave deterministically.
+  mockPathname = "/courses/00000000-0000-0000-0000-000000000001/tree";
   usePipelineStore.getState().reset();
 });
 
@@ -123,6 +133,7 @@ describe("<GlobalPipelineBanner /> — hydration on mount", () => {
         {
           jobId: "from-server-1",
           courseId: "c-1",
+          courseName: null,
           phase: "segmentation",
           status: "running",
           progress: 25,
@@ -156,6 +167,7 @@ describe("<GlobalPipelineBanner /> — hydration on mount", () => {
         {
           jobId: "from-server-1",
           courseId: "c-1",
+          courseName: null,
           phase: "segmentation",
           status: "running",
           progress: 25,
@@ -185,6 +197,59 @@ describe("<GlobalPipelineBanner /> — hydration on mount", () => {
     });
     // No banner (no jobs hydrated), no crash.
     expect(container.firstChild).toBeNull();
+  });
+
+  it("scopes the hydration request to the current courseId from the URL (v1.5 #2.3)", async () => {
+    mockPathname = "/courses/abc-123-uuid/tree";
+    mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [] });
+
+    render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(mockListActiveJobs).toHaveBeenCalledWith({ courseId: "abc-123-uuid" });
+  });
+
+  it("passes an empty options object (no courseId filter) on non-course pages", async () => {
+    mockPathname = "/settings";
+    mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [] });
+
+    render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(mockListActiveJobs).toHaveBeenCalledWith({});
+  });
+
+  it("re-runs the hydration request with the new courseId when the user navigates between courses", async () => {
+    mockPathname = "/courses/course-A/tree";
+    mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [] });
+
+    const { rerender } = render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(mockListActiveJobs).toHaveBeenLastCalledWith({
+      courseId: "course-A",
+    });
+
+    // Navigate to course B — the hydration effect re-runs and asks
+    // the server for course-B-only jobs. This is the mechanism that
+    // keeps the banner from surfacing historical jobs from the
+    // previous course on a hard refresh (v1.5 #2.3).
+    mockPathname = "/courses/course-B/tree";
+    rerender(<GlobalPipelineBanner />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(mockListActiveJobs).toHaveBeenLastCalledWith({
+      courseId: "course-B",
+    });
+    // The two hydrations are distinct calls.
+    expect(mockListActiveJobs).toHaveBeenCalledTimes(2);
   });
 });
 

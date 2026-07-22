@@ -13,15 +13,23 @@
 // pipeline lifecycle.
 //
 // Multi-job design (replaces the previous single-job version):
-//   - The store holds a `Map<jobId, JobInfo>`.
+//   - The store holds a `Map<jobId, JobInfo>`. Each `ProcessingJob`
+//     row from the DB has its own entry (one per phase).
 //   - On mount, the banner calls `listActiveJobsAction()` to
 //     re-hydrate any in-flight jobs the user can't see (because
 //     they navigated or refreshed). Without this, the banner
 //     silently disappears across reloads.
-//   - For every active (non-dismissed, non-complete) job, the
-//     banner renders one `<PipelineJobBanner />` stacked vertically.
+//   - Jobs are GROUPED by `runId` (a client-generated UUID the
+//     "Generar árbol" click handler stamps on every phase job it
+//     creates) or, as a fallback, by `courseId` for rows hydrated
+//     from the server (which don't carry a runId). Each group
+//     renders ONE `<PipelineJobBanner />` — the 4 phase jobs of a
+//     single user-triggered pipeline run are collapsed into 1
+//     banner that updates its `phase` / `progress` in place as the
+//     orchestrator moves through the pipeline.
 //   - Polling is shared: a single `setInterval` iterates the
-//     active jobs and calls `getJobStatusAction(jobId)` for each.
+//     group members and calls `getJobStatusAction(jobId)` for each,
+//     so the per-job fields the banner aggregates stay fresh.
 //
 // What this component does NOT do:
 //   - Cancel the pipeline.
@@ -32,6 +40,7 @@
 //     dismissing a completed/failed banner via the X button.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   Check,
   Circle,
@@ -47,8 +56,10 @@ import { useToast } from "@/components/toast";
 import {
   usePipelineStore,
   getActiveJobs,
+  getBannerGroups,
   STUCK_THRESHOLD_MS,
   type ActiveJobView,
+  type BannerGroup,
 } from "@/lib/stores/usePipelineStore";
 import {
   getJobStatusAction,
@@ -76,7 +87,12 @@ const PHASES: PhaseDescriptor[] = [
   { id: "tree-building", label: "Jerarquizando" },
 ];
 
-const POLL_INTERVAL_MS = 2_500;
+// v1.8 / Issue 2.2 — poll more aggressively. 1.5s halves the worst
+// case staleness for a fast pipeline (a course with no materials
+// completes in well under a second; the previous 2.5s cadence let
+// the banner get stuck on the last "active" phase chip — the user
+// kept seeing "Jerarquizando" even after the orchestrator was done).
+const POLL_INTERVAL_MS = 1_500;
 /** Vertical offset (in px) between stacked banners. The container
  *  uses flex column, but we also keep a CSS variable so tests /
  *  Playwright can introspect the actual gap. */
@@ -86,11 +102,22 @@ const BANNER_BASE_OFFSET_PX = 12;
 
 type PhaseStatus = "pending" | "active" | "completed" | "failed";
 
+// v1.8 / Issue 2.2 — root-cause fix. The previous signature only
+// considered the live `current` phase, so when a job flipped to
+// `status: "completed"` (and stayed at `phase: "tree-building"` —
+// the orchestrator writes the last-entered phase on the row) the
+// "tree-building" chip kept rendering as `active` with a spinning
+// loader, and all four chips failed to flip to `completed` together.
+// We now take `isComplete` as an explicit short-circuit: when the
+// job is done, every phase chip is "completed" regardless of the
+// stored `phase` value.
 function statusFor(
   phase: PhaseDescriptor,
   current: PipelinePhase | null,
-  hasFailed: boolean
+  hasFailed: boolean,
+  isComplete: boolean
 ): PhaseStatus {
+  if (isComplete) return "completed";
   if (hasFailed && phase.id === current) return "failed";
   if (!current) return "pending";
   const order = PHASES.map((p) => p.id);
@@ -113,20 +140,29 @@ function useTick(tickMs: number) {
 }
 
 /** Inner per-job banner. Pure presentational — receives a job view
- *  and the dismiss/close handler from the parent. */
+ *  and the dismiss/close handler from the parent.
+ *
+ *  v1.9 / Issue 1+2 — the parent now passes a `BannerGroup`
+ *  (one banner per pipeline run) rather than a single `JobInfo`,
+ *  so the dismiss / stop / retry handlers operate on the WHOLE
+ *  group instead of a single jobId. The visible UI still keys off
+ *  the representative's fields (title, phase, progress, current
+ *  step), but the dismiss button dismisses the entire group and
+ *  the stop button cancels the active job inside the group. */
 function PipelineJobBanner({
-  job,
-  onDismiss,
-  onRetry,
-  onStop,
+  group,
+  onDismissGroup,
+  onRetryGroup,
+  onStopActive,
   index,
 }: {
-  job: ActiveJobView;
-  onDismiss: (jobId: string) => void;
-  onRetry?: (jobId: string) => void;
-  onStop?: (jobId: string) => void;
+  group: BannerGroup;
+  onDismissGroup: (groupKey: string) => void;
+  onRetryGroup?: (groupKey: string) => void;
+  onStopActive?: (jobId: string) => void;
   index: number;
 }) {
+  const job = group.representative;
   const isComplete = job.isComplete;
   const isCancelled = job.status === "cancelled";
   const hasFailed = job.hasFailed || job.isStuck;
@@ -152,6 +188,8 @@ function PipelineJobBanner({
             ? "completed"
             : "active"}
       data-job-id={job.jobId}
+      data-group-key={group.groupKey}
+      data-group-size={group.jobIds.length}
       data-banner-index={index}
       data-stuck={job.isStuck ? "true" : undefined}
       role="status"
@@ -179,14 +217,19 @@ function PipelineJobBanner({
             <Sparkles className="h-4 w-4 text-primary" />
           )}
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold leading-tight">
+            <p
+              className="truncate text-sm font-semibold leading-tight"
+              data-testid="banner-title"
+            >
               {isCancelled
                 ? "Trabajo cancelado"
                 : isComplete
                   ? "Árbol conceptual listo"
                   : hasFailed
                     ? "Falló la generación del árbol"
-                    : "Generando árbol conceptual"}
+                    : job.courseName
+                      ? `Generando árbol de «${job.courseName}»`
+                      : "Generando árbol conceptual"}
             </p>
             <p className="hidden font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:block">
               {job.currentStep ??
@@ -211,7 +254,7 @@ function PipelineJobBanner({
             aria-label="Fases del pipeline"
           >
             {PHASES.map((p) => {
-              const s = statusFor(p, job.phase, hasFailed);
+              const s = statusFor(p, job.phase, hasFailed, isComplete);
               return (
                 <li
                   key={p.id}
@@ -294,11 +337,14 @@ function PipelineJobBanner({
             )}
           </div>
 
-          {/* Retry button — only shown for failed/stuck jobs. */}
-          {hasFailed && onRetry && (
+          {/* Retry button — only shown for failed/stuck jobs. v1.9:
+              retrying dismisses the entire group (the user can
+              re-trigger from the tree page) so the operation
+              mirrors the dismiss path. */}
+          {hasFailed && onRetryGroup && (
             <button
               type="button"
-              onClick={() => onRetry(job.jobId)}
+              onClick={() => onRetryGroup(group.groupKey)}
               data-testid="banner-retry"
               className={cn(
                 "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium",
@@ -313,13 +359,14 @@ function PipelineJobBanner({
 
           {/* Stop button — only shown for running jobs. ROOT-CAUSE
               FIX for "Banner has no Stop button". Clicking it calls
-              cancelPipelineAction, which marks the ProcessingJob
-              status as `cancelled` in the DB; the polling loop picks
-              up the new status on the next tick. */}
-          {!isComplete && !hasFailed && !isCancelled && onStop && (
+              cancelPipelineAction on the active (representative)
+              job, which marks that ProcessingJob's status as
+              `cancelled` in the DB; the polling loop picks up the
+              new status on the next tick. */}
+          {!isComplete && !hasFailed && !isCancelled && onStopActive && (
             <button
               type="button"
-              onClick={() => onStop(job.jobId)}
+              onClick={() => onStopActive(job.jobId)}
               data-testid="banner-stop"
               aria-label="Detener trabajo"
               title="Detener trabajo"
@@ -338,11 +385,14 @@ function PipelineJobBanner({
         {/* Close button — anchored to the top-right corner of the
             banner. Absolute positioning keeps it out of the main
             flex flow so the status row never reflows when it
-            changes size. Clicking it only hides the UI; the job
-            keeps running in the store. */}
+            changes size. Clicking it dismisses the ENTIRE group
+            (all 4 phase jobs at once) — closing the "Generando
+            árbol" banner should hide the whole pipeline run, not
+            just one of the four phase rows. The jobs keep running
+            on the server; this is a UI-only flag. */}
         <button
           type="button"
-          onClick={() => onDismiss(job.jobId)}
+          onClick={() => onDismissGroup(group.groupKey)}
           aria-label="Cerrar banner"
           data-testid="banner-close"
           className={cn(
@@ -359,6 +409,20 @@ function PipelineJobBanner({
   );
 }
 
+/** Matches `/courses/<id>...` segments so we can scope the
+ *  hydrated jobs to the course the user is currently looking at.
+ *  Accepts any non-empty id segment (Prisma uses UUIDs, but tests
+ *  use slugs like "course-A", and we want to be liberal here so we
+ *  do not silently miss the current course). */
+const COURSE_PATH_RE = /^\/courses\/([^/]+?)(?:\/|$)/;
+
+function extractCourseIdFromPath(pathname: string | null): string | null {
+  if (!pathname) return null;
+  const match = COURSE_PATH_RE.exec(pathname);
+  const id = match?.[1];
+  return id && id.length > 0 ? id : null;
+}
+
 export function GlobalPipelineBanner() {
   const { toast } = useToast();
   // We deliberately subscribe to the full Map so any change (e.g.
@@ -370,6 +434,18 @@ export function GlobalPipelineBanner() {
   const updateJob = usePipelineStore((s) => s.updateJob);
   const hydrateJobs = usePipelineStore((s) => s.hydrateJobs);
   const dismissJob = usePipelineStore((s) => s.dismissJob);
+  const dismissByGroupKey = usePipelineStore((s) => s.dismissByGroupKey);
+
+  const pathname = usePathname();
+  // v1.5 #2.3: scope rehydrated jobs to the current course so the
+  // banner does not surface historical jobs from other courses. On
+  // pages without a courseId (home, settings, etc.) we fall back to
+  // no courseId filter, which keeps the banner honest about any
+  // globally-relevant in-flight work.
+  const currentCourseId = useMemo(
+    () => extractCourseIdFromPath(pathname),
+    [pathname]
+  );
 
   const [hydrated, setHydrated] = useState(false);
   const completionAnnouncedRef = useRef<Set<string>>(new Set());
@@ -378,22 +454,32 @@ export function GlobalPipelineBanner() {
   useTick(1_000);
 
   // --- Hydration effect ------------------------------------------------
-  // On mount, fetch the list of in-flight jobs from the server and
-  // register them in the store. Without this, the banner vanishes on
-  // reload and the user has no idea a pipeline is still running on
-  // the server. We mark the hydration done after one round so we
-  // don't re-fetch on every store change.
+  // On mount (and whenever the user navigates to a different course),
+  // fetch the list of currently-active jobs from the server scoped to
+  // the current course and register them in the store. Without this,
+  // the banner vanishes on reload and the user has no idea a pipeline
+  // is still running on the server.
+  //
+  // v1.5 #2.3: passing `courseId` here is the actual fix for the
+  // "all historical jobs appear on reload" complaint. The server-side
+  // filter is the source of truth — a fresh page load now only
+  // surfaces jobs that belong to the course in the URL. We mark the
+  // hydration done after one round so we don't re-fetch on every
+  // store change.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const result = await listActiveJobsAction();
+        const result = await listActiveJobsAction(
+          currentCourseId ? { courseId: currentCourseId } : {}
+        );
         if (cancelled) return;
         if (result.ok && result.jobs.length > 0) {
           hydrateJobs(
             result.jobs.map((j) => ({
               jobId: j.jobId,
               courseId: j.courseId,
+              courseName: j.courseName,
               phase: j.phase as PipelinePhase,
               status: j.status as ProcessingStatus,
               progress: j.progress,
@@ -421,7 +507,7 @@ export function GlobalPipelineBanner() {
     return () => {
       cancelled = true;
     };
-  }, [hydrateJobs]);
+  }, [hydrateJobs, currentCourseId]);
 
   // --- Polling effect --------------------------------------------------
   // A single timer iterates the active jobs and polls each. The
@@ -483,32 +569,40 @@ export function GlobalPipelineBanner() {
   }, [hydrated, activeKey]);
 
   // --- Completion / failure toasts -------------------------------------
-  // One toast per job, per (jobId × status) transition. We track
-  // which completions/failures we've already announced via a ref so
-  // re-renders don't double-fire.
+  // One toast per pipeline run, per (groupKey × terminal-status)
+  // transition. We track which (groupKey × status) combinations
+  // we've already announced via a ref so re-renders don't
+  // double-fire. v1.9 / Issue 2: the announcement used to fire
+  // per-job, so a 4-phase pipeline produced up to 4 success
+  // toasts. Now we fire exactly ONE toast per pipeline run, keyed
+  // on the groupKey so concurrent runs in different courses don't
+  // collide.
   useEffect(() => {
-    for (const [, job] of jobs) {
-      if (completionAnnouncedRef.current.has(job.jobId)) continue;
-      if (job.isComplete) {
-        completionAnnouncedRef.current.add(job.jobId);
+    const groups = getBannerGroups({ jobs });
+    for (const group of groups) {
+      const rep = group.representative;
+      const terminalKey = `${group.groupKey}:${rep.status}`;
+      if (completionAnnouncedRef.current.has(terminalKey)) continue;
+      if (rep.isComplete) {
+        completionAnnouncedRef.current.add(terminalKey);
         toast({
           title: "Árbol conceptual generado",
           description: "El árbol está listo. Revisa la página del curso.",
           variant: "success",
         });
-      } else if (job.status === "cancelled") {
-        completionAnnouncedRef.current.add(job.jobId);
+      } else if (rep.status === "cancelled") {
+        completionAnnouncedRef.current.add(terminalKey);
         toast({
           title: "Trabajo cancelado",
           description: "Has detenido el trabajo en curso.",
           variant: "info",
         });
-      } else if (job.hasFailed) {
-        completionAnnouncedRef.current.add(job.jobId);
+      } else if (rep.hasFailed) {
+        completionAnnouncedRef.current.add(terminalKey);
         toast({
           title: "El pipeline falló",
           description:
-            job.error ??
+            rep.error ??
             "Se produjo un error al generar el árbol conceptual.",
           variant: "error",
         });
@@ -516,10 +610,15 @@ export function GlobalPipelineBanner() {
     }
   }, [jobs, toast]);
 
-  // Filter to active jobs and stack them.
-  const active = getActiveJobs({ jobs });
+  // Group active jobs by runId (or courseId as a fallback). The
+  // banner renders ONE row per group, collapsing the 4 phase jobs
+  // of a single user-triggered pipeline run into a single banner
+  // that updates its phase / progress in place. This is the v1.9
+  // / Issue 2 fix — the previous design rendered 1 banner per
+  // phase, stacking 4 banners during a real run.
+  const groups = getBannerGroups({ jobs });
 
-  if (active.length === 0) return null;
+  if (groups.length === 0) return null;
 
   const handleStop = async (jobId: string) => {
     // Optimistic UI: flip the local store immediately so the button
@@ -566,31 +665,31 @@ export function GlobalPipelineBanner() {
   return (
     <div
       data-testid="global-pipeline-banner-stack"
-      data-count={active.length}
+      data-count={groups.length}
       className="pointer-events-none fixed inset-x-0 z-[60] flex flex-col items-center gap-2 px-3"
       style={{
         bottom: `${BANNER_BASE_OFFSET_PX}px`,
       }}
     >
-      {active.map((job, idx) => (
+      {groups.map((group, idx) => (
         <div
-          key={job.jobId}
+          key={group.groupKey}
           className="pointer-events-auto w-full max-w-6xl"
         >
           <PipelineJobBanner
-            job={job}
+            group={group}
             index={idx}
-            onDismiss={(jobId) => dismissJob(jobId)}
-            onStop={handleStop}
-            onRetry={(jobId) => {
+            onDismissGroup={(groupKey) => dismissByGroupKey(groupKey)}
+            onStopActive={(jobId) => handleStop(jobId)}
+            onRetryGroup={(groupKey) => {
               // For the root-cause fix, the "Reintentar" button
-              // simply dismisses the stuck/failed banner. A real
-              // retry would call startPipelineAction again, but
-              // that requires a courseId which the banner may not
-              // have. Marking the job as dismissed is the safest
-              // default — the user can re-trigger from the tree
-              // page.
-              usePipelineStore.getState().removeJob(jobId);
+              // simply dismisses the stuck/failed banner for the
+              // whole pipeline run. A real retry would call
+              // startPipelineAction again, but that requires a
+              // courseId which the banner may not have. Marking
+              // the group as dismissed is the safest default —
+              // the user can re-trigger from the tree page.
+              usePipelineStore.getState().removeByGroupKey(groupKey);
               toast({
                 title: "Trabajo descartado",
                 description:

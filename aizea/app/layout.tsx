@@ -1,13 +1,35 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/toast";
 import { GlobalPipelineBanner } from "@/components/PipelineProgress/GlobalPipelineBanner";
+import { NavJobsButton } from "@/components/NavJobsButton";
+import { JobsSidebar } from "@/components/JobsSidebar";
 import { Home, Settings } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "AIzea — Preparación de Materiales Docentes",
   description:
     "Asistente IA para generar diapositivas, narrativas y ejercicios a partir de libros de texto en PDF.",
+  applicationName: "AIzea",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "AIzea",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/pwa-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/pwa-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#3b82f6",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -27,7 +49,7 @@ export default function RootLayout({
          */}
         <GlobalPipelineBanner />
         <header
-          className="sticky border-b bg-white/80 backdrop-blur-sm"
+          className="sticky z-50 border-b bg-white/80 backdrop-blur-sm"
           style={{ top: "var(--pipeline-banner-h, 0px)" }}
         >
           <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
@@ -46,6 +68,10 @@ export default function RootLayout({
                 <Home className="h-4 w-4" />
                 <span className="hidden sm:inline">Inicio</span>
               </a>
+              {/* v1.11 — Jobs nav button. Client component; opens
+                  the right-side drawer on click and shows a hover
+                  preview of active jobs for the current course. */}
+              <NavJobsButton />
               <a
                 href="/settings"
                 className="flex items-center gap-1.5 hover:text-foreground transition-colors"
@@ -58,6 +84,10 @@ export default function RootLayout({
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+        {/* v1.11 — Jobs drawer. Mounted once at the layout level
+            so any page (including the dedicated /jobs page) can
+            pop the drawer open. Renders nothing when closed. */}
+        <JobsSidebar />
         <Toaster />
       </body>
     </html>
