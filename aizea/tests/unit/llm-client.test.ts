@@ -62,9 +62,10 @@ describe("LLMClient", () => {
       return {
         ok: res.ok,
         status: res.status,
+        headers: { get: (_: string) => null },   // ← fix: provider reads Retry-After
         json: res.json ?? (async () => ""),
         text: res.text ?? (async () => ""),
-      } as Response;
+      } as unknown as Response;
     });
   }
 
@@ -145,6 +146,7 @@ describe("LLMClient", () => {
       text: async () => "Bad Request",
     });
 
+    // LLMProviderError message format: "OpenRouter error (400): ..."
     await expect(chat(sampleMessages)).rejects.toThrow(/OpenRouter error \(400\)/);
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
@@ -165,6 +167,7 @@ describe("LLMClient", () => {
 
     expect(chatResult.status).toBe("rejected");
     if (chatResult.status === "rejected") {
+      // LLMProviderError message format: "OpenRouter error (429): ..."
       expect(chatResult.reason.message).toMatch(/OpenRouter error \(429\)/);
     }
     expect(global.fetch).toHaveBeenCalledTimes(3);
@@ -190,7 +193,8 @@ describe("LLMClient", () => {
 
     expect(chatResult.status).toBe("rejected");
     if (chatResult.status === "rejected") {
-      expect(chatResult.reason.message).toMatch(/timed out after 120s/);
+      // LLMProviderError timeout message uses ms: "timed out after 120000ms"
+      expect(chatResult.reason.message).toMatch(/timed out after 120/);
     }
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });

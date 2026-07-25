@@ -112,42 +112,50 @@ function mockDoclingResponse(document: unknown, status = 200) {
 
 describe("LayoutParser", () => {
   let parser: LayoutParser;
-  const originalEnv = process.env.DOCLING_SERVE_URL;
+  const originalEnv = process.env.DOCLING_BASE_URL;
 
   beforeEach(() => {
     parser = new LayoutParser({ baseUrl: "http://docling.test:5001" });
     mockFetch.mockReset();
-    delete process.env.DOCLING_SERVE_URL;
+    delete process.env.DOCLING_BASE_URL;
   });
 
   afterEach(() => {
     if (originalEnv === undefined) {
-      delete process.env.DOCLING_SERVE_URL;
+      delete process.env.DOCLING_BASE_URL;
     } else {
-      process.env.DOCLING_SERVE_URL = originalEnv;
+      process.env.DOCLING_BASE_URL = originalEnv;
     }
   });
 
   describe("constructor", () => {
     it("uses provided baseUrl when given", () => {
       const p = new LayoutParser({ baseUrl: "http://x:1234" });
-      expect((p as unknown as { baseUrl: string }).baseUrl).toBe(
+      // staticBaseUrl holds the eager-resolved value when baseUrl is given directly
+      expect((p as unknown as { staticBaseUrl: string }).staticBaseUrl).toBe(
         "http://x:1234"
       );
     });
 
-    it("falls back to DOCLING_SERVE_URL env var", () => {
-      process.env.DOCLING_SERVE_URL = "http://env-host:9999";
+    it("falls back to DOCLING_BASE_URL env var", async () => {
+      process.env.DOCLING_BASE_URL = "http://env-host:9999";
       const p = new LayoutParser();
-      expect((p as unknown as { baseUrl: string }).baseUrl).toBe(
-        "http://env-host:9999"
+      // No staticBaseUrl — resolution is lazy. Verify via checkHealth call URL.
+      mockFetch.mockResolvedValueOnce({ ok: true } as Response);
+      await p.checkHealth();
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://env-host:9999/health",
+        expect.anything()
       );
     });
 
-    it("falls back to http://localhost:5001 when no config", () => {
+    it("falls back to http://127.0.0.1:5001 when no config", async () => {
       const p = new LayoutParser();
-      expect((p as unknown as { baseUrl: string }).baseUrl).toBe(
-        "http://localhost:5001"
+      mockFetch.mockResolvedValueOnce({ ok: true } as Response);
+      await p.checkHealth();
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:5001/health",
+        expect.anything()
       );
     });
   });

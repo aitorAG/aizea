@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 enum SlideStatus {
@@ -21,11 +21,12 @@ model Course {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  materials  Material[]
-  slides     Slide[]
-  figures    Figure[]
-  topicNodes TopicNode[]
-  topicGroups TopicGroup[]
+  materials      Material[]
+  slides         Slide[]
+  figures        Figure[]
+  topicNodes     TopicNode[]
+  topicGroups    TopicGroup[]
+  processingJobs ProcessingJob[]
 }
 
 model Material {
@@ -68,6 +69,7 @@ model Slide {
   @@index([courseId, order])
   @@index([courseId, status])
   @@index([courseId, parentSlideId])
+  @@index([sourceNodeId])
 }
 
 model SlideBox {
@@ -153,6 +155,7 @@ model TopicNode {
 
   @@index([courseId, parentId])
   @@index([courseId, version])
+  @@index([courseId, isLeaf])
 }
 
 model TopicGroup {
@@ -190,10 +193,12 @@ model ProcessingJob {
   currentStep String?
   error       String?
   courseId    String?
+  course      Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
   materialId  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([type, status])
   @@index([courseId, createdAt])
+  @@index([status, updatedAt])
 }

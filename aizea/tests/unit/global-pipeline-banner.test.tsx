@@ -126,7 +126,7 @@ describe("<GlobalPipelineBanner /> — visibility", () => {
 });
 
 describe("<GlobalPipelineBanner /> — hydration on mount", () => {
-  it("calls listActiveJobsAction once on mount and hydrates the store", async () => {
+  it("calls listActiveJobsAction on mount and hydrates the store", async () => {
     mockListActiveJobs.mockResolvedValue({
       ok: true,
       jobs: [
@@ -153,7 +153,11 @@ describe("<GlobalPipelineBanner /> — hydration on mount", () => {
       await new Promise((r) => setTimeout(r, 0));
     });
 
-    expect(mockListActiveJobs).toHaveBeenCalledTimes(1);
+    // The mount hydration calls it once. Because the hydrated job is
+    // `running` for the current course, the discovery re-list effect
+    // also fires (that is the fix for the 0%-stuck progress bar), so
+    // the action is called at least once — not exactly once.
+    expect(mockListActiveJobs).toHaveBeenCalled();
     const job = usePipelineStore.getState().jobs.get("from-server-1");
     expect(job).toBeDefined();
     expect(job?.phase).toBe("segmentation");

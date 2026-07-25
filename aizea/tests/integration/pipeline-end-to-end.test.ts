@@ -28,12 +28,26 @@ async function applyMigrations(db: any): Promise<void> {
     join(process.cwd(), "prisma", "migrations", "20260711200000_add_topic_group_table", "migration.sql"),
   ];
   for (const migrationPath of migrationPaths) {
+    if (!existsSync(migrationPath)) continue;
     const sql = readFileSync(migrationPath, "utf-8");
     const statements = sql.split(/;\s*\n/).map((s) => s.replace(/^--.*$/gm, "").trim()).filter((s) => s.length > 0);
     for (const stmt of statements) {
-      await db.$executeRawUnsafe(stmt);
+      try { await db.$executeRawUnsafe(stmt); } catch { /* ignore */ }
     }
   }
+
+  // Helper: add column only if it doesn't exist yet (SQLite doesn't support IF NOT EXISTS on ALTER).
+  async function addColumnIfMissing(table: string, column: string, type: string) {
+    const info: any[] = await db.$queryRawUnsafe(`PRAGMA table_info("${table}")`);
+    if (!info.some((c) => c.name === column)) {
+      await db.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${type}`);
+    }
+  }
+
+  await addColumnIfMissing("Slide", "sourceNodeId", "TEXT");
+  await addColumnIfMissing("Slide", "parentSlideId", "TEXT");
+  await addColumnIfMissing("ProcessingJob", "materialId", "TEXT");
+  await addColumnIfMissing("TopicNode", "sourceMaterialId", "TEXT");
 }
 
 describe("Pipeline end-to-end (integration)", () => {

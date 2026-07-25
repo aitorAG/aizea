@@ -509,6 +509,95 @@ export function GlobalPipelineBanner() {
     };
   }, [hydrateJobs, currentCourseId]);
 
+  // --- Discovery re-list effect ---------------------------------------
+  // The pipeline runs IN-PROCESS and synchronously inside
+  // `startPipelineAction` (BullMQ was removed in MOD-04). While it
+  // runs, the PipelineService writes each phase's ProcessingJob row
+  // to the DB in real time (each startPhase/updateProgress is an
+  // immediate commit, visible to other connections via SQLite WAL).
+  //
+  // The tree-client only holds a synthetic `pending:${runId}`
+  // placeholder until the action RETURNS (which, for a synchronous
+  // 1-3 min pipeline, is when everything is already `completed`).
+  // Without re-listing, the banner polls the fake placeholder id,
+  // gets `!ok`, and the progress bar sits at 0% "Iniciando pipeline…"
+  // for the whole run — even though the server is making progress.
+  //
+  // Fix: while there is any in-flight job for the current course,
+  // re-list active jobs by courseId on a short interval so the real
+  // phase rows are DISCOVERED and hydrated into the store as soon as
+  // the pipeline creates them. This is purely client-side and works
+  // identically in local dev and the desktop build (both run the
+  // same in-process pipeline).
+  const hasInflight = useMemo(() => {
+    for (const job of jobs.values()) {
+      if (job.dismissed) continue;
+      if (job.status === "pending" || job.status === "running") return true;
+    }
+    return false;
+  }, [jobs]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!hasInflight) return;
+    if (!currentCourseId) return;
+    let cancelled = false;
+    const relist = async () => {
+      if (cancelled) return;
+      try {
+        const result = await listActiveJobsAction({
+          courseId: currentCourseId,
+        });
+        if (cancelled || !result.ok || result.jobs.length === 0) return;
+        // Inherit the runId of the placeholder (or any in-flight job)
+        // for this course so the discovered real phase rows collapse
+        // into the SAME banner group as the placeholder. Without this
+        // the placeholder groups under `run:${runId}` while the
+        // server rows (no runId) group under `course:${courseId}`,
+        // producing two stacked banners for one run.
+        let inheritedRunId: string | null = null;
+        for (const job of usePipelineStore.getState().jobs.values()) {
+          if (job.dismissed) continue;
+          if (job.courseId !== currentCourseId) continue;
+          if (job.runId) {
+            inheritedRunId = job.runId;
+            break;
+          }
+        }
+        hydrateJobs(
+          result.jobs.map((j) => ({
+            jobId: j.jobId,
+            runId: inheritedRunId,
+            courseId: j.courseId,
+            courseName: j.courseName,
+            phase: j.phase as PipelinePhase,
+            status: j.status as ProcessingStatus,
+            progress: j.progress,
+            currentStep: j.currentStep,
+            error: j.error,
+            startedAt: j.startedAt,
+            lastProgressAt: j.updatedAt,
+          }))
+        );
+        // Once real phase rows have been discovered, drop the
+        // synthetic placeholder so the banner stops showing a
+        // stalled "Iniciando pipeline…" row alongside the real one.
+        const store = usePipelineStore.getState();
+        for (const [jobId] of store.jobs) {
+          if (jobId.startsWith("pending:")) store.removeJob(jobId);
+        }
+      } catch {
+        // best-effort; the per-job poll loop still runs
+      }
+    };
+    const id = setInterval(relist, POLL_INTERVAL_MS);
+    void relist();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [hydrated, hasInflight, currentCourseId, hydrateJobs]);
+
   // --- Polling effect --------------------------------------------------
   // A single timer iterates the active jobs and polls each. The
   // effect is keyed on `hydrated` and a stable hash of the active

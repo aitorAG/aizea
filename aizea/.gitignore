@@ -44,3 +44,11 @@ public/uploads/*
 !public/uploads/.gitkeep
 public/figures/*
 !public/figures/.gitkeep
+
+# playwright e2e
+/test-results
+/playwright-report
+/e2e/.artifacts
+
+# tauri sidecar binary (build artifact, ~87MB — regenerable, no en git)
+src-tauri/binaries/

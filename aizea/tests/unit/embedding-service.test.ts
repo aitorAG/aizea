@@ -165,6 +165,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
         return {
           ok: false,
           status: 429,
+          headers: { get: () => null },
           json: async () => ({}),
           text: async () => "rate limited",
         };
@@ -172,6 +173,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
       return {
         ok: true,
         status: 200,
+        headers: { get: () => null },
         json: async () => ({ data: [{ embedding: [1, 2, 3] }] }),
         text: async () => "",
       };
@@ -193,11 +195,13 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
     global.fetch = vi.fn(async () => ({
       ok: false,
       status: 429,
+      headers: { get: () => null },
       json: async () => ({}),
       text: async () => "still rate limited",
     })) as unknown as typeof fetch;
     const svc = new EmbeddingService();
-    await expect(svc.embed("doomed")).rejects.toThrow(/OpenRouter error \(429\)/);
+    // LLMProviderError message: "OpenRouter embeddings error (429): still rate limited"
+    await expect(svc.embed("doomed")).rejects.toThrow(/429/);
     expect(global.fetch).toHaveBeenCalledTimes(3);
   });
 

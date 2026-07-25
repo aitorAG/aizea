@@ -513,27 +513,93 @@ function SlidesClient({
   // v1.5 / Task 4.3 — Direct PDF download from the slides list.
   // Calls the server action which renders every slide as one A4
   // page (slide HTML only, no text boxes) and returns a base64
-  // PDF. We convert it to a Blob and trigger a browser download
-  // — the simplest way to deliver a binary file from a server
-  // action without round-tripping through a separate API route.
+  // PDF (when Playwright is available) or a full HTML document
+  // (desktop fallback) that the user can print to PDF via Ctrl+P.
   const handleExportPdf = useCallback(async () => {
     setExportingPdf(true);
     try {
-      const { pdf, filename } = await exportAllSlidesPdfAction(courseId);
-      // Decode base64 → binary string → Uint8Array → Blob.
-      const binary = atob(pdf);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      toast({ title: "PDF exportado", variant: "success" });
+      const result = await exportAllSlidesPdfAction(courseId);
+
+      if (result.html && !result.pdf) {
+        // Desktop fallback: render the HTML in a hidden iframe and
+        // trigger its print dialog. This avoids the popup blocker
+        // that blocks `window.open()` after an async server action
+        // (the user gesture is lost). WebView2 on Windows exposes
+        // "Guardar como PDF" / "Microsoft Print to PDF" in the print
+        // dialog, so the user gets a real PDF without Playwright.
+        const iframe = document.createElement("iframe");
+        iframe.style.position = "fixed";
+        iframe.style.right = "0";
+        iframe.style.bottom = "0";
+        iframe.style.width = "0";
+        iframe.style.height = "0";
+        iframe.style.border = "0";
+        document.body.appendChild(iframe);
+
+        const cleanup = () => {
+          // Remove the iframe a little after printing so the print
+          // dialog has time to capture its contents.
+          setTimeout(() => iframe.remove(), 1000);
+        };
+
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+          doc.open();
+          doc.write(result.html);
+          doc.close();
+          // Wait for the iframe (KaTeX CDN + layout) to settle, then
+          // focus it and print. Guard so print fires exactly once
+          // whether it's triggered by onload or the fallback timer.
+          let printed = false;
+          const triggerPrint = () => {
+            if (printed) return;
+            printed = true;
+            try {
+              iframe.contentWindow?.focus();
+              iframe.contentWindow?.print();
+              toast({
+                title: "Diálogo de impresión abierto",
+                description: "Elige 'Guardar como PDF' como destino",
+                variant: "info",
+              });
+            } catch {
+              toast({
+                title: "Error al imprimir",
+                description: "Usa 'Exportar HTML' e imprime desde el navegador",
+                variant: "error",
+              });
+            } finally {
+              cleanup();
+            }
+          };
+          // Give KaTeX auto-render ~800ms to rasterise formulas.
+          iframe.onload = () => setTimeout(triggerPrint, 800);
+          // Fallback in case onload already fired (cached CDN).
+          setTimeout(triggerPrint, 1500);
+        } else {
+          iframe.remove();
+          toast({
+            title: "Error al exportar PDF",
+            description: "No se pudo preparar el documento para imprimir",
+            variant: "error",
+          });
+        }
+      } else {
+        // Web deployment: download the base64 PDF directly.
+        const binary = atob(result.pdf);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = result.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        toast({ title: "PDF exportado", variant: "success" });
+      }
     } catch (err) {
       toast({
         title: "Error al exportar PDF",

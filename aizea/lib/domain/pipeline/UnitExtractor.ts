@@ -75,17 +75,23 @@ export class UnitExtractor {
     // for filename/page, but we keep LLM-supplied caption if present.
     const figures: Figure[] = this.mergeFigures(dbFigures, llmFigures);
 
-    const now = new Date();
-    const row = await db.unitRepresentation.create({
-      data: {
-        unitId: unit.id,
-        concepts: JSON.stringify(concepts),
-        mainIdeas: JSON.stringify(mainIdeas),
-        formulas: JSON.stringify(formulas),
-        figures: JSON.stringify(figures),
-        prerequisites: JSON.stringify(this.normaliseNames(response.prerequisites)),
-        introduces: JSON.stringify(this.normaliseNames(response.introduces)),
-      },
+    // Upsert (not create) so the extraction phase is idempotent. If a
+    // previous pipeline run failed partway through — e.g. a later unit
+    // threw — the UnitRepresentation rows already written must not cause a
+    // "Unique constraint failed on unitId" crash when the user retries.
+    // Re-running extraction on a unit simply refreshes its representation.
+    const data = {
+      concepts: JSON.stringify(concepts),
+      mainIdeas: JSON.stringify(mainIdeas),
+      formulas: JSON.stringify(formulas),
+      figures: JSON.stringify(figures),
+      prerequisites: JSON.stringify(this.normaliseNames(response.prerequisites)),
+      introduces: JSON.stringify(this.normaliseNames(response.introduces)),
+    };
+    const row = await db.unitRepresentation.upsert({
+      where: { unitId: unit.id },
+      create: { unitId: unit.id, ...data },
+      update: data,
     });
 
     return {
@@ -175,13 +181,18 @@ export class UnitExtractor {
   private async loadFiguresForUnit(unit: SemanticUnit): Promise<Figure[]> {
     if (unit.pageStart == null || unit.pageEnd == null) return [];
     try {
+      // Resolve the courseId from the material so we never mix figures
+      // across courses (the cross-course leak bug: filtering only by pageNum
+      // would return figures from any course whose pages overlap).
+      const material = await db.material.findUnique({
+        where: { id: unit.materialId },
+        select: { courseId: true },
+      });
+      if (!material) return [];
+
       const rows = await db.figure.findMany({
         where: {
-          // The figure table has courseId; we need to filter by material's course.
-          // Use a tolerant query: figures whose pageNum is within the unit's range.
-          // The courseId is on the material — but Figure.findMany is used here
-          // as a stand-in for the real filter. We match by pageNum first and
-          // apply course filter in the SQL where possible.
+          courseId: material.courseId, // CRITICAL: scope to this course only
           pageNum: {
             gte: unit.pageStart,
             lte: unit.pageEnd,

@@ -1,9 +1,10 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { extractFigureReferences } from "@/lib/figures";
+import { extractFigureReferences } from "@/lib/domain/figures/figure-references";
 import { FigureExtractor } from "@/lib/domain/figures/FigureExtractor";
 import { revalidatePath } from "next/cache";
+import { ValidationError } from "@/lib/actions/_action-error";
 
 const figureExtractor = new FigureExtractor();
 
@@ -16,19 +17,17 @@ export async function extractFigureRefs(
   });
 
   if (materials.length === 0) {
-    throw new Error("No hay materiales subidos. Sube un PDF primero.");
+    throw new ValidationError("No hay materiales subidos. Sube un PDF primero.");
   }
 
   const combinedText = materials.map((m) => m.content).join("\n\n");
   const refs = extractFigureReferences(combinedText);
 
   if (refs.length === 0) {
-    throw new Error(
+    throw new ValidationError(
       "No se encontraron referencias a figuras en el material."
     );
   }
-
-  await db.figure.deleteMany({ where: { courseId } });
 
   const figures = refs.map((ref) => ({
     courseId,
@@ -38,7 +37,12 @@ export async function extractFigureRefs(
     tags: JSON.stringify(["pendiente"]),
   }));
 
-  await db.figure.createMany({ data: figures });
+  // Wrap delete + create in a transaction so the course never has zero
+  // figures between the two operations.
+  await db.$transaction([
+    db.figure.deleteMany({ where: { courseId } }),
+    db.figure.createMany({ data: figures }),
+  ]);
 
   revalidatePath(`/courses/${courseId}/figures`);
   return { count: figures.length };

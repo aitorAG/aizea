@@ -1,23 +1,25 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AIzea",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.aizea.app",
   "build": {
-    "frontendDist": "../out",
-    "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "frontendDist": "../.next/standalone/public",
+    "devUrl": "http://localhost:3001",
+    "beforeDevCommand": "pnpm dev --port 3001"
   },
   "app": {
     "windows": [
       {
         "label": "main",
         "title": "AIzea",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "url": "http://localhost:1422"
       }
     ],
     "security": {
@@ -26,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,8 +36,17 @@
     ],
     "publisher": "AIzea",
     "category": "Education",
-    "android": {
-      "debugApplicationIdSuffix": ".debug"
+    "externalBin": ["binaries/node"],
+    "resources": {
+      "../.next/standalone": "standalone"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      },
+      "wix": {
+        "language": "es-ES"
+      }
     }
   }
 }
