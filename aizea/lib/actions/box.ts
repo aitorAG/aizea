@@ -1,28 +1,28 @@
 "use server";
 
-import { db } from "@/lib/db";
-import { SlideService } from "@/lib/application/SlideService";
+import { container } from "@/lib/composition/container";
+import { SlideBoxService } from "@/lib/application/SlideBoxService";
 import { revalidatePath } from "next/cache";
 import { type GeneratedBoxes } from "@/lib/types";
 
-const slideService = new SlideService();
+const slideBoxService = new SlideBoxService();
 
 export async function updateBox(boxId: string, content: string) {
-  const box = await slideService.updateBox(boxId, content);
-  const slide = await db.slide.findUnique({ where: { id: box.slideId } });
-  if (slide) revalidatePath(`/courses/${slide.courseId}/slides/${slide.id}`);
+  const box = await slideBoxService.updateBox(boxId, content);
+  const row = await container.slides.findCourseIdById(box.slideId);
+  if (row) revalidatePath(`/courses/${row.courseId}/slides/${box.slideId}`);
   return box;
 }
 
 export async function getBoxesForSlide(slideId: string) {
-  return slideService.getBoxesForSlide(slideId);
+  return slideBoxService.getBoxesForSlide(slideId);
 }
 
 export async function initializeBoxesForSlide(
   slideId: string,
   boxes: GeneratedBoxes
 ) {
-  await slideService.initializeBoxesForSlide(slideId, boxes);
-  const slide = await db.slide.findUnique({ where: { id: slideId } });
-  if (slide) revalidatePath(`/courses/${slide.courseId}/slides/${slideId}`);
+  await slideBoxService.initializeBoxesForSlide(slideId, boxes);
+  const row = await container.slides.findCourseIdById(slideId);
+  if (row) revalidatePath(`/courses/${row.courseId}/slides/${slideId}`);
 }

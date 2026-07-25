@@ -1,5 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+// Mock config-service so EmbeddingService resolves the sentinel key without DB.
+vi.mock("@/lib/config-service", () => ({
+  getApiKey:  vi.fn(async () => "test-api-key"),
+  getChatModel: vi.fn(async () => "deepseek/deepseek-chat"),
+  getEmbedModel: vi.fn(async () => "openai/text-embedding-3-small"),
+  getDoclingBaseUrl: vi.fn(async () => "http://127.0.0.1:5001"),
+  getSettings: vi.fn(async () => ({
+    apiKey: "test-api-key",
+    chatModel: "deepseek/deepseek-chat",
+    embedModel: "openai/text-embedding-3-small",
+    doclingBaseUrl: "http://127.0.0.1:5001",
+    fromDb: false,
+  })),
+  invalidateConfigCache: vi.fn(),
+  _setCacheForTesting: vi.fn(),
+  DEFAULT_CHAT_MODEL: "deepseek/deepseek-chat",
+  DEFAULT_EMBED_MODEL: "openai/text-embedding-3-small",
+  DEFAULT_DOCLING_BASE_URL: "http://127.0.0.1:5001",
+  DEFAULT_API_KEY_FALLBACK: "test-api-key",
+  CONFIG_CACHE_TTL_MS: 30_000,
+}));
+
 // Ensure OPENROUTER_API_KEY is set before dynamic imports of config
 const ORIGINAL_API_KEY = process.env.OPENROUTER_API_KEY;
 

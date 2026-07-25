@@ -3,6 +3,7 @@ import { PDFService, PDFImage } from "@/lib/domain/pdf/PDFService";
 import { compressToWebP } from "@/lib/domain/utils/image-compressor";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { getUploadsDir } from "@/lib/paths";
 
 export interface ExtractedFigure {
   id: string;
@@ -17,7 +18,9 @@ export class FigureExtractor {
 
   constructor(pdfService?: PDFService, figuresDir?: string) {
     this.pdfService = pdfService ?? new PDFService();
-    this.figuresDir = figuresDir ?? path.resolve(process.cwd(), "public", "figures");
+    // Store figures alongside uploads in the data dir so they survive
+    // in the writable location on desktop (.exe/.msi) installs.
+    this.figuresDir = figuresDir ?? path.join(getUploadsDir(), "figures");
   }
 
   async extractAndSave(

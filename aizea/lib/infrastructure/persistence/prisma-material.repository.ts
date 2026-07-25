@@ -23,6 +23,7 @@ import {
   type Material,
 } from "@/lib/application/ports/material-repository.port";
 import { materialFromRow } from "@/lib/domain/entities/material";
+import { getUploadsDir } from "@/lib/paths";
 
 export interface PrismaMaterialRepositoryOptions {
   /** Override the uploads directory. Tests can point this at a
@@ -30,16 +31,13 @@ export interface PrismaMaterialRepositoryOptions {
   uploadsDir?: string;
 }
 
-/** Resolve the on-disk location of a material's original bytes. */
-function defaultUploadsDir(): string {
-  return join(process.cwd(), "public", "uploads");
-}
-
 export class PrismaMaterialRepository implements IMaterialRepository {
   private readonly uploadsDir: string;
 
   constructor(options: PrismaMaterialRepositoryOptions = {}) {
-    this.uploadsDir = options.uploadsDir ?? defaultUploadsDir();
+    // Use the centralised resolver that respects AIZEA_DATA_DIR in
+    // desktop builds; fall back to the web-mode public/uploads path.
+    this.uploadsDir = options.uploadsDir ?? getUploadsDir();
   }
 
   async findById(id: string): Promise<Material | null> {

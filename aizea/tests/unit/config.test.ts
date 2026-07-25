@@ -41,8 +41,11 @@ describe("config", () => {
     expect(config.database.url).toBe("file:/tmp/prod.db");
   });
 
-  it("throws a descriptive error when OPENROUTER_API_KEY is missing", async () => {
+  it("starts without throwing when OPENROUTER_API_KEY is missing (desktop mode)", async () => {
     delete process.env.OPENROUTER_API_KEY;
-    await expect(import("@/lib/config")).rejects.toThrow(/OPENROUTER_API_KEY/);
+    // MOD-06: The import-time throw was replaced with a console.warn so the
+    // desktop app can boot without a pre-configured API key.
+    const mod = await import("@/lib/config");
+    expect(mod.config.openrouter.apiKey).toBeUndefined();
   });
 });

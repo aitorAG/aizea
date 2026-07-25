@@ -46,3 +46,39 @@ export class ValidationError extends AppError {
     Object.setPrototypeOf(this, ValidationError.prototype);
   }
 }
+
+export class NotFoundError extends AppError {
+  constructor(resource: string, id: string) {
+    super(`${resource} not found: ${id}`, "NOT_FOUND", 404, false);
+    this.name = "NotFoundError";
+    this.resource = resource;
+    this.resourceId = id;
+    Object.setPrototypeOf(this, NotFoundError.prototype);
+  }
+  readonly resource: string;
+  readonly resourceId: string;
+}
+
+export class ConflictError extends AppError {
+  constructor(message: string) {
+    super(message, "CONFLICT", 409, false);
+    this.name = "ConflictError";
+    Object.setPrototypeOf(this, ConflictError.prototype);
+  }
+}
+
+export class UnauthorizedError extends AppError {
+  constructor(message = "Unauthorized") {
+    super(message, "UNAUTHORIZED", 401, false);
+    this.name = "UnauthorizedError";
+    Object.setPrototypeOf(this, UnauthorizedError.prototype);
+  }
+}
+
+export class NotImplementedError extends AppError {
+  constructor(feature: string) {
+    super(`${feature} is not implemented yet`, "NOT_IMPLEMENTED", 501, false);
+    this.name = "NotImplementedError";
+    Object.setPrototypeOf(this, NotImplementedError.prototype);
+  }
+}

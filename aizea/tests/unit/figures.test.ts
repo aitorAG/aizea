@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractFigureReferences } from "@/lib/figures";
+import { extractFigureReferences } from "@/lib/domain/figures/figure-references";
 
 describe("extractFigureReferences", () => {
   it("extracts a figure reference with caption", () => {

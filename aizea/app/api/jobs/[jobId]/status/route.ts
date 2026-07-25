@@ -1,5 +1,6 @@
+// MOD-04: BullMQ removed. This route now reads the ProcessingJob DB row directly.
 import { NextResponse } from "next/server";
-import { JobQueue } from "@/lib/infrastructure/queue/JobQueue";
+import { db } from "@/lib/db";
 
 export async function GET(
   _request: Request,
@@ -7,14 +8,13 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { jobId } = await params;
-    const queue = new JobQueue();
-    const { status, progress } = await queue.getStatus(jobId);
-    await queue.close();
-
-    return NextResponse.json({ status, progress });
+    const job = await db.processingJob.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return NextResponse.json({ error: "Trabajo no encontrado" }, { status: 404 });
+    }
+    return NextResponse.json({ status: job.status, progress: job.progress });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error interno";
-    const statusCode = message === "Trabajo no encontrado" ? 404 : 500;
-    return NextResponse.json({ error: message }, { status: statusCode });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

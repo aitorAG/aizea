@@ -5,16 +5,18 @@ const {
   mockChatJSON,
   mockBuildExtractUnitPrompt,
   mockRenderLatexToPng,
-  mockUnitRepresentationCreate,
+  mockUnitRepresentationUpsert,
   mockUnitRepresentationFindUnique,
   mockFigureFindMany,
+  mockMaterialFindUnique,
 } = vi.hoisted(() => ({
   mockChatJSON: vi.fn(),
   mockBuildExtractUnitPrompt: vi.fn(),
   mockRenderLatexToPng: vi.fn(),
-  mockUnitRepresentationCreate: vi.fn(),
+  mockUnitRepresentationUpsert: vi.fn(),
   mockUnitRepresentationFindUnique: vi.fn(),
   mockFigureFindMany: vi.fn(),
+  mockMaterialFindUnique: vi.fn(),
 }));
 
 vi.mock("@/lib/domain/llm/LLMClient", () => ({
@@ -35,11 +37,17 @@ vi.mock("@/lib/domain/utils/latex-renderer", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     unitRepresentation: {
-      create: mockUnitRepresentationCreate,
+      upsert: mockUnitRepresentationUpsert,
       findUnique: mockUnitRepresentationFindUnique,
     },
     figure: {
       findMany: mockFigureFindMany,
+    },
+    // UnitExtractor.loadFiguresForUnit resolves the unit's courseId via
+    // material.findUnique so figures are scoped to the right course
+    // (cross-course leak fix). The mock must provide it.
+    material: {
+      findUnique: mockMaterialFindUnique,
     },
   },
 }));
@@ -66,7 +74,7 @@ describe("UnitExtractor", () => {
     mockChatJSON.mockReset();
     mockBuildExtractUnitPrompt.mockReset();
     mockRenderLatexToPng.mockReset();
-    mockUnitRepresentationCreate.mockReset();
+    mockUnitRepresentationUpsert.mockReset();
     mockUnitRepresentationFindUnique.mockReset();
     mockFigureFindMany.mockReset();
 
@@ -76,9 +84,11 @@ describe("UnitExtractor", () => {
     });
     mockRenderLatexToPng.mockResolvedValue(Buffer.from("PNG-FAKE"));
     mockFigureFindMany.mockResolvedValue([]);
-    mockUnitRepresentationCreate.mockImplementation(async ({ data }) => ({
+    // The extractor upserts (idempotent). The mock merges create+update
+    // payloads the same way Prisma would, returning the persisted row.
+    mockUnitRepresentationUpsert.mockImplementation(async ({ create }) => ({
       id: randomUUID(),
-      ...data,
+      ...create,
       createdAt: new Date(),
       updatedAt: new Date(),
     }));
@@ -215,11 +225,17 @@ describe("UnitExtractor", () => {
     });
 
     await extractor.extract(sampleUnit);
-    expect(mockUnitRepresentationCreate).toHaveBeenCalled();
-    const data = mockUnitRepresentationCreate.mock.calls[0][0].data;
-    expect(data.unitId).toBe("u-1");
-    expect(typeof data.concepts).toBe("string"); // JSON-stringified
-    expect(JSON.parse(data.concepts)).toEqual([
+    expect(mockUnitRepresentationUpsert).toHaveBeenCalled();
+    const call = mockUnitRepresentationUpsert.mock.calls[0][0];
+    // Idempotent upsert: keyed by unitId, with create+update payloads.
+    expect(call.where.unitId).toBe("u-1");
+    expect(call.create.unitId).toBe("u-1");
+    expect(typeof call.create.concepts).toBe("string"); // JSON-stringified
+    expect(JSON.parse(call.create.concepts)).toEqual([
+      { name: "x", importance: 0.5 },
+    ]);
+    // The update branch must carry the same JSON payload (minus unitId).
+    expect(JSON.parse(call.update.concepts)).toEqual([
       { name: "x", importance: 0.5 },
     ]);
   });
@@ -245,15 +261,24 @@ describe("UnitExtractor", () => {
         createdAt: new Date(),
       },
     ];
-    // Simulate Prisma's pageNum filtering at the mock level.
-    mockFigureFindMany.mockImplementation(async (args: { where?: { pageNum?: { gte?: number; lte?: number } } }) => {
+    // The extractor resolves the unit's courseId from the material
+    // before querying figures (cross-course leak fix). Return the
+    // course the sample figures belong to.
+    mockMaterialFindUnique.mockResolvedValue({ courseId: "c-1" });
+    // Simulate Prisma's courseId + pageNum filtering at the mock level.
+    mockFigureFindMany.mockImplementation(async (args: { where?: { courseId?: string; pageNum?: { gte?: number; lte?: number } } }) => {
+      const courseId = args?.where?.courseId;
       const range = args?.where?.pageNum;
-      if (!range) return allFigures;
-      return allFigures.filter((f) => {
-        if (range.gte != null && (f.pageNum ?? 0) < range.gte) return false;
-        if (range.lte != null && (f.pageNum ?? 0) > range.lte) return false;
-        return true;
-      });
+      let out = allFigures;
+      if (courseId != null) out = out.filter((f) => f.courseId === courseId);
+      if (range) {
+        out = out.filter((f) => {
+          if (range.gte != null && (f.pageNum ?? 0) < range.gte) return false;
+          if (range.lte != null && (f.pageNum ?? 0) > range.lte) return false;
+          return true;
+        });
+      }
+      return out;
     });
     mockChatJSON.mockResolvedValue({
       concepts: [],

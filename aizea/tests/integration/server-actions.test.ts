@@ -53,6 +53,13 @@ vi.mock("@/lib/composition/container", () => ({
     uploadMaterial: {
       execute: vi.fn(),
     },
+    // generate.ts resolves a slide's courseId through the container's
+    // slide repository before delegating to SlideService. The mock must
+    // expose it or the action throws "Cannot read properties of
+    // undefined (reading 'findCourseIdById')".
+    slides: {
+      findCourseIdById: vi.fn().mockResolvedValue("course-1"),
+    },
   },
 }));
 
@@ -123,6 +130,19 @@ vi.mock("@/lib/infrastructure/queue/JobQueue", () => ({
 
 vi.mock("@/lib/db", () => ({
   db: {
+    $transaction: vi.fn().mockImplementation(async (ops) => {
+      // Support both array-of-promises and interactive transaction patterns
+      if (Array.isArray(ops)) return Promise.all(ops);
+      return ops({
+        course: { findUnique: vi.fn().mockResolvedValue(null) },
+        slide: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "slide-1", courseId: "course-1" }), update: vi.fn().mockResolvedValue({ id: "slide-1", courseId: "course-1" }) },
+        material: { delete: vi.fn().mockResolvedValue(undefined) },
+        textChunk: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        slideBox: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), createMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        figure: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), createMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        topicNode: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), createMany: vi.fn().mockResolvedValue({ count: 0 }), findMany: vi.fn().mockResolvedValue([]) },
+      });
+    }),
     course: {
       findUnique: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([]),
@@ -165,7 +185,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/lib/figures", () => ({
+vi.mock("@/lib/domain/figures/figure-references", () => ({
   extractFigureReferences: vi.fn().mockReturnValue([
     { caption: "Figura 1", pageNum: null },
   ]),
@@ -279,12 +299,11 @@ describe("Server Actions delegate to Application Services", () => {
   });
 
   describe("generate.ts", () => {
-    it("generateOutline delegates to SlideService.generateOutlineFromTree and enqueues JobQueue", async () => {
+    it("generateOutline delegates to SlideService.generateOutlineFromTree", async () => {
       const result = await generateOutline("course-1", ["n-1", "n-2"]);
       const service = slideServiceInstances[0];
-      const queue = jobQueueInstances[0];
       expect(service.generateOutlineFromTree).toHaveBeenCalledWith("course-1", ["n-1", "n-2"]);
-      expect(queue.enqueue).toHaveBeenCalledWith("generate-outline", { courseId: "course-1", selectedNodeIds: ["n-1", "n-2"] });
+      // MOD-04: JobQueue removed — no enqueue assertion
       expect(revalidatePath).toHaveBeenCalledWith("/courses/course-1");
       expect(result[0].title).toBe("Slide 1");
     });

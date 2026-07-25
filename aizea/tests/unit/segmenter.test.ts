@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 
-const { mockParse, mockSemanticUnitCreate, mockFigureFindMany, mockExtractText } = vi.hoisted(() => ({
+const { mockParse, mockSemanticUnitCreateMany, mockSemanticUnitFindMany, mockFigureFindMany, mockExtractText } = vi.hoisted(() => ({
   mockParse: vi.fn(),
-  mockSemanticUnitCreate: vi.fn(),
+  mockSemanticUnitCreateMany: vi.fn(),
+  mockSemanticUnitFindMany: vi.fn(),
   mockFigureFindMany: vi.fn(),
   mockExtractText: vi.fn(),
 }));
@@ -26,7 +27,8 @@ vi.mock("@/lib/domain/pdf/PDFService", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     semanticUnit: {
-      create: mockSemanticUnitCreate,
+      createMany: mockSemanticUnitCreateMany,
+      findMany: mockSemanticUnitFindMany,
     },
     figure: {
       findMany: mockFigureFindMany,
@@ -89,17 +91,23 @@ describe("SegmenterService", () => {
   beforeEach(() => {
     service = new SegmenterService();
     mockParse.mockReset();
-    mockSemanticUnitCreate.mockReset();
+    mockSemanticUnitCreateMany.mockReset();
+    mockSemanticUnitFindMany.mockReset();
     mockFigureFindMany.mockReset();
     mockExtractText.mockReset();
 
     // Default mocks
     mockParse.mockResolvedValue(SAMPLE_STRUCTURE);
-    mockSemanticUnitCreate.mockImplementation(async ({ data }) => ({
-      id: randomUUID(),
-      ...data,
-      createdAt: new Date(),
-    }));
+    mockSemanticUnitCreateMany.mockResolvedValue({ count: 3 });
+    // findMany returns rows matching what createMany would have produced.
+    // pageEnd values kept at or below the smallest pageCount used in tests (3).
+    mockSemanticUnitFindMany.mockImplementation(async ({ where }) => {
+      return [
+        { id: randomUUID(), materialId: where.materialId, content: "1. Introduction\n\nIntro content here", order: 0, pageStart: 1, pageEnd: 2, sectionRef: "sec-1", createdAt: new Date() },
+        { id: randomUUID(), materialId: where.materialId, content: "2. Methods\n\nMethods content here", order: 1, pageStart: 2, pageEnd: 3, sectionRef: "sec-2", createdAt: new Date() },
+        { id: randomUUID(), materialId: where.materialId, content: "3. Results\n\nResults content here", order: 2, pageStart: 3, pageEnd: 3, sectionRef: "sec-3", createdAt: new Date() },
+      ];
+    });
     mockFigureFindMany.mockResolvedValue([]);
     // Default extractText: a fake plain text (used by fallback path)
     mockExtractText.mockResolvedValue({
@@ -187,14 +195,15 @@ describe("SegmenterService", () => {
   });
 
   describe("persistence", () => {
-    it("persists each unit to the database via db.semanticUnit.create", async () => {
+    it("persists units to the database via db.semanticUnit.createMany", async () => {
       await service.segment(Buffer.from("x"), "mat-3");
-      expect(mockSemanticUnitCreate).toHaveBeenCalled();
-      const calls = mockSemanticUnitCreate.mock.calls;
-      for (const call of calls) {
-        expect(call[0].data.materialId).toBe("mat-3");
-        expect(call[0].data.content.length).toBeGreaterThan(0);
-        expect(typeof call[0].data.order).toBe("number");
+      expect(mockSemanticUnitCreateMany).toHaveBeenCalled();
+      const [callArg] = mockSemanticUnitCreateMany.mock.calls[0];
+      expect(Array.isArray(callArg.data)).toBe(true);
+      for (const row of callArg.data) {
+        expect(row.materialId).toBe("mat-3");
+        expect(row.content.length).toBeGreaterThan(0);
+        expect(typeof row.order).toBe("number");
       }
     });
 
@@ -208,11 +217,13 @@ describe("SegmenterService", () => {
   });
 
   describe("size constraints", () => {
-    it("does not create empty units", async () => {
+    it("does not persist empty units", async () => {
       await service.segment(Buffer.from("x"), "mat-1");
-      for (const call of mockSemanticUnitCreate.mock.calls) {
-        expect(call[0].data.content).not.toBe("");
-        expect(call[0].data.content.trim().length).toBeGreaterThan(0);
+      expect(mockSemanticUnitCreateMany).toHaveBeenCalled();
+      const [callArg] = mockSemanticUnitCreateMany.mock.calls[0];
+      for (const row of callArg.data) {
+        expect(row.content).not.toBe("");
+        expect(row.content.trim().length).toBeGreaterThan(0);
       }
     });
   });

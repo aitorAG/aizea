@@ -63,14 +63,24 @@ export class SegmenterService {
       pageCount: number;
       hasStructuralMarkup: boolean;
     } | null = null;
-    try {
-      structure = await this.layoutParser.parse(buffer, `${materialId}.pdf`);
-    } catch (err) {
-      console.warn(
-        "[SegmenterService] LayoutParser.parse failed; falling back to text-only segmentation:",
-        err instanceof Error ? err.message : err
-      );
-      structure = null;
+    // Desktop build (MSI) ships WITHOUT docling-serve: it is a heavy
+    // Python service we deliberately do not bundle. The Tauri launcher
+    // sets AIZEA_SKIP_DOCLING=1 so we skip the (guaranteed-to-fail)
+    // Docling round-trip entirely and go straight to the pdf-parse
+    // text-only path — which is fully sufficient (verified: 13 units
+    // from a real PDF in ~750ms). In local/web mode the variable is
+    // unset, so Docling is attempted as before for richer structure.
+    const skipDocling = process.env.AIZEA_SKIP_DOCLING === "1";
+    if (!skipDocling) {
+      try {
+        structure = await this.layoutParser.parse(buffer, `${materialId}.pdf`);
+      } catch (err) {
+        console.warn(
+          "[SegmenterService] LayoutParser.parse failed; falling back to text-only segmentation:",
+          err instanceof Error ? err.message : err
+        );
+        structure = null;
+      }
     }
 
     let candidates: Array<{
@@ -126,45 +136,48 @@ export class SegmenterService {
     }
 
     const now = new Date().toISOString();
-    const created: SemanticUnit[] = [];
-    for (let i = 0; i < filtered.length; i++) {
-      const c = filtered[i];
-      if (this.persist) {
-        const row = await db.semanticUnit.create({
-          data: {
-            materialId,
-            content: c.content,
-            order: i,
-            pageStart: c.pageStart,
-            pageEnd: c.pageEnd,
-            sectionRef: c.sectionRef,
-          },
-        });
-        created.push({
-          id: row.id,
+
+    if (this.persist) {
+      // Use createMany so N units = 1 round-trip instead of N.
+      // createMany in SQLite does not return inserted rows, so we
+      // fetch them back ordered by order index.
+      await db.semanticUnit.createMany({
+        data: filtered.map((c, i) => ({
           materialId,
           content: c.content,
           order: i,
           pageStart: c.pageStart,
           pageEnd: c.pageEnd,
           sectionRef: c.sectionRef,
-          createdAt: row.createdAt.toISOString(),
-        });
-      } else {
-        created.push({
-          id: randomUUID(),
-          materialId,
-          content: c.content,
-          order: i,
-          pageStart: c.pageStart,
-          pageEnd: c.pageEnd,
-          sectionRef: c.sectionRef,
-          createdAt: now,
-        });
-      }
+        })),
+      });
+      const rows = await db.semanticUnit.findMany({
+        where: { materialId },
+        orderBy: { order: "asc" },
+      });
+      return rows.map((row) => ({
+        id: row.id,
+        materialId,
+        content: row.content,
+        order: row.order,
+        pageStart: row.pageStart,
+        pageEnd: row.pageEnd,
+        sectionRef: row.sectionRef,
+        createdAt: row.createdAt.toISOString(),
+      }));
     }
 
-    return created;
+    // Non-persisted path (tests / dry-run): return in-memory objects.
+    return filtered.map((c, i) => ({
+      id: randomUUID(),
+      materialId,
+      content: c.content,
+      order: i,
+      pageStart: c.pageStart,
+      pageEnd: c.pageEnd,
+      sectionRef: c.sectionRef,
+      createdAt: now,
+    }));
   }
 
   // ----- helpers -----

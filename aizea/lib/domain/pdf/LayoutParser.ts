@@ -16,6 +16,12 @@ import type {
 
 export interface LayoutParserOptions {
   baseUrl?: string;
+  /**
+   * Lazy resolver for the base URL. Called on every request so the DB-stored
+   * Docling URL is always respected without making the constructor async.
+   * If both `baseUrl` and `getBaseUrl` are provided, `baseUrl` wins.
+   */
+  getBaseUrl?: () => Promise<string>;
   /** Optional fetch override (testing). */
   fetchImpl?: typeof fetch;
   /** Per-request timeout in ms. */
@@ -72,25 +78,34 @@ type DoclingNode = {
 const NUMBERING_REGEX = /^(\d+(?:\.\d+)*)\.?\s/;
 
 export class LayoutParser {
-  private readonly baseUrl: string;
+  private readonly staticBaseUrl: string | undefined;
+  private readonly getBaseUrl: (() => Promise<string>) | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
   constructor(options: LayoutParserOptions = {}) {
-    const envUrl = process.env.DOCLING_SERVE_URL;
-    this.baseUrl = (
-      options.baseUrl ??
-      envUrl ??
-      "http://localhost:5001"
-    ).replace(/\/+$/, "");
+    // Prefer explicit baseUrl; otherwise use lazy resolver; otherwise fall back
+    // to env var (unified to DOCLING_BASE_URL) or hardcoded default.
+    this.staticBaseUrl = options.baseUrl;
+    this.getBaseUrl = options.getBaseUrl;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? 120_000;
+  }
+
+  /** Resolve the base URL at request time so DB-stored URLs are always used. */
+  private async resolveBaseUrl(): Promise<string> {
+    if (this.staticBaseUrl) return this.staticBaseUrl.replace(/\/+$/, "");
+    if (this.getBaseUrl) return (await this.getBaseUrl()).replace(/\/+$/, "");
+    // Fall back to unified env var (DOCLING_BASE_URL) then hardcoded default.
+    const envUrl = process.env.DOCLING_BASE_URL;
+    return (envUrl ?? "http://127.0.0.1:5001").replace(/\/+$/, "");
   }
 
   /** Health probe against /health. Never throws. */
   async checkHealth(): Promise<boolean> {
     try {
-      const res = await this.fetchImpl(`${this.baseUrl}/health`, {
+      const baseUrl = await this.resolveBaseUrl();
+      const res = await this.fetchImpl(`${baseUrl}/health`, {
         method: "GET",
         signal: AbortSignal.timeout(5_000),
       });
@@ -109,6 +124,7 @@ export class LayoutParser {
     buffer: Buffer,
     filename: string
   ): Promise<DoclingDocumentJson> {
+    const baseUrl = await this.resolveBaseUrl();
     const form = new FormData();
     form.append("files", new Blob([new Uint8Array(buffer)]), filename);
     form.append("from_formats", "pdf");
@@ -117,14 +133,14 @@ export class LayoutParser {
 
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/v1/convert/file`, {
+      res = await this.fetchImpl(`${baseUrl}/v1/convert/file`, {
         method: "POST",
         body: form,
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
       throw new DoclingUnreachableError(
-        `docling-serve unreachable at ${this.baseUrl}: ${
+        `docling-serve unreachable at ${baseUrl}: ${
           err instanceof Error ? err.message : String(err)
         }`,
         err

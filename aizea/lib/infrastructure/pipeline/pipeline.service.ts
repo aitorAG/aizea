@@ -1,12 +1,16 @@
-// PipelineService — Prisma + queue + BullMQ implementation of
+// PipelineService — Prisma-backed, in-process implementation of
 // `IPipelineService`.
 //
 // This is the same orchestrator that used to live in
 // `lib/application/PipelineService.ts`; it has been moved to the
 // infrastructure layer because it is a *concrete implementation*
-// of the pipeline port (Prisma, JobQueue, SegmenterService,
-// UnitExtractor). The use case layer depends on the port
-// (`IPipelineService`) and never on this class.
+// of the pipeline port (Prisma, SegmenterService, UnitExtractor).
+// The use case layer depends on the port (`IPipelineService`) and
+// never on this class.
+//
+// NOTA: la ejecución es in-process (la antigua cola BullMQ/JobQueue
+// fue eliminada en MOD-04). La Fase 2 del plan de reescritura
+// introduce una cola real + worker resumible fuera del request.
 //
 // Responsibilities (unchanged from the previous location):
 //   - Run the four phases in order, with each phase's progress
@@ -23,8 +27,7 @@
 import { db } from "@/lib/db";
 import { SegmenterService } from "@/lib/domain/pipeline/SegmenterService";
 import { UnitExtractor } from "@/lib/domain/pipeline/UnitExtractor";
-import { JobQueue } from "@/lib/infrastructure/queue/JobQueue";
-import { notifyUser } from "@/lib/utils/notify";
+import { InAppNotifier } from "@/lib/infrastructure/notifications/in-app.notifier";
 import type { INotifier } from "@/lib/application/ports/notifier.port";
 import type {
   ActiveJob,
@@ -41,32 +44,9 @@ import type {
 
 const WAVE4_NOT_PRESENT = /Cannot find (module|package)/;
 
-/** Default notifier implementation that delegates to the in-process
- *  pub-sub from `@/lib/utils/notify`. Wrapped in a class so the
- *  `IPipelineService` port accepts it without a structural cast. */
-class LegacyNotifyAdapter {
-  notify(
-    userId: string,
-    message: string,
-    kind: "info" | "success" | "warning" | "error" = "info"
-  ): void {
-    notifyUser(userId, message, kind);
-  }
-}
-const defaultNotifyImpl = new LegacyNotifyAdapter();
-
 export interface PipelineServiceOptions {
   segmenter?: SegmenterService;
   unitExtractor?: UnitExtractor;
-  jobQueue?: JobQueue;
-  /**
-   * If true, the orchestrator directly calls UnitExtractor.extract() for
-   * each unit (synchronous within this process). If false, it enqueues
-   * "extract-unit" jobs that the worker pool will process.
-   *
-   * Default: false (enqueue, parallelise via the queue).
-   */
-  enqueueExtraction?: boolean;
   /**
    * Override the notification emitter. Defaults to `notifyUser` from
    * `@/lib/utils/notify`. Tests inject a spy here to avoid relying on
@@ -94,8 +74,6 @@ const RECENT_JOB_WINDOW_MS = 10 * 60 * 1000;
 export class PipelineService implements IPipelineService {
   private readonly segmenter: SegmenterService;
   private readonly unitExtractor: UnitExtractor;
-  private readonly jobQueue: JobQueue;
-  private enqueueExtraction: boolean;
   private readonly notify: INotifier;
   private readonly notifyUserId: string;
   private readonly notificationsEnabled: boolean;
@@ -103,14 +81,7 @@ export class PipelineService implements IPipelineService {
   constructor(options: PipelineServiceOptions = {}) {
     this.segmenter = options.segmenter ?? new SegmenterService();
     this.unitExtractor = options.unitExtractor ?? new UnitExtractor();
-    this.jobQueue = options.jobQueue ?? new JobQueue();
-    this.enqueueExtraction = options.enqueueExtraction ?? false;
-    // Default notifier: a thin adapter that delegates to the in-process
-    // pub-sub from `@/lib/utils/notify`. Production wires up the
-    // `InAppNotifier` adapter explicitly via the composition root.
-    this.notify =
-      options.notify ??
-      (defaultNotifyImpl as unknown as INotifier);
+    this.notify = options.notify ?? new InAppNotifier();
     this.notifyUserId = options.notifyUserId ?? "default";
     this.notificationsEnabled = options.notificationsEnabled ?? true;
   }
@@ -405,29 +376,13 @@ export class PipelineService implements IPipelineService {
   ): Promise<void> {
     if (units.length === 0) return;
 
-    // Root-cause fix: if Redis was probed at construction and turned
-    // out to be unreachable, transparently fall back to in-process
-    // extraction instead of trying to enqueue (which would throw
-    // ECONNREFUSED on every call and surface as a cryptic failure to
-    // the user).
-    const useQueue =
-      !this.enqueueExtraction && (await this.jobQueue.waitForProbe());
-    if (!useQueue && !this.enqueueExtraction) {
-      console.warn(
-        "[PipelineService] Redis unavailable — running extraction in-process."
-      );
-    }
-
+    // MOD-04: BullMQ removed. All extraction runs in-process.
+    // The previous Redis probe + enqueue branch was dead code because
+    // no npm script ever started the workers. In-process extraction
+    // is the only path and works correctly for desktop deployment.
     let processed = 0;
     for (const u of units) {
-      if (useQueue) {
-        await this.jobQueue.enqueue("extract-unit", {
-          unitId: u.id,
-          materialId: materialId ?? u.materialId,
-        });
-      } else {
-        await this.unitExtractor.extract(u);
-      }
+      await this.unitExtractor.extract(u);
       processed++;
       const progress = Math.round((processed / units.length) * 100);
       await this.updateProgress(jobId, progress, `Unidad ${processed}/${units.length}`);

@@ -26,6 +26,10 @@
 import { db } from "@/lib/db";
 import { BoxType } from "@/lib/types";
 import {
+  PdfRenderService,
+  PlaywrightUnavailableError,
+} from "@/lib/infrastructure/pdf/pdf-render.service";
+import {
   BOX_LABELS,
   buildPdfHtml,
   buildStandaloneSlideHtml,
@@ -33,6 +37,10 @@ import {
   sanitizeFilename,
   stripBom,
 } from "@/lib/actions/slide-export-helpers";
+
+// Servicio de infraestructura que renderiza HTML→PDF vía Playwright/Chromium.
+// La automatización de navegador (antes duplicada en dos actions) vive ahí.
+const pdfRenderService = new PdfRenderService();
 
 export interface ExportSlideHtmlResult {
   html: string;
@@ -68,71 +76,9 @@ export async function exportSlideHtmlAction(
   return { html, filename };
 }
 
-/**
- * v1.9 / Issue 6 — wait for KaTeX to finish rendering inside the
- * Chromium page before we trigger the PDF capture. KaTeX is loaded
- * with `defer` and the auto-render extension runs on
- * `DOMContentLoaded`, then walks `document.body` replacing
- * `$..$` / `$$..$$` / `\(..\)` / `\[..\]` with rendered
- * `<span class="katex">` nodes. If we call `page.pdf()` before that
- * walk finishes, the printed page shows the raw LaTeX source
- * (`$E = mc^2$`) instead of the math glyphs.
- *
- * Strategy: poll up to `maxMs` for `.katex` elements. If the page
- * has no LaTeX at all, the auto-render extension produces zero
- * `.katex` nodes and we return immediately after one short
- * settling delay (200ms) — the wait is gated on the presence of
- * at least one `$` or `\\(` in the rendered HTML so we don't
- * hang on slides that legitimately have no math.
- */
-async function waitForKatexRender(
-  page: import("playwright").Page,
-  maxMs: number = 5000
-): Promise<{ rendered: number; hadLatex: boolean }> {
-  return page.evaluate((maxMsArg: number) => {
-    return new Promise<{ rendered: number; hadLatex: boolean }>((resolve) => {
-      const start = Date.now();
-      // Check whether the document actually contains LaTeX delimiters.
-      // We test for `$` (anywhere) AND for `\\(` / `\\[` because the AI
-      // sometimes emits the latter and the auto-render is configured
-      // for both. If no delimiters are present, we still wait a small
-      // fixed settle window so any in-flight rendering from earlier
-      // `setContent` calls has a chance to complete — but we resolve
-      // with `rendered: -1` to signal "nothing to render".
-      const body = document.body?.innerHTML ?? "";
-      const hadLatex = /\$[^$]+\$|\\\(|\\\[/.test(body);
-      if (!hadLatex) {
-        setTimeout(
-          () => resolve({ rendered: -1, hadLatex: false }),
-          Math.min(200, maxMsArg)
-        );
-        return;
-      }
-      const tick = () => {
-        const rendered = document.querySelectorAll(".katex").length;
-        if (rendered > 0) {
-          // Give the renderer an extra frame to lay out the new nodes
-          // (otherwise the PDF can capture them mid-paint).
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => resolve({ rendered, hadLatex: true }));
-          });
-          return;
-        }
-        if (Date.now() - start >= maxMsArg) {
-          // Gave up — log how many were rendered (0 in practice) and
-          // let the caller decide whether to fail or proceed.
-          resolve({ rendered: 0, hadLatex: true });
-          return;
-        }
-        setTimeout(tick, 50);
-      };
-      tick();
-    });
-  }, maxMs);
-}
-
 export interface ExportSlidesPdfResult {
-  pdf: string; // base64-encoded
+  pdf: string; // base64-encoded (when Playwright available)
+  html?: string; // full HTML document (fallback when no Playwright)
   filename: string;
   pageCount: number;
 }
@@ -173,48 +119,16 @@ export async function exportSlidesPdfAction(
     })
   );
 
-  // Lazy-import playwright so importing this action file does not pay
-  // the chromium startup cost on every server-action call.
-  const { chromium } = await import("playwright");
-
-  // Use the locally installed Chromium binary that ships with the
-  // Playwright dev dep — avoids a 300MB puppeteer download.
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  // El render HTML→PDF (Playwright/Chromium) vive en PdfRenderService.
+  const pdfBuffer = await pdfRenderService.renderToPdf(html, {
+    format: "A4",
+    printBackground: true,
+    preferCSSPageSize: true,
+    margin: { top: "12mm", bottom: "14mm", left: "12mm", right: "12mm" },
   });
-  try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    // Use a viewport that matches the printable A4 area at ~96dpi so
-    // the CSS @page rule produces predictable pagination.
-    await page.setViewportSize({ width: 794, height: 1123 });
-    await page.setContent(html, { waitUntil: "networkidle" });
-    // v1.9 / Issue 6 — wait for KaTeX to finish rendering before we
-    // capture the PDF. The previous 50ms timeout was too short for
-    // the auto-render extension to walk a multi-page document; if
-    // the page had `$..$` delimiters we'd capture the raw text.
-    const katex = await waitForKatexRender(page);
-    if (katex.hadLatex && katex.rendered === 0) {
-      // Math was present but never rendered. Surface the failure
-      // rather than silently producing a PDF with raw `$x^2$` text.
-      throw new Error(
-        `KaTeX no terminó de renderizar las fórmulas (timeout). ` +
-          `El PDF se generaría con el LaTeX en crudo.`
-      );
-    }
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      preferCSSPageSize: true,
-      margin: { top: "12mm", bottom: "14mm", left: "12mm", right: "12mm" },
-    });
-    const pdfBase64 = Buffer.from(pdfBuffer).toString("base64");
-    const filename = `${sanitizeFilename(course.name)}_slides.pdf`;
-    return { pdf: pdfBase64, filename, pageCount: slides.length };
-  } finally {
-    await browser.close();
-  }
+  const pdfBase64 = pdfBuffer.toString("base64");
+  const filename = `${sanitizeFilename(course.name)}_slides.pdf`;
+  return { pdf: pdfBase64, filename, pageCount: slides.length };
 }
 
 /**
@@ -394,37 +308,30 @@ body { margin: 0; padding: 0; background: #fff; }
 <body>${pages}</body>
 </html>`;
 
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
-  });
+  // Try Playwright first (web deployment). In the desktop build
+  // Playwright is not bundled — we fall back to returning the HTML
+  // so the Tauri WebView / browser can print to PDF natively (Ctrl+P).
   try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    await page.setViewportSize({ width: 794, height: 1123 });
-    await page.setContent(html, { waitUntil: "networkidle" });
-    // v1.9 / Issue 6 — wait for KaTeX to finish rendering before we
-    // capture the PDF. The previous 50ms timeout was too short for
-    // the auto-render extension to walk a multi-page document; if
-    // the page had `$..$` delimiters we'd capture the raw text.
-    const katex = await waitForKatexRender(page);
-    if (katex.hadLatex && katex.rendered === 0) {
-      throw new Error(
-        `KaTeX no terminó de renderizar las fórmulas (timeout). ` +
-          `El PDF se generaría con el LaTeX en crudo.`
-      );
-    }
-    const pdfBuffer = await page.pdf({
+    const pdfBuffer = await pdfRenderService.renderToPdf(html, {
       format: "A4",
       printBackground: true,
       preferCSSPageSize: true,
     });
-    const pdfBase64 = Buffer.from(pdfBuffer).toString("base64");
+    const pdfBase64 = pdfBuffer.toString("base64");
     const filename = `${sanitizeFilename(course.name)}_slides.pdf`;
     return { pdf: pdfBase64, filename, pageCount: slides.length };
-  } finally {
-    await browser.close();
+  } catch (err) {
+    // Playwright not available (desktop build): return the HTML so the
+    // client can open a print window. Any other render failure re-throws.
+    if (err instanceof PlaywrightUnavailableError) {
+      return {
+        pdf: "",
+        html,
+        filename: `${sanitizeFilename(course.name)}_slides.html`,
+        pageCount: slides.length,
+      };
+    }
+    throw err;
   }
 }
 

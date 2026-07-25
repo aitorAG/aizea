@@ -5,14 +5,12 @@
 // (e.g. icons, transparency tiles). This matches the D15 design constraint
 // that figures must be compressed when large.
 //
-// The threshold and quality are exposed as options so callers can tune
-// for their use-case (e.g. preview thumbnails vs. high-DPI source).
-//
-// Resilience: if sharp throws or returns an invalid buffer, we fall back
-// to the original buffer. The pipeline must not stall on a single
-// unprocessable image.
-
-import sharp from "sharp";
+// Resilience: `sharp` is loaded via a non-analyzable dynamic import so the
+// Next.js standalone build never fails on the optional native dependency.
+// In the desktop (Tauri) build sharp's native binary is not wired up and
+// throws "A boolean was expected" — we catch that and return the original
+// buffer unchanged. The pipeline must not stall on a single unprocessable
+// image.
 
 export interface CompressOptions {
   /** Size in bytes above which compression is triggered. Default: 200 * 1024. */
@@ -48,6 +46,13 @@ export async function compressToWebP(
   }
 
   try {
+    // Dynamic import — Next.js treats sharp as external via
+    // `serverExternalPackages` in next.config.ts, so it never tries
+    // to bundle this native addon. In the standalone desktop build
+    // sharp's native binary may not be wired up; the try/catch
+    // returns the original buffer unchanged in that case.
+    const sharpMod = await import("sharp");
+    const sharp = sharpMod.default;
     const result = await sharp(buffer)
       .webp({ quality, effort: 4 })
       .toBuffer();

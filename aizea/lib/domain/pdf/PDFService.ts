@@ -1,6 +1,7 @@
 import pdfParse from "pdf-parse";
 import { PDFServiceTauri } from "./PDFServiceTauri";
 import { compressToWebP } from "@/lib/domain/utils/image-compressor";
+import { extractFigureReferences } from "@/lib/domain/figures/figure-references";
 import { PDFDocument, PDFDict, PDFStream, PDFNumber, PDFName } from "pdf-lib";
 import { randomUUID } from "node:crypto";
 
@@ -27,9 +28,13 @@ export class NotImplementedError extends Error {
 }
 
 function isTauri(): boolean {
+  // Tauri 2 exposes __TAURI_INTERNALS__; Tauri 1 used __TAURI__.
+  // Check both for backward compatibility during the transition.
   return (
     typeof window !== "undefined" &&
-    (window as unknown as Record<string, unknown>).__TAURI__ !== undefined
+    ((window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ !==
+      undefined ||
+      (window as unknown as Record<string, unknown>).__TAURI__ !== undefined)
   );
 }
 
@@ -176,27 +181,8 @@ class PDFServiceJS {
     buffer: Buffer
   ): Promise<Array<{ caption: string; pageNum: number | null }>> {
     const { text } = await this.extractText(buffer);
-
-    const results: Array<{ caption: string; pageNum: number | null }> = [];
-    const seen = new Set<string>();
-
-    const regex = /(?:Figura|Figure)\s+(\d+(?:\.\d+)?)[.:]?\s*([^\n.]*)/gi;
-
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(text)) !== null) {
-      const figureNum = match[1];
-      const captionText = match[2].trim();
-      const caption = captionText
-        ? `Figura ${figureNum}: ${captionText}`
-        : `Figura ${figureNum}`;
-
-      if (!seen.has(caption)) {
-        seen.add(caption);
-        results.push({ caption, pageNum: null });
-      }
-    }
-
-    return results;
+    // Fuente única del patrón de figuras (lib/domain/figures/figure-references).
+    return extractFigureReferences(text);
   }
 }
 
