@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AIzea",
-  "version": "0.3.0",
+  "version": "../package.json",
   "identifier": "com.aizea.app",
   "build": {
     "frontendDist": "../.next/standalone/public",
@@ -36,6 +36,7 @@
     ],
     "publisher": "AIzea",
     "category": "Education",
+    "licenseFile": "release-notes.rtf",
     "externalBin": ["binaries/node"],
     "resources": {
       "../.next/standalone": "standalone"
