@@ -26,7 +26,9 @@ tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
-tauri-plugin-updater = "2"
 lopdf = { version = "0.43", features = ["image"] }
 base64 = "0.22"
 regex = "1"
+# Fase 3-C: blocking HTTP client for the supervisor's /api/health readiness
+# poll. Pure-Rust, no async runtime needed (runs in a background thread).
+ureq = "2"

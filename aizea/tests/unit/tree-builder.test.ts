@@ -1,26 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const {
-  mockChatJSON,
-  mockBuildBuildTreePrompt,
-  mockTopicGroupFindMany,
-  mockTopicNodeDeleteMany,
-  mockTopicNodeCreate,
-  mockTopicNodeFindFirst,
-  mockTopicNodeFindMany,
-} = vi.hoisted(() => ({
+const { mockChatJSON, mockBuildBuildTreePrompt } = vi.hoisted(() => ({
   mockChatJSON: vi.fn(),
   mockBuildBuildTreePrompt: vi.fn(),
-  mockTopicGroupFindMany: vi.fn(),
-  mockTopicNodeDeleteMany: vi.fn(),
-  mockTopicNodeCreate: vi.fn(),
-  mockTopicNodeFindFirst: vi.fn(),
-  mockTopicNodeFindMany: vi.fn(),
-}));
-
-vi.mock("@/lib/domain/llm/LLMClient", () => ({
-  chatJSON: mockChatJSON,
-  chat: vi.fn(),
 }));
 
 vi.mock("@/lib/domain/prompts/PromptManager", () => ({
@@ -29,61 +11,83 @@ vi.mock("@/lib/domain/prompts/PromptManager", () => ({
   },
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
-    topicGroup: {
-      findMany: mockTopicGroupFindMany,
-    },
-    topicNode: {
-      create: mockTopicNodeCreate,
-      deleteMany: mockTopicNodeDeleteMany,
-      findFirst: mockTopicNodeFindFirst,
-      findMany: mockTopicNodeFindMany,
-    },
-  },
-}));
-
 import { TreeBuilder } from "@/lib/domain/pipeline/TreeBuilder";
-import type { TopicGroup, TopicNode } from "@/lib/types/pipeline";
+import type { TopicGroup } from "@/lib/types/pipeline";
+import type {
+  CreatedTopicNodeRow,
+  CreateTopicNodeInput,
+  ITreeBuilderRepository,
+  TreeBuilderGroupRow,
+} from "@/lib/application/ports/tree-builder-repository.port";
+import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
+
+// ----- fake LLM provider -----
+//
+// La inversión DI (Fase 1) hace que TreeBuilder dependa de `ILLMProvider`
+// inyectado en vez de la función libre `chatJSON`. El test inyecta este fake.
+const fakeLlm: ILLMProvider = {
+  chatJSON: mockChatJSON,
+  chat: vi.fn(),
+  name: "fake-llm",
+};
+
+// ----- fake repository -----
+//
+// La purificación del dominio (Fase 1) hace que TreeBuilder dependa de
+// `ITreeBuilderRepository` en vez de Prisma. El test inyecta este fake en
+// lugar de mockear `@/lib/db`.
+function createFakeRepo() {
+  return {
+    findTopicGroupsByCourse:
+      vi.fn<(courseId: string) => Promise<TreeBuilderGroupRow[]>>(),
+    findLatestVersion: vi.fn<(courseId: string) => Promise<number | null>>(),
+    deleteNodesByCourse: vi.fn<(courseId: string) => Promise<void>>(),
+    createNode:
+      vi.fn<(data: CreateTopicNodeInput) => Promise<CreatedTopicNodeRow>>(),
+  } satisfies ITreeBuilderRepository;
+}
+
+/** Build a group row as the port returns it (concepts/sourceUnitIds JSON). */
+function makeGroupRow(
+  id: string,
+  name: string,
+  importance = 0.5
+): TreeBuilderGroupRow {
+  return { id, name, description: "d", importance, concepts: "[]", sourceUnitIds: "[]" };
+}
 
 describe("TreeBuilder", () => {
   let builder: TreeBuilder;
-  let createdNodes: Map<string, { id: string; parentId: string | null; depth: number; version: number; name: string; summary: string | null; isLeaf: boolean; courseId: string }>;
+  let repo: ReturnType<typeof createFakeRepo>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    builder = new TreeBuilder();
-    createdNodes = new Map();
+    repo = createFakeRepo();
+    builder = new TreeBuilder({ repository: repo, llmProvider: fakeLlm });
     mockBuildBuildTreePrompt.mockReturnValue({ system: "SYS", user: "USR" });
-    mockTopicGroupFindMany.mockResolvedValue([]);
-    mockTopicNodeDeleteMany.mockResolvedValue({ count: 0 });
-    mockTopicNodeFindFirst.mockResolvedValue(null); // No previous version → use 1
-    mockTopicNodeFindMany.mockResolvedValue([]);
+    repo.findTopicGroupsByCourse.mockResolvedValue([]);
+    repo.deleteNodesByCourse.mockResolvedValue(undefined);
+    repo.findLatestVersion.mockResolvedValue(null); // No previous version → use 1
 
-    // Each create() returns a row with a generated id; the implementation
-    // also needs the id to be predictable for parentRef resolution. We
-    // assign sequential ids.
+    // Each createNode() returns a row with a sequential generated id so
+    // parentRef resolution is predictable.
     let counter = 0;
-    mockTopicNodeCreate.mockImplementation(
-      async ({ data }: { data: { name: string; summary: string | null; depth: number; parentId: string | null; isLeaf: boolean; version: number; courseId: string } }) => {
-        counter++;
-        const id = `node-${counter}`;
-        const row = {
-          id,
-          parentId: data.parentId,
-          depth: data.depth,
-          version: data.version,
-          name: data.name,
-          summary: data.summary,
-          isLeaf: data.isLeaf,
-          courseId: data.courseId,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        createdNodes.set(id, row);
-        return row;
-      }
-    );
+    repo.createNode.mockImplementation(async (data) => {
+      counter++;
+      return {
+        id: `node-${counter}`,
+        parentId: data.parentId,
+        depth: data.depth,
+        version: data.version,
+        name: data.name,
+        summary: data.summary,
+        isLeaf: data.isLeaf,
+        courseId: data.courseId,
+        sourceMaterialId: data.sourceMaterialId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    });
   });
 
   afterEach(() => {
@@ -92,21 +96,17 @@ describe("TreeBuilder", () => {
 
   describe("input loading", () => {
     it("loads all TopicGroups for the course", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "G1", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "G1")]);
       mockChatJSON.mockResolvedValue({
-        nodes: [
-          { ref: "g-1", name: "G1", summary: "d", parentRef: null, depth: 0 },
-        ],
+        nodes: [{ ref: "g-1", name: "G1", summary: "d", parentRef: null, depth: 0 }],
         roots: ["g-1"],
       });
       await builder.build("c-1");
-      expect(mockTopicGroupFindMany).toHaveBeenCalled();
+      expect(repo.findTopicGroupsByCourse).toHaveBeenCalledWith("c-1");
     });
 
     it("returns an empty array when there are no TopicGroups", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([]);
       const result = await builder.build("c-1");
       expect(result).toEqual([]);
       expect(mockChatJSON).not.toHaveBeenCalled();
@@ -118,8 +118,8 @@ describe("TreeBuilder", () => {
       const groups: TopicGroup[] = [
         { id: "g-1", name: "G1", description: "d", importance: 0.5, concepts: [], sourceUnitIds: [] },
       ];
-      mockTopicGroupFindMany.mockResolvedValue(
-        groups.map((g) => ({ ...g, concepts: "[]", sourceUnitIds: "[]", version: 1, courseId: "c-1", createdAt: new Date(), updatedAt: new Date() }))
+      repo.findTopicGroupsByCourse.mockResolvedValue(
+        groups.map((g) => makeGroupRow(g.id, g.name, g.importance))
       );
       mockChatJSON.mockResolvedValue({
         nodes: [{ ref: "g-1", name: "G1", summary: "d", parentRef: null, depth: 0 }],
@@ -130,9 +130,7 @@ describe("TreeBuilder", () => {
     });
 
     it("calls LLMClient.chatJSON with the prompt messages", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "G1", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "G1")]);
       mockBuildBuildTreePrompt.mockReturnValue({
         system: "SYS-MARKER",
         user: "USR-MARKER",
@@ -149,9 +147,7 @@ describe("TreeBuilder", () => {
     });
 
     it("propagates LLM errors", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "G1", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "G1")]);
       mockChatJSON.mockRejectedValue(new Error("LLM 503"));
       await expect(builder.build("c-1")).rejects.toThrow(/LLM 503/);
     });
@@ -159,10 +155,10 @@ describe("TreeBuilder", () => {
 
   describe("tree construction", () => {
     it("builds a valid tree from 3 TopicGroups (one root, two children)", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-2", courseId: "c-1", name: "Child1", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-3", courseId: "c-1", name: "Child2", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        makeGroupRow("g-1", "Root", 0.9),
+        makeGroupRow("g-2", "Child1"),
+        makeGroupRow("g-3", "Child2"),
       ]);
       mockChatJSON.mockResolvedValue({
         nodes: [
@@ -182,9 +178,9 @@ describe("TreeBuilder", () => {
     });
 
     it("returns nodes with valid IDs and parentId references (no orphans)", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-2", courseId: "c-1", name: "Child", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        makeGroupRow("g-1", "Root", 0.9),
+        makeGroupRow("g-2", "Child"),
       ]);
       mockChatJSON.mockResolvedValue({
         nodes: [
@@ -204,20 +200,8 @@ describe("TreeBuilder", () => {
     });
 
     it("enforces a maximum depth of 4 (depth 0..3)", async () => {
-      // Build a chain of 10 nodes — the builder should reject any deeper than depth 3.
-      mockTopicGroupFindMany.mockResolvedValue(
-        Array.from({ length: 10 }, (_, i) => ({
-          id: `g-${i}`,
-          courseId: "c-1",
-          name: `Node${i}`,
-          description: "d",
-          importance: 0.5,
-          concepts: "[]",
-          sourceUnitIds: "[]",
-          version: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }))
+      repo.findTopicGroupsByCourse.mockResolvedValue(
+        Array.from({ length: 10 }, (_, i) => makeGroupRow(`g-${i}`, `Node${i}`))
       );
       mockChatJSON.mockResolvedValue({
         nodes: Array.from({ length: 10 }, (_, i) => ({
@@ -233,10 +217,10 @@ describe("TreeBuilder", () => {
     });
 
     it("marks leaves correctly (nodes with no children have isLeaf=true)", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-2", courseId: "c-1", name: "Leaf1", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-3", courseId: "c-1", name: "Leaf2", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        makeGroupRow("g-1", "Root", 0.9),
+        makeGroupRow("g-2", "Leaf1"),
+        makeGroupRow("g-3", "Leaf2"),
       ]);
       mockChatJSON.mockResolvedValue({
         nodes: [
@@ -259,11 +243,10 @@ describe("TreeBuilder", () => {
 
   describe("cycle detection", () => {
     it("rejects a hierarchy containing a cycle (A → B → A)", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "A", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-2", courseId: "c-1", name: "B", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        makeGroupRow("g-1", "A"),
+        makeGroupRow("g-2", "B"),
       ]);
-      // Direct cycle: A's parentRef is B, B's parentRef is A
       mockChatJSON.mockResolvedValue({
         nodes: [
           { ref: "g-1", name: "A", summary: "d", parentRef: "g-2", depth: 0 },
@@ -275,23 +258,19 @@ describe("TreeBuilder", () => {
     });
 
     it("rejects a self-referencing node (A → A)", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "A", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "A")]);
       mockChatJSON.mockResolvedValue({
-        nodes: [
-          { ref: "g-1", name: "A", summary: "d", parentRef: "g-1", depth: 0 },
-        ],
+        nodes: [{ ref: "g-1", name: "A", summary: "d", parentRef: "g-1", depth: 0 }],
         roots: ["g-1"],
       });
       await expect(builder.build("c-1")).rejects.toThrow(/cycle|ciclo/i);
     });
 
     it("rejects an indirect cycle (A → B → C → A)", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "A", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-2", courseId: "c-1", name: "B", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-3", courseId: "c-1", name: "C", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        makeGroupRow("g-1", "A"),
+        makeGroupRow("g-2", "B"),
+        makeGroupRow("g-3", "C"),
       ]);
       mockChatJSON.mockResolvedValue({
         nodes: [
@@ -307,41 +286,37 @@ describe("TreeBuilder", () => {
 
   describe("versioning", () => {
     it("uses version 1 for the first build", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "Root", 0.9)]);
       mockChatJSON.mockResolvedValue({
         nodes: [{ ref: "g-1", name: "Root", summary: "d", parentRef: null, depth: 0 }],
         roots: ["g-1"],
       });
-      mockTopicNodeFindFirst.mockResolvedValue(null);
+      repo.findLatestVersion.mockResolvedValue(null);
       await builder.build("c-1");
-      expect(mockTopicNodeCreate).toHaveBeenCalled();
-      const data = mockTopicNodeCreate.mock.calls[0][0].data;
+      expect(repo.createNode).toHaveBeenCalled();
+      const data = repo.createNode.mock.calls[0][0];
       expect(data.version).toBe(1);
     });
 
     it("increments the version on subsequent builds", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "Root", 0.9)]);
       mockChatJSON.mockResolvedValue({
         nodes: [{ ref: "g-1", name: "Root", summary: "d", parentRef: null, depth: 0 }],
         roots: ["g-1"],
       });
       // Previous build returned version 3
-      mockTopicNodeFindFirst.mockResolvedValue({ version: 3 });
+      repo.findLatestVersion.mockResolvedValue(3);
       await builder.build("c-1");
-      const data = mockTopicNodeCreate.mock.calls[0][0].data;
+      const data = repo.createNode.mock.calls[0][0];
       expect(data.version).toBe(4);
     });
   });
 
   describe("persistence", () => {
     it("persists each node to the database with self-referencing parentId", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-        { id: "g-2", courseId: "c-1", name: "Child", description: "d", importance: 0.5, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        makeGroupRow("g-1", "Root", 0.9),
+        makeGroupRow("g-2", "Child"),
       ]);
       mockChatJSON.mockResolvedValue({
         nodes: [
@@ -352,22 +327,19 @@ describe("TreeBuilder", () => {
       });
       await builder.build("c-1");
       // 2 creates for the 2 nodes
-      expect(mockTopicNodeCreate).toHaveBeenCalledTimes(2);
+      expect(repo.createNode).toHaveBeenCalledTimes(2);
       // First call: root (parentId null)
-      const firstData = mockTopicNodeCreate.mock.calls[0][0].data;
+      const firstData = repo.createNode.mock.calls[0][0];
       expect(firstData.parentId).toBeNull();
       expect(firstData.courseId).toBe("c-1");
-      // Second call: child (parentId = root's id)
-      const secondData = mockTopicNodeCreate.mock.calls[1][0].data;
+      // Second call: child (parentId = root's id = "node-1")
+      const secondData = repo.createNode.mock.calls[1][0];
       expect(secondData.parentId).not.toBeNull();
-      // parentId should match the first node's id
-      expect(secondData.parentId).toBe(firstData.parentId === null ? createdNodes.keys().next().value : firstData.parentId);
+      expect(secondData.parentId).toBe("node-1");
     });
 
     it("returns TopicNode objects with database-assigned ids", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "Root", 0.9)]);
       mockChatJSON.mockResolvedValue({
         nodes: [{ ref: "g-1", name: "Root", summary: "d", parentRef: null, depth: 0 }],
         roots: ["g-1"],
@@ -380,15 +352,13 @@ describe("TreeBuilder", () => {
     });
 
     it("deletes old TopicNodes for the course before rebuilding (versioning)", async () => {
-      mockTopicGroupFindMany.mockResolvedValue([
-        { id: "g-1", courseId: "c-1", name: "Root", description: "d", importance: 0.9, concepts: "[]", sourceUnitIds: "[]", version: 1, createdAt: new Date(), updatedAt: new Date() },
-      ]);
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "Root", 0.9)]);
       mockChatJSON.mockResolvedValue({
         nodes: [{ ref: "g-1", name: "Root", summary: "d", parentRef: null, depth: 0 }],
         roots: ["g-1"],
       });
       await builder.build("c-1");
-      expect(mockTopicNodeDeleteMany).toHaveBeenCalledWith({ where: { courseId: "c-1" } });
+      expect(repo.deleteNodesByCourse).toHaveBeenCalledWith("c-1");
     });
   });
 });

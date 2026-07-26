@@ -1,8 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
-import { chatJSON, type ChatMessage } from "@/lib/domain/llm/LLMClient";
+import { chatJSON, type ChatMessage } from "@/lib/infrastructure/ai/llm-client";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import { RAGEngine, type RelevantChunk } from "@/lib/domain/rag/RAGEngine";
+import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { SlideBoxService } from "@/lib/application/SlideBoxService";
 import { BoxType, type GeneratedBoxes } from "@/lib/types";
 import type { TopicNode } from "@/lib/types/pipeline";
@@ -28,7 +29,7 @@ export class SlideGenerationService {
   constructor(
     private llmClient: LLMClientInterface = { chatJSON },
     private promptManager: PromptManager = new PromptManager(),
-    private ragEngine: RAGEngine = new RAGEngine(),
+    private ragEngine: RAGEngine = createRAGEngine(),
     private database: PrismaClient = db,
     boxService?: SlideBoxService
   ) {

@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { chatJSON } from "@/lib/domain/llm/LLMClient";
+import { chatJSON } from "@/lib/infrastructure/ai/llm-client";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import type { SubcontentProposal } from "@/lib/domain/prompts/templates/split-subcontents.template";
 import type { TopicNode } from "@/lib/types/pipeline";

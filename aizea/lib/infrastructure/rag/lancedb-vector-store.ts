@@ -1,18 +1,20 @@
+// LanceDbVectorStore — implementación de `IVectorStore` sobre
+// `@lancedb/lancedb`.
+//
+// Antes vivía en `lib/domain/rag/VectorStore.ts`. La Fase 1 (purificación del
+// dominio) lo movió a infraestructura: es un adaptador puro sobre lancedb y no
+// tiene lógica de dominio. El contrato lo expone `IVectorStore`.
+
 import * as lancedb from "@lancedb/lancedb";
+import type {
+  IVectorStore,
+  SearchResult,
+  VectorRecord,
+} from "@/lib/application/ports/vector-store.port";
 
-export interface VectorRecord {
-  id: string;
-  vector: number[];
-  metadata: Record<string, unknown>;
-}
+export type { SearchResult, VectorRecord };
 
-export interface SearchResult {
-  id: string;
-  metadata: Record<string, unknown>;
-  score: number;
-}
-
-export class VectorStore {
+export class LanceDbVectorStore implements IVectorStore {
   private db: Promise<lancedb.Connection>;
   private tableName: string;
   private dimension: number;
@@ -94,24 +96,22 @@ export class VectorStore {
 
   /**
    * Remove all vectors whose metadata.materialId matches the given id.
-   * LanceDB JS supports delete via SQL predicate.
+   *
+   * Fase 2.6 — pushdown del filtro al motor LanceDB/DataFusion. Antes esto
+   * hacía `table.query().toArray()` (full-scan que cargaba TODAS las filas en
+   * la memoria del proceso Node, parseaba cada `metadata` JSON en JS y filtraba
+   * en el cliente) — O(n) en memoria/CPU del proceso por cada borrado.
+   *
+   * Ahora el predicado se evalúa dentro del motor: `metadata` se persiste como
+   * `JSON.stringify(...)`, de modo que la subcadena `"materialId":"<id>"`
+   * identifica de forma fiable las filas del material. `materialId` es un UUID
+   * (solo `[0-9a-f-]`), sin comillas ni comodines, por lo que no necesita
+   * escape en el literal SQL. No requiere columna nueva ni migración: funciona
+   * sobre las tablas existentes (la columna `metadata` ya está presente).
    */
   async deleteByMaterialId(materialId: string): Promise<void> {
     const table = await this.getTable();
-    const all = await table.query().toArray();
-
-    const toDelete = all
-      .filter((row: Record<string, unknown>) => {
-        const meta = JSON.parse(String(row.metadata ?? "{}"));
-        return meta.materialId === materialId;
-      })
-      .map((row: Record<string, unknown>) => String(row.id));
-
-    if (toDelete.length === 0) {
-      return;
-    }
-
-    const predicate = `id IN (${toDelete.map((id) => `'${id}'`).join(", ")})`;
+    const predicate = `metadata LIKE '%"materialId":"${materialId}"%'`;
     await table.delete(predicate);
   }
 }

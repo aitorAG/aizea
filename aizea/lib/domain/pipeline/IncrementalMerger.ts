@@ -26,14 +26,17 @@
 //     nodes for every concept.
 //   - LLM throws → propagate.
 
-import { db } from "@/lib/db";
-import { chatJSON } from "@/lib/domain/llm/LLMClient";
 import { SegmenterService } from "@/lib/domain/pipeline/SegmenterService";
 import { UnitExtractor } from "@/lib/domain/pipeline/UnitExtractor";
-import { EmbeddingService } from "@/lib/domain/rag/EmbeddingService";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import { randomUUID } from "node:crypto";
 import type { TopicNode } from "@/lib/types/pipeline";
+import type {
+  IIncrementalMergerRepository,
+  MergeTopicNodeRow,
+} from "@/lib/application/ports/incremental-merger-repository.port";
+import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
+import type { IEmbeddingProvider } from "@/lib/application/ports/embedding-provider.port";
 
 const MATCH_THRESHOLD = 0.85;
 const CHILD_THRESHOLD = 0.7;
@@ -65,32 +68,41 @@ interface LlmMergeResponse {
 export interface IncrementalMergerOptions {
   segmenter?: SegmenterService;
   unitExtractor?: UnitExtractor;
-  embeddingService?: EmbeddingService;
+  /** Proveedor de embeddings inyectado por el composition root; en tests se
+   *  pasa un fake. Sustituye el antiguo `new EmbeddingService()` por defecto. */
+  embeddingProvider?: IEmbeddingProvider;
   promptManager?: PromptManager;
   /** Override the match threshold (mostly for tests). */
   matchThreshold?: number;
   childThreshold?: number;
-  /** Optional injectable for the DB layer (for tests). */
-  dbOverride?: typeof db;
+  /** Repositorio de persistencia (inyectado por el composition root; en
+   *  tests se pasa un fake). Sustituye el antiguo acoplamiento directo a
+   *  Prisma vía `dbOverride`. */
+  repository?: IIncrementalMergerRepository;
+  /** Proveedor LLM inyectado por el composition root; en tests se pasa un
+   *  fake. Sustituye el antiguo import de la función libre `chatJSON`. */
+  llmProvider?: ILLMProvider;
 }
 
 export class IncrementalMerger {
   private readonly segmenter: SegmenterService;
   private readonly unitExtractor: UnitExtractor;
-  private readonly embeddingService: EmbeddingService;
+  private readonly embeddingProvider: IEmbeddingProvider | undefined;
   private readonly promptManager: PromptManager;
   private readonly matchThreshold: number;
   private readonly childThreshold: number;
-  private readonly dbOverride: typeof db | undefined;
+  private readonly repository: IIncrementalMergerRepository | undefined;
+  private readonly llmProvider: ILLMProvider | undefined;
 
   constructor(options: IncrementalMergerOptions = {}) {
     this.segmenter = options.segmenter ?? new SegmenterService();
     this.unitExtractor = options.unitExtractor ?? new UnitExtractor();
-    this.embeddingService = options.embeddingService ?? new EmbeddingService();
+    this.embeddingProvider = options.embeddingProvider;
     this.promptManager = options.promptManager ?? new PromptManager();
     this.matchThreshold = options.matchThreshold ?? MATCH_THRESHOLD;
     this.childThreshold = options.childThreshold ?? CHILD_THRESHOLD;
-    this.dbOverride = options.dbOverride;
+    this.repository = options.repository;
+    this.llmProvider = options.llmProvider;
   }
 
   async merge(
@@ -98,7 +110,24 @@ export class IncrementalMerger {
     newMaterialId: string,
     buffer: Buffer
   ): Promise<TopicNode[]> {
-    const dbClient = this.dbOverride ?? db;
+    if (!this.repository) {
+      throw new Error(
+        "IncrementalMerger requiere un repositorio inyectado (options.repository)."
+      );
+    }
+    if (!this.embeddingProvider) {
+      throw new Error(
+        "IncrementalMerger requiere un proveedor de embeddings inyectado (options.embeddingProvider)."
+      );
+    }
+    if (!this.llmProvider) {
+      throw new Error(
+        "IncrementalMerger requiere un proveedor LLM inyectado (options.llmProvider)."
+      );
+    }
+    const repository = this.repository;
+    const embeddingProvider = this.embeddingProvider;
+    const llmProvider = this.llmProvider;
 
     // 1. Process the new material. The buffer is REQUIRED: previously
     // we passed `Buffer.from([])`, which silently produced zero
@@ -119,9 +148,7 @@ export class IncrementalMerger {
     }
 
     // 2. Load the existing tree.
-    const existingRows = await dbClient.topicNode.findMany({
-      where: { courseId },
-    });
+    const existingRows = await repository.findNodesByCourse(courseId);
     const existing: TopicNode[] = existingRows.map((r) => ({
       id: r.id,
       courseId: r.courseId,
@@ -150,7 +177,7 @@ export class IncrementalMerger {
 
     // 5. Embed new concepts + existing node names.
     const allText = [...newConcepts, ...existing.map((n) => n.name)];
-    const vectors = await this.embeddingService.embedBatch(allText);
+    const vectors = await embeddingProvider.embedBatch(allText);
     const newVectors = vectors.slice(0, newConcepts.length);
     const existingVectors = vectors.slice(newConcepts.length);
 
@@ -187,11 +214,8 @@ export class IncrementalMerger {
 
     // 8. Persist new nodes (kind = "child" or "new") with a new version.
     //    Old nodes are NOT touched.
-    const previous = await dbClient.topicNode.findFirst({
-      where: { courseId },
-      orderBy: { version: "desc" },
-    });
-    const newVersion = (previous?.version ?? 0) + 1;
+    const previousVersion = await repository.findLatestVersion(courseId);
+    const newVersion = (previousVersion ?? 0) + 1;
 
     const persisted: TopicNode[] = [...existing];
     for (const d of validated) {
@@ -207,7 +231,7 @@ export class IncrementalMerger {
         if (!parent || parent.depth >= MAX_DEPTH) {
           // Promote to a root if parent is too deep.
           const row = await this.createRootNode(
-            dbClient,
+            repository,
             courseId,
             d.concept,
             newVersion,
@@ -215,17 +239,15 @@ export class IncrementalMerger {
           );
           persisted.push(row);
         } else {
-          const row = await dbClient.topicNode.create({
-            data: {
-              courseId,
-              parentId: parent.id,
-              name: d.concept,
-              summary: null,
-              depth: parent.depth + 1,
-              isLeaf: true,
-              version: newVersion,
-              sourceMaterialId: newMaterialId,
-            },
+          const row = await repository.createNode({
+            courseId,
+            parentId: parent.id,
+            name: d.concept,
+            summary: null,
+            depth: parent.depth + 1,
+            isLeaf: true,
+            version: newVersion,
+            sourceMaterialId: newMaterialId,
           });
           persisted.push({
             id: row.id,
@@ -244,7 +266,7 @@ export class IncrementalMerger {
       } else {
         // "new" — create a new root node.
         const row = await this.createRootNode(
-          dbClient,
+          repository,
           courseId,
           d.concept,
           newVersion,
@@ -280,10 +302,15 @@ export class IncrementalMerger {
     decisions: MergeDecision[],
     existing: TopicNode[]
   ): Promise<MergeDecision[]> {
+    if (!this.llmProvider) {
+      throw new Error(
+        "IncrementalMerger requiere un proveedor LLM inyectado (options.llmProvider)."
+      );
+    }
     const { system, user } = this.promptManager.buildIntegrateConceptsPrompt(
       decisions.map((d) => ({ concepts: [d.concept] }))
     );
-    const response = await chatJSON<LlmMergeResponse>([
+    const response = await this.llmProvider.chatJSON<LlmMergeResponse>([
       { role: "system", content: system },
       { role: "user", content: user },
     ]);
@@ -312,24 +339,22 @@ export class IncrementalMerger {
   }
 
   private async createRootNode(
-    dbClient: NonNullable<IncrementalMergerOptions["dbOverride"]>,
+    repository: IIncrementalMergerRepository,
     courseId: string,
     name: string,
     version: number,
     sourceMaterialId: string
   ): Promise<TopicNode> {
-    const row = await dbClient.topicNode.create({
-      data: {
-        id: randomUUID(),
-        courseId,
-        parentId: null,
-        name,
-        summary: null,
-        depth: 0,
-        isLeaf: true,
-        version,
-        sourceMaterialId,
-      },
+    const row: MergeTopicNodeRow = await repository.createNode({
+      id: randomUUID(),
+      courseId,
+      parentId: null,
+      name,
+      summary: null,
+      depth: 0,
+      isLeaf: true,
+      version,
+      sourceMaterialId,
     });
     return {
       id: row.id,

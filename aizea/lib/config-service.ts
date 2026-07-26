@@ -15,6 +15,7 @@
 // catches misconfigured deployments.
 
 import { db } from "@/lib/db";
+import { decryptSecret } from "@/lib/infrastructure/crypto/secret-cipher";
 
 export const DEFAULT_CHAT_MODEL = "deepseek/deepseek-chat";
 export const DEFAULT_EMBED_MODEL = "openai/text-embedding-3-small";
@@ -73,8 +74,11 @@ async function readDbSettings(): Promise<{
   try {
     const row = await db.settings.findUnique({ where: { id: "default" } });
     if (!row) return null;
+    // Fase 5-A: the API key is stored encrypted at rest. Decrypt here (this
+    // path reads `db` directly, bypassing the repository). Backward-compatible
+    // with legacy plaintext rows.
     return {
-      apiKey: row.openrouterApiKey ?? null,
+      apiKey: row.openrouterApiKey ? decryptSecret(row.openrouterApiKey) : null,
       chatModel: row.chatModel,
       embedModel: row.embedModel,
       doclingBaseUrl: row.doclingBaseUrl,

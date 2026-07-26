@@ -61,6 +61,103 @@ fn resolve_node_binary() -> String {
     "node".to_string()
 }
 
+/// Fase 3-C — parameters the supervisor thread needs to (re)spawn the Node
+/// server. Cloned into the thread so it can restart the child on death.
+#[cfg(not(debug_assertions))]
+#[derive(Clone)]
+struct ServerConfig {
+    node_bin: String,
+    server_js: String,
+    data_dir: String,
+    db_url: String,
+    log_path: std::path::PathBuf,
+}
+
+/// Fase 3-C — spawn the Node server with stdout/stderr redirected to a log
+/// file (appended), so crashes leave a diagnosable trail instead of vanishing.
+#[cfg(not(debug_assertions))]
+fn spawn_server(cfg: &ServerConfig) -> std::io::Result<std::process::Child> {
+    use std::process::{Command, Stdio};
+
+    let stdout = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&cfg.log_path)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null());
+    let stderr = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&cfg.log_path)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null());
+
+    Command::new(&cfg.node_bin)
+        .arg(&cfg.server_js)
+        .env("NODE_ENV", "production")
+        .env("PORT", "1422")
+        .env("HOSTNAME", "127.0.0.1")
+        .env("AIZEA_DATA_DIR", &cfg.data_dir)
+        .env("DATABASE_URL", &cfg.db_url)
+        // Desktop build ships without docling-serve; use the pdf-parse fallback.
+        .env("AIZEA_SKIP_DOCLING", "1")
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
+}
+
+/// Fase 3-C — supervise the Node server in a background thread: spawn it, wait
+/// for it to exit, and restart it with a short backoff. Gives up after
+/// `MAX_RESTARTS` consecutive failures so a permanently-broken build doesn't
+/// spin forever.
+#[cfg(not(debug_assertions))]
+fn supervise_server(cfg: ServerConfig) {
+    std::thread::spawn(move || {
+        const MAX_RESTARTS: u32 = 5;
+        let mut restarts = 0u32;
+        loop {
+            match spawn_server(&cfg) {
+                Ok(mut child) => {
+                    log::info!("[AIzea] Next.js server started (pid {:?})", child.id());
+                    let status = child.wait();
+                    log::error!("[AIzea] server exited: {:?}", status);
+                }
+                Err(e) => {
+                    log::error!("[AIzea] failed to spawn server: {}", e);
+                }
+            }
+            restarts += 1;
+            if restarts >= MAX_RESTARTS {
+                log::error!("[AIzea] server failed {} times; giving up supervision", restarts);
+                break;
+            }
+            log::warn!("[AIzea] restarting server (attempt {}/{})", restarts + 1, MAX_RESTARTS);
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+        }
+    });
+}
+
+/// Fase 3-C — poll `/api/health` until the server reports ready or the timeout
+/// elapses. Replaces the previous blind `sleep(3000ms)`: the window only opens
+/// once the server truly answers (and its DB ping passes).
+#[cfg(not(debug_assertions))]
+fn wait_for_health(timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    let url = "http://127.0.0.1:1422/api/health";
+    while std::time::Instant::now() < deadline {
+        match ureq::get(url).timeout(std::time::Duration::from_millis(1500)).call() {
+            Ok(resp) if resp.status() == 200 => {
+                log::info!("[AIzea] server healthy");
+                return true;
+            }
+            _ => {}
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    log::error!("[AIzea] server did not become healthy within {:?}", timeout);
+    false
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -78,8 +175,6 @@ pub fn run() {
             // --- Desktop-mode: start the Next.js server ---------------
             #[cfg(not(debug_assertions))]
             {
-                use std::process::Command;
-
                 let app_data_dir = app
                     .path()
                     .app_data_dir()
@@ -144,29 +239,30 @@ pub fn run() {
                     }
                 }
 
-                log::info!("[AIzea] node: {}", node_bin.to_string_lossy());
+                // Logs land in <app-data>/logs/server.log so a crash is
+                // diagnosable post-mortem instead of vanishing.
+                let log_dir = app_data_dir.join("logs");
+                std::fs::create_dir_all(&log_dir).ok();
+                let log_path = log_dir.join("server.log");
+
+                log::info!("[AIzea] node: {}", node_bin_clean);
                 log::info!("[AIzea] server.js: {}", server_js_str);
                 log::info!("[AIzea] data dir: {}", data_dir_str);
+                log::info!("[AIzea] server log: {}", log_path.to_string_lossy());
 
-                let child = Command::new(&node_bin_clean)
-                    .arg(&server_js_str)
-                    .env("NODE_ENV", "production")
-                    .env("PORT", "1422")
-                    .env("HOSTNAME", "127.0.0.1")
-                    .env("AIZEA_DATA_DIR", &data_dir_str)
-                    .env("DATABASE_URL", &db_url)
-                    // Desktop build ships without docling-serve; tell the
-                    // pipeline to skip it and use the pdf-parse fallback.
-                    .env("AIZEA_SKIP_DOCLING", "1")
-                    .spawn();
-
-                match child {
-                    Ok(_) => log::info!("[AIzea] Next.js server started"),
-                    Err(e) => log::error!("[AIzea] Failed to start server: {}", e),
-                }
-
-                // Give the server a moment to start before the window opens
-                std::thread::sleep(std::time::Duration::from_millis(3000));
+                // Fase 3-C: supervise the server (spawn + restart on death,
+                // logs captured) in a background thread, then block the main
+                // thread only until the server is HEALTHY (real readiness
+                // probe) before the window opens — no more blind sleep.
+                let cfg = ServerConfig {
+                    node_bin: node_bin_clean.clone(),
+                    server_js: server_js_str.clone(),
+                    data_dir: data_dir_str.clone(),
+                    db_url: db_url.clone(),
+                    log_path,
+                };
+                supervise_server(cfg);
+                wait_for_health(std::time::Duration::from_secs(30));
             }
 
             // --- Menus -----------------------------------------------

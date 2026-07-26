@@ -65,10 +65,7 @@ Subdirectorios por formato:
 
 ## Auto-updater
 
-El proyecto incluye `tauri-plugin-updater` en `Cargo.toml` para habilitar actualizaciones automáticas en futuras releases. La configuración del updater requiere:
-- Un servidor de updates o URL pública
-- Firmado de releases con claves privadas
-- Configuración adicional en `tauri.conf.json` (no activa por defecto)
+El auto-updater se **eliminó** del proyecto (uso no comercial): no hay `tauri-plugin-updater` ni firma de releases. Para actualizar, se recompila y reinstala el MSI. Si en el futuro se necesitara, habría que reañadir el plugin, un servidor/URL de updates, y firma con clave privada + certificado. Ver `README.SECURITY.md` en la raíz.
 
 ## Verificación
 

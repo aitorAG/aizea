@@ -128,9 +128,53 @@ interface PipelineActions {
  *  should surface it as failed (with a "Reintentar" button). */
 export const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
 
+/** Upper bound on how many jobs the store retains (Fase 4 — estado saneado).
+ *  Without a cap the `jobs` Map grew unbounded: every terminal/dismissed job
+ *  and every server-hydrated row on each reload was retained forever, a real
+ *  memory leak in long sessions. When the map exceeds this, `pruneJobs`
+ *  evicts finished jobs (dismissed first, then oldest terminal) — NEVER an
+ *  in-flight (`pending`/`running`) job, so no active pipeline is ever lost. */
+export const MAX_JOBS = 200;
+
 const initialState: PipelineState = {
   jobs: new Map(),
 };
+
+/** Terminal = the pipeline is no longer touching this job. Safe to evict. */
+function isTerminalStatus(status: ProcessingStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+/**
+ * Bound the jobs map to `MAX_JOBS`. Evicts only NON-in-flight jobs, in this
+ * priority order: dismissed jobs first (the user already closed them), then
+ * the oldest terminal jobs (by `startedAt`). In-flight jobs (`pending` /
+ * `running`) are NEVER evicted — losing one would strand a live pipeline in
+ * the UI. Returns the same map instance (mutated) for the caller to set.
+ */
+function pruneJobs(jobs: Map<string, JobInfo>): Map<string, JobInfo> {
+  if (jobs.size <= MAX_JOBS) return jobs;
+
+  // Candidates for eviction, most-evictable first: dismissed before
+  // non-dismissed, then oldest before newest. In-flight jobs are excluded.
+  const evictable: JobInfo[] = [];
+  for (const job of jobs.values()) {
+    if (!isTerminalStatus(job.status)) continue; // protect in-flight
+    evictable.push(job);
+  }
+  evictable.sort((a, b) => {
+    if (a.dismissed !== b.dismissed) return a.dismissed ? -1 : 1;
+    return a.startedAt - b.startedAt;
+  });
+
+  let toEvict = jobs.size - MAX_JOBS;
+  for (const job of evictable) {
+    if (toEvict <= 0) break;
+    jobs.delete(job.jobId);
+    toEvict--;
+  }
+  return jobs;
+}
 
 /** Internal helper to merge an input row into an existing JobInfo. */
 function mergeJob(
@@ -209,7 +253,7 @@ export const usePipelineStore = create<PipelineState & PipelineActions>(
         const next = new Map(state.jobs);
         const now = Date.now();
         next.set(info.jobId, mergeJob(next.get(info.jobId), info, now));
-        return { jobs: next };
+        return { jobs: pruneJobs(next) };
       }),
 
     updateJob: (jobId, partial) =>
@@ -297,7 +341,7 @@ export const usePipelineStore = create<PipelineState & PipelineActions>(
         for (const row of rows) {
           next.set(row.jobId, mergeJob(next.get(row.jobId), row, now));
         }
-        return { jobs: next };
+        return { jobs: pruneJobs(next) };
       }),
 
     reset: () => set({ ...initialState, jobs: new Map() }),

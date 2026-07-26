@@ -1,9 +1,8 @@
 "use server";
 
-import { db } from "@/lib/db";
 import { container } from "@/lib/composition/container";
 import { revalidatePath } from "next/cache";
-import { NotFoundError, ValidationError } from "@/lib/actions/_action-error";
+import { ValidationError } from "@/lib/actions/_action-error";
 
 export async function uploadMaterial(
   courseId: string,
@@ -39,19 +38,14 @@ export async function uploadMaterial(
 }
 
 export async function getCourseMaterials(courseId: string) {
-  return db.material.findMany({
-    where: { courseId },
-    orderBy: { createdAt: "desc" },
-  });
+  return container.materials.findByCourseId(courseId);
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
-  const material = await db.material.findUnique({ where: { id } });
+  const material = await container.materials.findById(id);
   if (!material) return;
-  await db.$transaction([
-    db.textChunk.deleteMany({ where: { materialId: id } }),
-    db.material.delete({ where: { id } }),
-  ]);
+  // The repository deletes the material + dependent TextChunks atomically.
+  await container.materials.delete(id);
   revalidatePath(`/courses/${material.courseId}`);
   revalidatePath(`/courses/${material.courseId}/materials`);
 }

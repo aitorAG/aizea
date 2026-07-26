@@ -60,6 +60,13 @@ vi.mock("@/lib/composition/container", () => ({
     slides: {
       findCourseIdById: vi.fn().mockResolvedValue("course-1"),
     },
+    // 1.3: material.ts now routes deleteMaterial through the container's
+    // material repository. findById returns null so the action no-ops
+    // early (matching the previous "mock db returns null" behaviour).
+    materials: {
+      findById: vi.fn().mockResolvedValue(null),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
   },
 }));
 

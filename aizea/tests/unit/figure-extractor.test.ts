@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { FigureExtractor } from "@/lib/domain/figures/FigureExtractor";
+import { FsFigureStore } from "@/lib/infrastructure/figures/figure-store";
 import { PDFService } from "@/lib/domain/pdf/PDFService";
 import { db } from "@/lib/db";
 import fs from "node:fs/promises";
@@ -31,7 +32,7 @@ describe("FigureExtractor", () => {
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "figures-test-"));
-    extractor = new FigureExtractor(new PDFService(), tempDir);
+    extractor = new FigureExtractor(new PDFService(), new FsFigureStore(tempDir));
     fakeBuffer = Buffer.from("fake-pdf-content");
     mockExtractFigures.mockClear();
   });

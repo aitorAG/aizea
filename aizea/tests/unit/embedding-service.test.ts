@@ -36,7 +36,7 @@ describe("EmbeddingService — dummy mode (no real api key)", () => {
   });
 
   it("embed() returns a deterministic dummy vector in dummy mode", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     const svc = new EmbeddingService();
     const v1 = await svc.embed("hello");
     const v2 = await svc.embed("hello");
@@ -45,7 +45,7 @@ describe("EmbeddingService — dummy mode (no real api key)", () => {
   });
 
   it("dummy vectors differ across inputs", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     const svc = new EmbeddingService();
     const v1 = await svc.embed("hello");
     const v2 = await svc.embed("world");
@@ -53,7 +53,7 @@ describe("EmbeddingService — dummy mode (no real api key)", () => {
   });
 
   it("embedBatch() returns one dummy vector per text in dummy mode", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     const svc = new EmbeddingService();
     const v = await svc.embedBatch(["a", "b", "c"]);
     expect(v).toHaveLength(3);
@@ -61,7 +61,7 @@ describe("EmbeddingService — dummy mode (no real api key)", () => {
   });
 
   it("does not call fetch in dummy mode", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     global.fetch = vi.fn();
     const svc = new EmbeddingService();
     await svc.embed("x");
@@ -69,7 +69,7 @@ describe("EmbeddingService — dummy mode (no real api key)", () => {
   });
 
   it("supports a custom dimension", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     const svc = new EmbeddingService({ dimension: 8 });
     const v = await svc.embed("hi");
     expect(v).toHaveLength(8);
@@ -97,7 +97,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getApiKey).mockResolvedValue("sk-real-key-12345678");
     vi.mocked(cfgMod.getEmbedModel).mockResolvedValue("voyage/voyage-3");
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     global.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -115,7 +115,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getApiKey).mockResolvedValue("sk-from-config-service-2");
     vi.mocked(cfgMod.getEmbedModel).mockResolvedValue("openai/text-embedding-3-small");
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     global.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -133,7 +133,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getApiKey).mockResolvedValue("sk-real-key-12345678");
     vi.mocked(cfgMod.getEmbedModel).mockResolvedValue("openai/text-embedding-3-small");
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     global.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -157,7 +157,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getApiKey).mockResolvedValue("sk-real-key-12345678");
     vi.mocked(cfgMod.getEmbedModel).mockResolvedValue("openai/text-embedding-3-small");
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     let call = 0;
     global.fetch = vi.fn(async () => {
       call += 1;
@@ -191,7 +191,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getApiKey).mockResolvedValue("sk-real-key-12345678");
     vi.mocked(cfgMod.getEmbedModel).mockResolvedValue("openai/text-embedding-3-small");
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     global.fetch = vi.fn(async () => ({
       ok: false,
       status: 429,
@@ -209,7 +209,7 @@ describe("EmbeddingService — uses config-service model and apiKey", () => {
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getApiKey).mockResolvedValue("sk-real-key-12345678");
     vi.mocked(cfgMod.getEmbedModel).mockResolvedValue("openai/text-embedding-3-small");
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     global.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,

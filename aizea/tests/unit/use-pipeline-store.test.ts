@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { usePipelineStore, getActiveJobs, STUCK_THRESHOLD_MS } from "@/lib/stores/usePipelineStore";
+import { usePipelineStore, getActiveJobs, STUCK_THRESHOLD_MS, MAX_JOBS } from "@/lib/stores/usePipelineStore";
 
 describe("usePipelineStore — initial state", () => {
   beforeEach(() => {
@@ -358,5 +358,94 @@ describe("getActiveJobs", () => {
     });
     const active = getActiveJobs(usePipelineStore.getState());
     expect(active[0]?.isStuck).toBe(false);
+  });
+});
+
+describe("usePipelineStore — prune / bounded map (Fase 4 estado saneado)", () => {
+  beforeEach(() => {
+    usePipelineStore.getState().reset();
+  });
+
+  it("keeps the map at or below MAX_JOBS after adding more than the cap", () => {
+    const store = usePipelineStore.getState();
+    // Add MAX_JOBS + 50 completed jobs.
+    for (let i = 0; i < MAX_JOBS + 50; i++) {
+      store.addJob({
+        jobId: `done-${i}`,
+        courseId: "c-1",
+        phase: "segmentation",
+        status: "completed",
+        progress: 100,
+        startedAt: i, // ascending: lower i = older
+      });
+    }
+    expect(usePipelineStore.getState().jobs.size).toBeLessThanOrEqual(MAX_JOBS);
+  });
+
+  it("NEVER evicts in-flight (running/pending) jobs, even past the cap", () => {
+    const store = usePipelineStore.getState();
+    // Seed a handful of running jobs (must survive).
+    for (let i = 0; i < 10; i++) {
+      store.addJob({
+        jobId: `run-${i}`,
+        courseId: "c-1",
+        phase: "extraction",
+        status: "running",
+        startedAt: i,
+      });
+    }
+    // Flood with completed jobs to force eviction.
+    for (let i = 0; i < MAX_JOBS + 100; i++) {
+      store.addJob({
+        jobId: `done-${i}`,
+        courseId: "c-1",
+        phase: "segmentation",
+        status: "completed",
+        progress: 100,
+        startedAt: 1000 + i,
+      });
+    }
+    const jobs = usePipelineStore.getState().jobs;
+    expect(jobs.size).toBeLessThanOrEqual(MAX_JOBS);
+    // All 10 running jobs are still present.
+    for (let i = 0; i < 10; i++) {
+      expect(jobs.get(`run-${i}`)?.status).toBe("running");
+    }
+  });
+
+  it("evicts dismissed jobs before non-dismissed terminal ones", () => {
+    const store = usePipelineStore.getState();
+    // Fill exactly to the cap with completed (non-dismissed) jobs.
+    for (let i = 0; i < MAX_JOBS; i++) {
+      store.addJob({
+        jobId: `keep-${i}`,
+        courseId: "c-1",
+        phase: "segmentation",
+        status: "completed",
+        progress: 100,
+        startedAt: 1000 + i, // newer than the dismissed one below
+      });
+    }
+    // Add one dismissed job (oldest) — this pushes size to cap+1.
+    store.addJob({
+      jobId: "dismissed-old",
+      courseId: "c-1",
+      phase: "segmentation",
+      status: "completed",
+      progress: 100,
+      startedAt: 0,
+    });
+    store.dismissJob("dismissed-old");
+    // Trigger a prune by adding one more.
+    store.addJob({
+      jobId: "trigger",
+      courseId: "c-1",
+      phase: "segmentation",
+      status: "completed",
+      progress: 100,
+      startedAt: 9999,
+    });
+    // The dismissed job is evicted first.
+    expect(usePipelineStore.getState().jobs.has("dismissed-old")).toBe(false);
   });
 });

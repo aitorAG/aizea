@@ -16,8 +16,6 @@
 //   - Figures lookup fails → we silently skip; the unit still gets a
 //     representation. We never block the unit on a missing figure.
 
-import { db } from "@/lib/db";
-import { chatJSON } from "@/lib/domain/llm/LLMClient";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import { renderLatexToPng } from "@/lib/domain/utils/latex-renderer";
 import type {
@@ -28,9 +26,18 @@ import type {
   SemanticUnit,
   UnitRepresentation,
 } from "@/lib/types/pipeline";
+import type { IUnitExtractorRepository } from "@/lib/application/ports/unit-extractor-repository.port";
+import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
 
 export interface UnitExtractorOptions {
   promptManager?: PromptManager;
+  /** Repositorio de persistencia (inyectado por el composition root; en
+   *  tests se pasa un fake). Sustituye el antiguo acoplamiento directo a
+   *  Prisma (`@/lib/db`). */
+  repository?: IUnitExtractorRepository;
+  /** Proveedor LLM inyectado por el composition root; en tests se pasa un
+   *  fake. Sustituye el antiguo import de la función libre `chatJSON`. */
+  llmProvider?: ILLMProvider;
 }
 
 interface LlmExtractionResponse {
@@ -52,15 +59,29 @@ type LooseFigure = {
 
 export class UnitExtractor {
   private readonly promptManager: PromptManager;
+  private readonly repository: IUnitExtractorRepository | undefined;
+  private readonly llmProvider: ILLMProvider | undefined;
 
   constructor(options: UnitExtractorOptions = {}) {
     this.promptManager = options.promptManager ?? new PromptManager();
+    this.repository = options.repository;
+    this.llmProvider = options.llmProvider;
   }
 
   async extract(unit: SemanticUnit): Promise<UnitRepresentation> {
+    if (!this.repository) {
+      throw new Error(
+        "UnitExtractor requiere un repositorio inyectado (options.repository)."
+      );
+    }
+    if (!this.llmProvider) {
+      throw new Error(
+        "UnitExtractor requiere un proveedor LLM inyectado (options.llmProvider)."
+      );
+    }
     const { system, user } = this.promptManager.buildExtractUnitPrompt(unit);
 
-    const response = await chatJSON<LlmExtractionResponse>([
+    const response = await this.llmProvider.chatJSON<LlmExtractionResponse>([
       { role: "system", content: system },
       { role: "user", content: user },
     ]);
@@ -88,11 +109,7 @@ export class UnitExtractor {
       prerequisites: JSON.stringify(this.normaliseNames(response.prerequisites)),
       introduces: JSON.stringify(this.normaliseNames(response.introduces)),
     };
-    const row = await db.unitRepresentation.upsert({
-      where: { unitId: unit.id },
-      create: { unitId: unit.id, ...data },
-      update: data,
-    });
+    const row = await this.repository.upsertRepresentation(unit.id, data);
 
     return {
       id: row.id,
@@ -180,25 +197,20 @@ export class UnitExtractor {
 
   private async loadFiguresForUnit(unit: SemanticUnit): Promise<Figure[]> {
     if (unit.pageStart == null || unit.pageEnd == null) return [];
+    if (!this.repository) return [];
+    const repository = this.repository;
     try {
       // Resolve the courseId from the material so we never mix figures
       // across courses (the cross-course leak bug: filtering only by pageNum
       // would return figures from any course whose pages overlap).
-      const material = await db.material.findUnique({
-        where: { id: unit.materialId },
-        select: { courseId: true },
-      });
-      if (!material) return [];
+      const courseId = await repository.findCourseIdByMaterial(unit.materialId);
+      if (!courseId) return [];
 
-      const rows = await db.figure.findMany({
-        where: {
-          courseId: material.courseId, // CRITICAL: scope to this course only
-          pageNum: {
-            gte: unit.pageStart,
-            lte: unit.pageEnd,
-          },
-        },
-      });
+      const rows = await repository.findFiguresByPageRange(
+        courseId, // CRITICAL: scope to this course only
+        unit.pageStart,
+        unit.pageEnd
+      );
       return rows.map((r) => ({
         id: r.id,
         filename: r.filename,

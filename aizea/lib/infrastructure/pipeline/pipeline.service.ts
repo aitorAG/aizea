@@ -27,6 +27,10 @@
 import { db } from "@/lib/db";
 import { SegmenterService } from "@/lib/domain/pipeline/SegmenterService";
 import { UnitExtractor } from "@/lib/domain/pipeline/UnitExtractor";
+import { PrismaSegmenterRepository } from "@/lib/infrastructure/persistence/prisma-segmenter.repository";
+import { PrismaUnitExtractorRepository } from "@/lib/infrastructure/persistence/prisma-unit-extractor.repository";
+import { OpenRouterLLMProvider } from "@/lib/infrastructure/ai/openrouter-llm.provider";
+import { OpenRouterEmbeddingProvider } from "@/lib/infrastructure/ai/openrouter-embedding.provider";
 import { InAppNotifier } from "@/lib/infrastructure/notifications/in-app.notifier";
 import type { INotifier } from "@/lib/application/ports/notifier.port";
 import type {
@@ -43,6 +47,20 @@ import type {
 } from "@/lib/types/pipeline";
 
 const WAVE4_NOT_PRESENT = /Cannot find (module|package)/;
+
+/**
+ * Fase 2.4 — señal de cancelación cooperativa. Se lanza desde los bucles del
+ * pipeline cuando el `ProcessingJob` en curso fue marcado `cancelled` por una
+ * petición concurrente (`cancel(jobId)`). Es distinta de un fallo real: la
+ * fase NO se marca `failed` y `processCourse` emite una notificación neutra en
+ * vez de un error.
+ */
+export class PipelineCancelledError extends Error {
+  constructor(public readonly jobId: string) {
+    super("Pipeline cancelado por el usuario");
+    this.name = "PipelineCancelledError";
+  }
+}
 
 export interface PipelineServiceOptions {
   segmenter?: SegmenterService;
@@ -65,6 +83,13 @@ export interface PipelineServiceOptions {
    * without the side-effect of toast emission.
    */
   notificationsEnabled?: boolean;
+  /**
+   * Fase 2.4 — comprueba si un ProcessingJob fue cancelado. El bucle de
+   * extracción la invoca por iteración para salir de forma cooperativa.
+   * Default: lee el estado del `ProcessingJob` en la BD. Tests inyectan un
+   * stub para simular cancelación en un momento concreto.
+   */
+  isJobCancelled?: (jobId: string) => Promise<boolean>;
 }
 
 /** How long after a job's last update we still surface it to the
@@ -77,13 +102,30 @@ export class PipelineService implements IPipelineService {
   private readonly notify: INotifier;
   private readonly notifyUserId: string;
   private readonly notificationsEnabled: boolean;
+  private readonly isJobCancelled: (jobId: string) => Promise<boolean>;
 
   constructor(options: PipelineServiceOptions = {}) {
-    this.segmenter = options.segmenter ?? new SegmenterService();
-    this.unitExtractor = options.unitExtractor ?? new UnitExtractor();
+    this.segmenter =
+      options.segmenter ??
+      new SegmenterService({ repository: new PrismaSegmenterRepository() });
+    this.unitExtractor =
+      options.unitExtractor ??
+      new UnitExtractor({
+        repository: new PrismaUnitExtractorRepository(),
+        llmProvider: new OpenRouterLLMProvider(),
+      });
     this.notify = options.notify ?? new InAppNotifier();
     this.notifyUserId = options.notifyUserId ?? "default";
     this.notificationsEnabled = options.notificationsEnabled ?? true;
+    this.isJobCancelled =
+      options.isJobCancelled ??
+      (async (jobId: string) => {
+        const job = await db.processingJob.findUnique({
+          where: { id: jobId },
+          select: { status: true },
+        });
+        return job?.status === "cancelled";
+      });
   }
 
   // --- IPipelineService ---
@@ -100,6 +142,13 @@ export class PipelineService implements IPipelineService {
       }
       return result;
     } catch (err) {
+      // Fase 2.4 — una cancelación intencionada del usuario no es un fallo:
+      // emitimos una notificación neutra en vez de un error, y re-lanzamos
+      // para que la capa superior sepa que el run no completó.
+      if (err instanceof PipelineCancelledError) {
+        this.emitCancellationNotification(input.courseId, input.materialId);
+        throw err;
+      }
       this.emitFailureNotification(input.courseId, input.materialId, err);
       throw err;
     }
@@ -298,6 +347,26 @@ export class PipelineService implements IPipelineService {
     });
   }
 
+  private emitCancellationNotification(
+    courseId: string,
+    materialId: string | undefined
+  ): void {
+    if (!this.notificationsEnabled) return;
+    const suffix = materialId ? ` (material ${materialId})` : "";
+    try {
+      this.notify.notify(
+        this.notifyUserId,
+        `Generación cancelada para el curso ${courseId}${suffix}.`,
+        "info"
+      );
+    } catch (err) {
+      console.warn(
+        "[PipelineService] notify() failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   private emitFailureNotification(
     courseId: string,
     materialId: string | undefined,
@@ -382,6 +451,13 @@ export class PipelineService implements IPipelineService {
     // is the only path and works correctly for desktop deployment.
     let processed = 0;
     for (const u of units) {
+      // Fase 2.4 — cancelación cooperativa: antes de cada unidad (una
+      // llamada LLM, la operación más cara del pipeline) comprobamos si el
+      // usuario canceló este job desde el banner. Si es así, salimos limpio
+      // sin procesar las unidades restantes.
+      if (await this.isJobCancelled(jobId)) {
+        throw new PipelineCancelledError(jobId);
+      }
       await this.unitExtractor.extract(u);
       processed++;
       const progress = Math.round((processed / units.length) * 100);
@@ -394,7 +470,14 @@ export class PipelineService implements IPipelineService {
       const { ConceptIntegrator } = await import(
         "@/lib/domain/pipeline/ConceptIntegrator"
       );
-      const integrator = new ConceptIntegrator();
+      const { PrismaConceptIntegratorRepository } = await import(
+        "@/lib/infrastructure/persistence/prisma-concept-integrator.repository"
+      );
+      const integrator = new ConceptIntegrator({
+        repository: new PrismaConceptIntegratorRepository(),
+        embeddingProvider: new OpenRouterEmbeddingProvider(),
+        llmProvider: new OpenRouterLLMProvider(),
+      });
       await integrator.integrate(courseId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -411,7 +494,13 @@ export class PipelineService implements IPipelineService {
   private async runTreeBuilding(courseId: string): Promise<void> {
     try {
       const { TreeBuilder } = await import("@/lib/domain/pipeline/TreeBuilder");
-      const builder = new TreeBuilder();
+      const { PrismaTreeBuilderRepository } = await import(
+        "@/lib/infrastructure/persistence/prisma-tree-builder.repository"
+      );
+      const builder = new TreeBuilder({
+        repository: new PrismaTreeBuilderRepository(),
+        llmProvider: new OpenRouterLLMProvider(),
+      });
       await builder.build(courseId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -457,6 +546,11 @@ export class PipelineService implements IPipelineService {
   }
 
   private async failPhase(jobId: string, err: unknown): Promise<void> {
+    // Fase 2.4 — una cancelación cooperativa NO es un fallo: el job ya quedó
+    // `cancelled` por la petición concurrente. No lo pisamos con `failed`.
+    if (err instanceof PipelineCancelledError) {
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     await db.processingJob.update({
       where: { id: jobId },

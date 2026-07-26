@@ -1,4 +1,14 @@
-import type { PDFExtractResult, PDFImage } from "./PDFService";
+// PdfServiceTauri — implementación de `IPdfBackend` sobre el IPC de Tauri
+// (`@tauri-apps/api/core`, comando `extract_pdf`).
+//
+// Antes vivía en `lib/domain/pdf/PDFServiceTauri.ts`. La Fase 1 (purificación
+// del dominio) lo movió a infraestructura: es un adaptador puro sobre el IPC de
+// Tauri y no tiene lógica de dominio. El contrato lo expone `IPdfBackend`.
+// `PDFService` (dominio) lo resuelve por import dinámico SOLO en runtime Tauri,
+// por lo que el dominio nunca importa `@tauri-apps` estáticamente.
+
+import type { PDFExtractResult, PDFImage } from "@/lib/domain/pdf/PDFService";
+import type { IPdfBackend } from "@/lib/application/ports/pdf-backend.port";
 
 export interface TauriPdfData {
   text: string;
@@ -11,7 +21,7 @@ export interface TauriPdfData {
   }>;
 }
 
-export class PDFServiceTauri {
+export class PdfServiceTauri implements IPdfBackend {
   private async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     const { invoke } = await import("@tauri-apps/api/core");
     return invoke<T>(cmd, args);

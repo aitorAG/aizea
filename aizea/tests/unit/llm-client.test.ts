@@ -74,7 +74,7 @@ describe("LLMClient", () => {
   ];
 
   it("returns content on successful fetch", async () => {
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence({
       ok: true,
       status: 200,
@@ -89,7 +89,7 @@ describe("LLMClient", () => {
   });
 
   it("retries on 429 and succeeds on second attempt", async () => {
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence(
       {
         ok: false,
@@ -115,7 +115,7 @@ describe("LLMClient", () => {
   });
 
   it("retries on 500, 502, 503 with exponential backoff", async () => {
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence(
       { ok: false, status: 500, text: async () => "Server Error" },
       { ok: false, status: 502, text: async () => "Bad Gateway" },
@@ -139,7 +139,7 @@ describe("LLMClient", () => {
   });
 
   it("does not retry on non-retryable errors (e.g. 400)", async () => {
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence({
       ok: false,
       status: 400,
@@ -152,7 +152,7 @@ describe("LLMClient", () => {
   });
 
   it("throws after max retries exhausted", async () => {
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence(
       { ok: false, status: 429, text: async () => "Rate limited" },
       { ok: false, status: 429, text: async () => "Rate limited" },
@@ -174,7 +174,7 @@ describe("LLMClient", () => {
   });
 
   it("throws timeout error when fetch exceeds 120s", async () => {
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     global.fetch = vi.fn((_url, init) => {
       return new Promise<Response>((_, reject) => {
         if (init?.signal) {
@@ -200,7 +200,7 @@ describe("LLMClient", () => {
   });
 
   it("chatJSON parses JSON response and strips markdown fences", async () => {
-    const { chatJSON } = await import("@/lib/domain/llm/LLMClient");
+    const { chatJSON } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence({
       ok: true,
       status: 200,
@@ -220,7 +220,7 @@ describe("LLMClient", () => {
   });
 
   it("chatJSON passes json: true option to chat", async () => {
-    const { chatJSON } = await import("@/lib/domain/llm/LLMClient");
+    const { chatJSON } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence({
       ok: true,
       status: 200,
@@ -239,7 +239,7 @@ describe("LLMClient", () => {
     // Re-mock config-service for this test to return a different chat model.
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getChatModel).mockResolvedValueOnce("anthropic/claude-3.5-sonnet");
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence({
       ok: true,
       status: 200,
@@ -256,7 +256,7 @@ describe("LLMClient", () => {
   it("sends apiKey from config-service in Authorization header", async () => {
     const cfgMod = await import("@/lib/config-service");
     vi.mocked(cfgMod.getApiKey).mockResolvedValueOnce("sk-from-config-service");
-    const { chat } = await import("@/lib/domain/llm/LLMClient");
+    const { chat } = await import("@/lib/infrastructure/ai/llm-client");
     mockFetchSequence({
       ok: true,
       status: 200,

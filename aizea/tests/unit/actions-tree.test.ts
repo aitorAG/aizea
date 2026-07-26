@@ -51,7 +51,7 @@ const { mockChatJSON, mockChat } = vi.hoisted(() => ({
   mockChat: vi.fn(),
 }));
 
-vi.mock("@/lib/domain/llm/LLMClient", () => ({
+vi.mock("@/lib/infrastructure/ai/llm-client", () => ({
   chatJSON: mockChatJSON,
   chat: mockChat,
 }));

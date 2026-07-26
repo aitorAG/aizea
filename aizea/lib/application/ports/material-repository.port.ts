@@ -67,4 +67,10 @@ export interface IMaterialRepository {
   /** Create a new material row, persist the buffer to durable
    *  storage, and return the persisted row. */
   create(data: CreateMaterialInput): Promise<Material>;
+
+  /** Delete a material and its dependent TextChunks atomically.
+   *  No-op semantics: deleting a non-existent id is a silent no-op
+   *  (the action layer already guards with a prior existence check,
+   *  but the repository stays safe on its own). */
+  delete(id: string): Promise<void>;
 }

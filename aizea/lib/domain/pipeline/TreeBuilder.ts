@@ -23,10 +23,10 @@
 //     soft skip; an invalid tree would be unrecoverable).
 //   - Node refers to a non-existent parentRef → throw (orphan).
 
-import { db } from "@/lib/db";
-import { chatJSON } from "@/lib/domain/llm/LLMClient";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import type { TopicGroup, TopicNode } from "@/lib/types/pipeline";
+import type { ITreeBuilderRepository } from "@/lib/application/ports/tree-builder-repository.port";
+import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
 
 const MAX_DEPTH = 3; // depth 0..3 = 4 levels
 
@@ -53,26 +53,42 @@ interface ResolvedNode {
 
 export interface TreeBuilderOptions {
   promptManager?: PromptManager;
-  /** Optional injectable for the DB layer (for tests). */
-  dbOverride?: typeof db;
+  /** Repositorio de persistencia (inyectado por el composition root; en
+   *  tests se pasa un fake). Sustituye el antiguo acoplamiento directo a
+   *  Prisma vía `dbOverride`. */
+  repository?: ITreeBuilderRepository;
+  /** Proveedor LLM inyectado por el composition root; en tests se pasa un
+   *  fake. Sustituye el antiguo import de la función libre `chatJSON`. */
+  llmProvider?: ILLMProvider;
 }
 
 export class TreeBuilder {
   private readonly promptManager: PromptManager;
-  private readonly dbOverride: typeof db | undefined;
+  private readonly repository: ITreeBuilderRepository | undefined;
+  private readonly llmProvider: ILLMProvider | undefined;
 
   constructor(options: TreeBuilderOptions = {}) {
     this.promptManager = options.promptManager ?? new PromptManager();
-    this.dbOverride = options.dbOverride;
+    this.repository = options.repository;
+    this.llmProvider = options.llmProvider;
   }
 
   async build(courseId: string): Promise<TopicNode[]> {
-    const dbClient = this.dbOverride ?? db;
+    if (!this.repository) {
+      throw new Error(
+        "TreeBuilder requiere un repositorio inyectado (options.repository)."
+      );
+    }
+    if (!this.llmProvider) {
+      throw new Error(
+        "TreeBuilder requiere un proveedor LLM inyectado (options.llmProvider)."
+      );
+    }
+    const repository = this.repository;
+    const llmProvider = this.llmProvider;
 
     // 1. Load TopicGroups for the course.
-    const groupRows = await dbClient.topicGroup.findMany({
-      where: { courseId },
-    });
+    const groupRows = await repository.findTopicGroupsByCourse(courseId);
     if (groupRows.length === 0) return [];
 
     const groups: TopicGroup[] = groupRows.map((r) => ({
@@ -86,7 +102,7 @@ export class TreeBuilder {
 
     // 2. Ask the LLM to build the hierarchy.
     const { system, user } = this.promptManager.buildBuildTreePrompt(groups);
-    const response = await chatJSON<LlmHierarchyResponse>([
+    const response = await llmProvider.chatJSON<LlmHierarchyResponse>([
       { role: "system", content: system },
       { role: "user", content: user },
     ]);
@@ -101,14 +117,11 @@ export class TreeBuilder {
     this.assertValidHierarchy(resolved);
 
     // 5. Compute next version.
-    const previous = await dbClient.topicNode.findFirst({
-      where: { courseId },
-      orderBy: { version: "desc" },
-    });
-    const nextVersion = (previous?.version ?? 0) + 1;
+    const previousVersion = await repository.findLatestVersion(courseId);
+    const nextVersion = (previousVersion ?? 0) + 1;
 
     // 6. Delete old nodes for the course (full rebuild).
-    await dbClient.topicNode.deleteMany({ where: { courseId } });
+    await repository.deleteNodesByCourse(courseId);
 
     // 7. Persist. We must insert in topological order so parentId always
     //    resolves. The resolver already produced a DFS-ordered list with
@@ -120,17 +133,15 @@ export class TreeBuilder {
     for (const n of resolved) {
       const dbParentId = n.parentRef !== null ? refToDbId.get(n.parentRef) ?? null : null;
       const isLeaf = !resolved.some((other) => other.parentRef === n.ref);
-      const row = await dbClient.topicNode.create({
-        data: {
-          courseId,
-          parentId: dbParentId,
-          name: n.name,
-          summary: n.summary,
-          depth: n.depth,
-          isLeaf,
-          version: nextVersion,
-          sourceMaterialId: null,
-        },
+      const row = await repository.createNode({
+        courseId,
+        parentId: dbParentId,
+        name: n.name,
+        summary: n.summary,
+        depth: n.depth,
+        isLeaf,
+        version: nextVersion,
+        sourceMaterialId: null,
       });
       refToDbId.set(n.ref, row.id);
       persisted.push({

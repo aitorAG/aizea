@@ -117,4 +117,16 @@ export class PrismaMaterialRepository implements IMaterialRepository {
     });
     return materialFromRow(row);
   }
+
+  async delete(id: string): Promise<void> {
+    // Atomic: clear dependent chunks then the material row. Mirrors the
+    // previous `deleteMaterial` action transaction so the row is never
+    // left with orphaned TextChunks between the two operations. (The DB
+    // FK is ON DELETE CASCADE too, but the explicit transaction keeps
+    // behaviour identical regardless of the SQLite `foreign_keys` PRAGMA.)
+    await db.$transaction([
+      db.textChunk.deleteMany({ where: { materialId: id } }),
+      db.material.delete({ where: { id } }),
+    ]);
+  }
 }

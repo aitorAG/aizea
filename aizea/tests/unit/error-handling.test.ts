@@ -269,4 +269,53 @@ describe("CircuitBreaker", () => {
 
     expect(cb.getState()).toBe("open");
   });
+
+  describe("isFailure predicate (Fase 2.5)", () => {
+    it("does NOT open the circuit for errors the predicate rejects", async () => {
+      // Only errors whose message includes "health" count as failures.
+      const cb = new CircuitBreaker({
+        failureThreshold: 2,
+        resetTimeout: 30000,
+        isFailure: (e) => e instanceof Error && e.message.includes("health"),
+      });
+
+      // Two non-health errors: propagate but must NOT open the circuit.
+      await expect(
+        cb.execute(() => Promise.reject(new Error("auth")))
+      ).rejects.toThrow("auth");
+      await expect(
+        cb.execute(() => Promise.reject(new Error("auth")))
+      ).rejects.toThrow("auth");
+      expect(cb.getState()).toBe("closed");
+    });
+
+    it("opens the circuit only after enough predicate-matching failures", async () => {
+      const cb = new CircuitBreaker({
+        failureThreshold: 2,
+        resetTimeout: 30000,
+        isFailure: (e) => e instanceof Error && e.message.includes("health"),
+      });
+
+      // One ignored error, then two health failures → opens on the 2nd health.
+      await expect(
+        cb.execute(() => Promise.reject(new Error("auth")))
+      ).rejects.toThrow("auth");
+      await expect(
+        cb.execute(() => Promise.reject(new Error("health")))
+      ).rejects.toThrow("health");
+      expect(cb.getState()).toBe("closed");
+      await expect(
+        cb.execute(() => Promise.reject(new Error("health")))
+      ).rejects.toThrow("health");
+      expect(cb.getState()).toBe("open");
+    });
+
+    it("defaults to counting every error (backward compatible)", async () => {
+      const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeout: 30000 });
+      await expect(
+        cb.execute(() => Promise.reject(new Error("anything")))
+      ).rejects.toThrow("anything");
+      expect(cb.getState()).toBe("open");
+    });
+  });
 });

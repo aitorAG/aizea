@@ -19,12 +19,12 @@
 //     those (we never persist unnamed groups).
 //   - importance outside [0, 1] → clamp.
 
-import { db } from "@/lib/db";
-import { chatJSON } from "@/lib/domain/llm/LLMClient";
-import { EmbeddingService } from "@/lib/domain/rag/EmbeddingService";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import { randomUUID } from "node:crypto";
 import type { Concept, TopicGroup } from "@/lib/types/pipeline";
+import type { IConceptIntegratorRepository } from "@/lib/application/ports/concept-integrator-repository.port";
+import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
+import type { IEmbeddingProvider } from "@/lib/application/ports/embedding-provider.port";
 
 /** Cosine similarity threshold for grouping two concept names together. */
 const SIMILARITY_THRESHOLD = 0.7;
@@ -48,43 +48,63 @@ interface LlmGroupResponse {
 }
 
 export interface ConceptIntegratorOptions {
-  embeddingService?: EmbeddingService;
+  /** Proveedor de embeddings inyectado por el composition root; en tests se
+   *  pasa un fake. Sustituye el antiguo `new EmbeddingService()` por defecto. */
+  embeddingProvider?: IEmbeddingProvider;
   promptManager?: PromptManager;
   /** Override the similarity threshold (mostly for tests). */
   similarityThreshold?: number;
-  /** Optional injectable for the DB layer (for tests). */
-  dbOverride?: typeof db;
+  /** Repositorio de persistencia (inyectado por el composition root; en
+   *  tests se pasa un fake). Sustituye el antiguo acoplamiento directo a
+   *  Prisma vía `dbOverride`. */
+  repository?: IConceptIntegratorRepository;
+  /** Proveedor LLM inyectado por el composition root; en tests se pasa un
+   *  fake. Sustituye el antiguo import de la función libre `chatJSON`. */
+  llmProvider?: ILLMProvider;
 }
 
 export class ConceptIntegrator {
-  private readonly embeddingService: EmbeddingService;
+  private readonly embeddingProvider: IEmbeddingProvider | undefined;
   private readonly promptManager: PromptManager;
   private readonly similarityThreshold: number;
-  private readonly dbOverride: typeof db | undefined;
+  private readonly repository: IConceptIntegratorRepository | undefined;
+  private readonly llmProvider: ILLMProvider | undefined;
 
   constructor(options: ConceptIntegratorOptions = {}) {
-    this.embeddingService = options.embeddingService ?? new EmbeddingService();
+    this.embeddingProvider = options.embeddingProvider;
     this.promptManager = options.promptManager ?? new PromptManager();
     this.similarityThreshold = options.similarityThreshold ?? SIMILARITY_THRESHOLD;
-    this.dbOverride = options.dbOverride;
+    this.repository = options.repository;
+    this.llmProvider = options.llmProvider;
   }
 
   async integrate(courseId: string): Promise<TopicGroup[]> {
-    const dbClient = this.dbOverride ?? db;
+    if (!this.repository) {
+      throw new Error(
+        "ConceptIntegrator requiere un repositorio inyectado (options.repository)."
+      );
+    }
+    if (!this.embeddingProvider) {
+      throw new Error(
+        "ConceptIntegrator requiere un proveedor de embeddings inyectado (options.embeddingProvider)."
+      );
+    }
+    if (!this.llmProvider) {
+      throw new Error(
+        "ConceptIntegrator requiere un proveedor LLM inyectado (options.llmProvider)."
+      );
+    }
+    const repository = this.repository;
+    const embeddingProvider = this.embeddingProvider;
+    const llmProvider = this.llmProvider;
 
     // 1. Load all units and their representations for the course.
-    const units = await dbClient.semanticUnit.findMany({
-      where: { material: { courseId } },
-      include: { material: { select: { courseId: true } } },
-    });
-    if (units.length === 0) {
+    const unitIds = await repository.findUnitIdsByCourse(courseId);
+    if (unitIds.length === 0) {
       return [];
     }
 
-    const unitIds = units.map((u) => u.id);
-    const representations = await dbClient.unitRepresentation.findMany({
-      where: { unitId: { in: unitIds } },
-    });
+    const representations = await repository.findRepresentationsByUnitIds(unitIds);
 
     if (representations.length === 0) {
       return [];
@@ -114,7 +134,7 @@ export class ConceptIntegrator {
     }
 
     // 3. Embed every distinct concept name in a single batch.
-    const embeddings = await this.embeddingService.embedBatch(uniqueNames);
+    const embeddings = await embeddingProvider.embedBatch(uniqueNames);
 
     // 4. Cluster by cosine similarity.
     const clusters = this.clusterBySimilarity(uniqueNames, embeddings, this.similarityThreshold);
@@ -123,7 +143,7 @@ export class ConceptIntegrator {
     const { system, user } = this.promptManager.buildIntegrateConceptsPrompt(
       clusters.map((c) => ({ concepts: c.concepts }))
     );
-    const response = await chatJSON<LlmGroupResponse>([
+    const response = await llmProvider.chatJSON<LlmGroupResponse>([
       { role: "system", content: system },
       { role: "user", content: user },
     ]);
@@ -147,17 +167,15 @@ export class ConceptIntegrator {
           ? this.unitsForConcepts(concepts, conceptToUnits)
           : [];
 
-      const row = await dbClient.topicGroup.create({
-        data: {
-          id: randomUUID(),
-          courseId,
-          name,
-          description,
-          importance,
-          concepts: JSON.stringify(concepts),
-          sourceUnitIds: JSON.stringify(sourceUnitIds),
-          version: 1,
-        },
+      const row = await repository.createTopicGroup({
+        id: randomUUID(),
+        courseId,
+        name,
+        description,
+        importance,
+        concepts: JSON.stringify(concepts),
+        sourceUnitIds: JSON.stringify(sourceUnitIds),
+        version: 1,
       });
 
       persisted.push({

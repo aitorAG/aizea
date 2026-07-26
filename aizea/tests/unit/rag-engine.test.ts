@@ -84,7 +84,7 @@ describe("TextChunker", () => {
 
 describe("EmbeddingService", () => {
   it("returns deterministic dummy vectors when API key is test key", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     const service = new EmbeddingService({ dimension: 8 });
     const vec1 = await service.embed("hello");
     const vec2 = await service.embed("hello");
@@ -94,7 +94,7 @@ describe("EmbeddingService", () => {
   });
 
   it("returns different dummy vectors for different inputs", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     const service = new EmbeddingService({ dimension: 8 });
     const vec1 = await service.embed("hello");
     const vec2 = await service.embed("world");
@@ -103,7 +103,7 @@ describe("EmbeddingService", () => {
   });
 
   it("embedBatch returns vectors for all inputs", async () => {
-    const { EmbeddingService } = await import("@/lib/domain/rag/EmbeddingService");
+    const { EmbeddingService } = await import("@/lib/infrastructure/ai/embedding-service");
     const service = new EmbeddingService({ dimension: 16 });
     const vectors = await service.embedBatch(["a", "b", "c"]);
 
@@ -149,6 +149,7 @@ describe("RAGEngine", () => {
   it("indexMaterial chunks, embeds, stores vectors and persists TextChunks", async () => {
     const { RAGEngine } = await import("@/lib/domain/rag/RAGEngine");
     const { db } = await import("@/lib/db");
+    const { PrismaRagRepository } = await import("@/lib/infrastructure/persistence/prisma-rag.repository");
 
     const mockInsert = vi.fn().mockResolvedValue(undefined);
     const mockDeleteByMaterialId = vi.fn().mockResolvedValue(undefined);
@@ -173,9 +174,11 @@ describe("RAGEngine", () => {
       embedBatch: mockEmbedBatch,
     };
 
+    // Integration: real Prisma repository against the test DB.
     const engine = new RAGEngine({
-      embedder: mockEmbedder as unknown as InstanceType<typeof import("@/lib/domain/rag/EmbeddingService").EmbeddingService>,
-      vectorStore: mockVectorStore as unknown as InstanceType<typeof import("@/lib/domain/rag/VectorStore").VectorStore>,
+      embedder: mockEmbedder as unknown as import("@/lib/application/ports/embedding-provider.port").IEmbeddingProvider,
+      vectorStore: mockVectorStore as unknown as import("@/lib/application/ports/vector-store.port").IVectorStore,
+      repository: new PrismaRagRepository(),
     });
 
     // Content long enough to produce multiple chunks
@@ -224,8 +227,8 @@ describe("RAGEngine", () => {
     };
 
     const engine = new RAGEngine({
-      embedder: mockEmbedder as unknown as InstanceType<typeof import("@/lib/domain/rag/EmbeddingService").EmbeddingService>,
-      vectorStore: mockVectorStore as unknown as InstanceType<typeof import("@/lib/domain/rag/VectorStore").VectorStore>,
+      embedder: mockEmbedder as unknown as import("@/lib/application/ports/embedding-provider.port").IEmbeddingProvider,
+      vectorStore: mockVectorStore as unknown as import("@/lib/application/ports/vector-store.port").IVectorStore,
     });
 
     const results = await engine.searchRelevant("query", "mat-1", 2);
@@ -261,8 +264,8 @@ describe("RAGEngine", () => {
     };
 
     const engine = new RAGEngine({
-      embedder: mockEmbedder as unknown as InstanceType<typeof import("@/lib/domain/rag/EmbeddingService").EmbeddingService>,
-      vectorStore: mockVectorStore as unknown as InstanceType<typeof import("@/lib/domain/rag/VectorStore").VectorStore>,
+      embedder: mockEmbedder as unknown as import("@/lib/application/ports/embedding-provider.port").IEmbeddingProvider,
+      vectorStore: mockVectorStore as unknown as import("@/lib/application/ports/vector-store.port").IVectorStore,
     });
 
     const results = await engine.searchRelevant("query", "mat-1", 5);
@@ -273,17 +276,19 @@ describe("RAGEngine", () => {
 
   it("indexMaterial throws when material is not found", async () => {
     const { RAGEngine } = await import("@/lib/domain/rag/RAGEngine");
+    const { PrismaRagRepository } = await import("@/lib/infrastructure/persistence/prisma-rag.repository");
 
     const engine = new RAGEngine({
       embedder: {
         embed: vi.fn().mockResolvedValue([]),
         embedBatch: vi.fn().mockResolvedValue([]),
-      } as unknown as InstanceType<typeof import("@/lib/domain/rag/EmbeddingService").EmbeddingService>,
+      } as unknown as import("@/lib/application/ports/embedding-provider.port").IEmbeddingProvider,
       vectorStore: {
         insert: vi.fn().mockResolvedValue(undefined),
         deleteByMaterialId: vi.fn().mockResolvedValue(undefined),
         search: vi.fn().mockResolvedValue([]),
-      } as unknown as InstanceType<typeof import("@/lib/domain/rag/VectorStore").VectorStore>,
+      } as unknown as import("@/lib/application/ports/vector-store.port").IVectorStore,
+      repository: new PrismaRagRepository(),
     });
 
     await expect(engine.indexMaterial("non-existent-id")).rejects.toThrow(
@@ -294,6 +299,7 @@ describe("RAGEngine", () => {
   it("indexMaterial does nothing when material content is empty", async () => {
     const { RAGEngine } = await import("@/lib/domain/rag/RAGEngine");
     const { db } = await import("@/lib/db");
+    const { PrismaRagRepository } = await import("@/lib/infrastructure/persistence/prisma-rag.repository");
 
     const mockInsert = vi.fn().mockResolvedValue(undefined);
     const mockEmbedBatch = vi.fn().mockResolvedValue([]);
@@ -302,12 +308,13 @@ describe("RAGEngine", () => {
       embedder: {
         embed: vi.fn().mockResolvedValue([]),
         embedBatch: mockEmbedBatch,
-      } as unknown as InstanceType<typeof import("@/lib/domain/rag/EmbeddingService").EmbeddingService>,
+      } as unknown as import("@/lib/application/ports/embedding-provider.port").IEmbeddingProvider,
       vectorStore: {
         insert: mockInsert,
         deleteByMaterialId: vi.fn().mockResolvedValue(undefined),
         search: vi.fn().mockResolvedValue([]),
-      } as unknown as InstanceType<typeof import("@/lib/domain/rag/VectorStore").VectorStore>,
+      } as unknown as import("@/lib/application/ports/vector-store.port").IVectorStore,
+      repository: new PrismaRagRepository(),
     });
 
     const { material } = await makeFixture("   ");

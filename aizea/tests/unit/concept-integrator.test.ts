@@ -4,25 +4,10 @@ const {
   mockChatJSON,
   mockBuildIntegrateConceptsPrompt,
   mockEmbedBatch,
-  mockSemanticUnitFindMany,
-  mockUnitRepresentationFindMany,
-  mockTopicGroupCreate,
-  mockTopicGroupDeleteMany,
-  mockTopicGroupFindMany,
 } = vi.hoisted(() => ({
   mockChatJSON: vi.fn(),
   mockBuildIntegrateConceptsPrompt: vi.fn(),
   mockEmbedBatch: vi.fn(),
-  mockSemanticUnitFindMany: vi.fn(),
-  mockUnitRepresentationFindMany: vi.fn(),
-  mockTopicGroupCreate: vi.fn(),
-  mockTopicGroupDeleteMany: vi.fn(),
-  mockTopicGroupFindMany: vi.fn(),
-}));
-
-vi.mock("@/lib/domain/llm/LLMClient", () => ({
-  chatJSON: mockChatJSON,
-  chat: vi.fn(),
 }));
 
 vi.mock("@/lib/domain/prompts/PromptManager", () => ({
@@ -31,91 +16,93 @@ vi.mock("@/lib/domain/prompts/PromptManager", () => ({
   },
 }));
 
-vi.mock("@/lib/domain/rag/EmbeddingService", () => ({
-  EmbeddingService: class MockEmbeddingService {
-    embedBatch = mockEmbedBatch;
-    embed = vi.fn();
-  },
-}));
-
-vi.mock("@/lib/db", () => ({
-  db: {
-    semanticUnit: {
-      findMany: mockSemanticUnitFindMany,
-    },
-    unitRepresentation: {
-      findMany: mockUnitRepresentationFindMany,
-    },
-    topicGroup: {
-      create: mockTopicGroupCreate,
-      deleteMany: mockTopicGroupDeleteMany,
-      findMany: mockTopicGroupFindMany,
-    },
-  },
-}));
-
 import { ConceptIntegrator } from "@/lib/domain/pipeline/ConceptIntegrator";
-import type { Concept, UnitRepresentation } from "@/lib/types/pipeline";
+import type {
+  ConceptRepresentationRow,
+  CreateTopicGroupInput,
+  CreatedTopicGroupRow,
+  IConceptIntegratorRepository,
+} from "@/lib/application/ports/concept-integrator-repository.port";
+import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
+import type { IEmbeddingProvider } from "@/lib/application/ports/embedding-provider.port";
 
-// Mock TopicGroup model is added at runtime by the Prisma client. To allow
-// tests to run we expose minimal `db.topicGroup` methods; Prisma model not
-// present in schema.prisma — the implementation must persist groups using
-// a JSON store or computed return. We mock the persistence layer instead.
-// (See TopicGroup persistence comment in the implementation.)
+// ----- fake providers -----
+//
+// La inversión DI (Fase 1) hace que ConceptIntegrator dependa de `ILLMProvider`
+// e `IEmbeddingProvider` inyectados en vez de la función libre `chatJSON` y
+// `new EmbeddingService()`. El test inyecta estos fakes.
+const fakeLlm: ILLMProvider = {
+  chatJSON: mockChatJSON,
+  chat: vi.fn(),
+  name: "fake-llm",
+};
+
+const fakeEmbedding: IEmbeddingProvider = {
+  embedBatch: mockEmbedBatch,
+  embed: vi.fn(),
+  dimensions: 8,
+  dummyVector: (seed = "") =>
+    Array.from({ length: 8 }, (_, i) => (seed.charCodeAt(0) + i) / 1000),
+};
+
+// ----- fake repository -----
+//
+// La purificación del dominio (Fase 1) hace que ConceptIntegrator dependa de
+// `IConceptIntegratorRepository` en vez de Prisma. El test inyecta este fake
+// en lugar de mockear `@/lib/db`.
+function createFakeRepo() {
+  return {
+    findUnitIdsByCourse: vi.fn<(courseId: string) => Promise<string[]>>(),
+    findRepresentationsByUnitIds:
+      vi.fn<(unitIds: string[]) => Promise<ConceptRepresentationRow[]>>(),
+    createTopicGroup:
+      vi.fn<(data: CreateTopicGroupInput) => Promise<CreatedTopicGroupRow>>(),
+  } satisfies IConceptIntegratorRepository;
+}
 
 // ----- helpers -----
 
-function makeUnit(
-  id: string,
-  materialId: string,
-  courseId: string
-): { id: string; materialId: string; material: { courseId: string } } {
-  return { id, materialId, material: { courseId } };
-}
-
+/** Build a representation row as the port returns it: unitId + JSON concepts. */
 function makeRepresentation(
   unitId: string,
   concepts: Array<{ name: string; importance?: number }>
-): UnitRepresentation & { _unit: { id: string; materialId: string; material: { courseId: string } } } {
+): ConceptRepresentationRow {
   return {
-    _unit: { id: unitId, materialId: "m-1", material: { courseId: "c-1" } },
-    id: `rep-${unitId}`,
     unitId,
-    concepts: concepts.map((c) => ({
-      name: c.name,
-      importance: c.importance ?? 0.5,
-    })),
-    mainIdeas: [],
-    formulas: [],
-    figures: [],
-    prerequisites: [],
-    introduces: [],
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
+    concepts: JSON.stringify(
+      concepts.map((c) => ({ name: c.name, importance: c.importance ?? 0.5 }))
+    ),
   };
 }
 
 describe("ConceptIntegrator", () => {
   let integrator: ConceptIntegrator;
+  let repo: ReturnType<typeof createFakeRepo>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    integrator = new ConceptIntegrator();
+    repo = createFakeRepo();
+    integrator = new ConceptIntegrator({
+      repository: repo,
+      embeddingProvider: fakeEmbedding,
+      llmProvider: fakeLlm,
+    });
     mockBuildIntegrateConceptsPrompt.mockReturnValue({
       system: "SYS",
       user: "USR",
     });
     // Default successful mocks
-    mockSemanticUnitFindMany.mockResolvedValue([]);
-    mockUnitRepresentationFindMany.mockResolvedValue([]);
+    repo.findUnitIdsByCourse.mockResolvedValue([]);
+    repo.findRepresentationsByUnitIds.mockResolvedValue([]);
     mockEmbedBatch.mockImplementation(async (texts: string[]) =>
       texts.map((t) => Array.from({ length: 8 }, (_, i) => (t.charCodeAt(0) + i) / 1000))
     );
-    mockTopicGroupCreate.mockImplementation(
-      async ({ data }: { data: Record<string, unknown> }) => ({ id: `g-${Math.random()}`, ...data })
-    );
-    mockTopicGroupDeleteMany.mockResolvedValue({ count: 0 });
-    mockTopicGroupFindMany.mockResolvedValue([]);
+    repo.createTopicGroup.mockImplementation(async (data) => ({
+      id: `g-${Math.random()}`,
+      name: data.name,
+      description: data.description,
+      importance: data.importance,
+    }));
   });
 
   afterEach(() => {
@@ -124,11 +111,8 @@ describe("ConceptIntegrator", () => {
 
   describe("loading inputs", () => {
     it("loads all UnitRepresentations for the course (via SemanticUnit→Material→Course)", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-        makeUnit("u-2", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1", "u-2"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
         makeRepresentation("u-2", [{ name: "energy" }]),
       ]);
@@ -145,13 +129,13 @@ describe("ConceptIntegrator", () => {
         ],
       });
       await integrator.integrate("c-1");
-      expect(mockSemanticUnitFindMany).toHaveBeenCalled();
-      expect(mockUnitRepresentationFindMany).toHaveBeenCalled();
+      expect(repo.findUnitIdsByCourse).toHaveBeenCalled();
+      expect(repo.findRepresentationsByUnitIds).toHaveBeenCalled();
     });
 
     it("returns an empty array when there are no representations", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([]);
-      mockUnitRepresentationFindMany.mockResolvedValue([]);
+      repo.findUnitIdsByCourse.mockResolvedValue([]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([]);
       const result = await integrator.integrate("c-1");
       expect(result).toEqual([]);
       // No LLM call needed
@@ -161,11 +145,8 @@ describe("ConceptIntegrator", () => {
 
   describe("embedding-based pre-clustering", () => {
     it("embeds every distinct concept name before clustering", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-        makeUnit("u-2", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1", "u-2"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }, { name: "temperature" }]),
         makeRepresentation("u-2", [{ name: "energy" }]),
       ]);
@@ -181,11 +162,8 @@ describe("ConceptIntegrator", () => {
     });
 
     it("does not embed duplicate concept names", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-        makeUnit("u-2", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1", "u-2"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
         makeRepresentation("u-2", [{ name: "entropy" }]),
       ]);
@@ -198,10 +176,8 @@ describe("ConceptIntegrator", () => {
 
   describe("LLM integration", () => {
     it("calls PromptManager.buildIntegrateConceptsPrompt with pre-clustered groups", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }, { name: "energy" }]),
       ]);
       mockChatJSON.mockResolvedValue({
@@ -217,10 +193,8 @@ describe("ConceptIntegrator", () => {
     });
 
     it("calls LLMClient.chatJSON with the prompt system/user messages", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
       ]);
       mockBuildIntegrateConceptsPrompt.mockReturnValue({
@@ -236,10 +210,8 @@ describe("ConceptIntegrator", () => {
     });
 
     it("propagates errors from the LLM", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
       ]);
       mockChatJSON.mockRejectedValue(new Error("LLM 503"));
@@ -249,12 +221,8 @@ describe("ConceptIntegrator", () => {
 
   describe("TopicGroup construction", () => {
     it("returns one TopicGroup per LLM-provided group", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-        makeUnit("u-2", "m-1", "c-1"),
-        makeUnit("u-3", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1", "u-2", "u-3"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
         makeRepresentation("u-2", [{ name: "energy" }]),
         makeRepresentation("u-3", [{ name: "force" }]),
@@ -278,10 +246,8 @@ describe("ConceptIntegrator", () => {
     });
 
     it("discards groups with empty names", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
       ]);
       mockChatJSON.mockResolvedValue({
@@ -297,10 +263,8 @@ describe("ConceptIntegrator", () => {
     });
 
     it("clamps importance to [0, 1] range", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
       ]);
       mockChatJSON.mockResolvedValue({
@@ -319,10 +283,8 @@ describe("ConceptIntegrator", () => {
 
   describe("TopicGroup persistence", () => {
     it("persists each TopicGroup to the database", async () => {
-      mockSemanticUnitFindMany.mockResolvedValue([
-        makeUnit("u-1", "m-1", "c-1"),
-      ]);
-      mockUnitRepresentationFindMany.mockResolvedValue([
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
         makeRepresentation("u-1", [{ name: "entropy" }]),
       ]);
       mockChatJSON.mockResolvedValue({
@@ -331,15 +293,20 @@ describe("ConceptIntegrator", () => {
         ],
       });
       // Track calls
-      const created: unknown[] = [];
-      mockTopicGroupCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      const created: CreateTopicGroupInput[] = [];
+      repo.createTopicGroup.mockImplementation(async (data) => {
         created.push(data);
-        return { id: `g-${created.length}`, ...data };
+        return {
+          id: `g-${created.length}`,
+          name: data.name,
+          description: data.description,
+          importance: data.importance,
+        };
       });
       await integrator.integrate("c-1");
-      expect(mockTopicGroupCreate).toHaveBeenCalled();
+      expect(repo.createTopicGroup).toHaveBeenCalled();
       expect(created.length).toBeGreaterThan(0);
-      const first = created[0] as Record<string, unknown>;
+      const first = created[0];
       expect(first.courseId).toBe("c-1");
       expect(typeof first.name).toBe("string");
     });

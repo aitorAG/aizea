@@ -1,8 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
-import { chatJSON } from "@/lib/domain/llm/LLMClient";
+import { chatJSON } from "@/lib/infrastructure/ai/llm-client";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import { RAGEngine } from "@/lib/domain/rag/RAGEngine";
+import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { SlideBoxService } from "@/lib/application/SlideBoxService";
 import { SlideCrudService } from "@/lib/application/SlideCrudService";
 import {
@@ -36,7 +37,7 @@ export class SlideService {
   constructor(
     llmClient: LLMClientInterface = { chatJSON },
     promptManager: PromptManager = new PromptManager(),
-    ragEngine: RAGEngine = new RAGEngine(),
+    ragEngine: RAGEngine = createRAGEngine(),
     database: PrismaClient = db
   ) {
     // Todos los colaboradores comparten la misma conexión Prisma inyectada para
