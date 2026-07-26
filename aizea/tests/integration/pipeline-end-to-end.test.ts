@@ -48,6 +48,7 @@ async function applyMigrations(db: any): Promise<void> {
   await addColumnIfMissing("Slide", "parentSlideId", "TEXT");
   await addColumnIfMissing("ProcessingJob", "materialId", "TEXT");
   await addColumnIfMissing("TopicNode", "sourceMaterialId", "TEXT");
+  await addColumnIfMissing("SemanticUnit", "sectionPath", "TEXT NOT NULL DEFAULT '[]'");
 }
 
 describe("Pipeline end-to-end (integration)", () => {

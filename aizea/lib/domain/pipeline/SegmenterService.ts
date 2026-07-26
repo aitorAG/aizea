@@ -36,6 +36,21 @@ export interface SegmenterOptions {
 
 const MIN_CONTENT_LENGTH = 32;
 
+/** PR2 — max characters per SemanticUnit. Sections longer than this are split
+ *  on paragraph boundaries into multiple units so a single extraction call
+ *  never risks the LLM context window. ~6000 chars ≈ 1500 tokens of body. */
+const MAX_UNIT_CHARS = 6000;
+
+/** Internal candidate shape shared by the structural and fallback paths. */
+interface UnitCandidate {
+  content: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  sectionRef: string | null;
+  /** Breadcrumb of heading titles from the document root to this unit. */
+  sectionPath: string[];
+}
+
 export class SegmenterService {
   private readonly layoutParser: LayoutParser;
   private readonly pdfService: PDFService;
@@ -89,12 +104,7 @@ export class SegmenterService {
       }
     }
 
-    let candidates: Array<{
-      content: string;
-      pageStart: number | null;
-      pageEnd: number | null;
-      sectionRef: string | null;
-    }> = [];
+    let candidates: UnitCandidate[] = [];
 
     if (
       structure &&
@@ -108,9 +118,10 @@ export class SegmenterService {
       );
     }
 
-    // Filter out empty / too-short candidates.
-    let filtered = candidates.filter(
-      (c) => c.content.trim().length >= MIN_CONTENT_LENGTH
+    // Filter out empty / too-short candidates, then split any that exceed
+    // MAX_UNIT_CHARS so no single extraction call risks the context window.
+    let filtered = this.enforceSizeCap(
+      candidates.filter((c) => c.content.trim().length >= MIN_CONTENT_LENGTH)
     );
 
     // ROOT-CAUSE FIX for "Generar árbol → sin contenido que procesar":
@@ -132,8 +143,8 @@ export class SegmenterService {
     if (filtered.length === 0) {
       const pageCount = structure?.pageCount ?? 0;
       candidates = await this.fallbackFromText(buffer, pageCount);
-      filtered = candidates.filter(
-        (c) => c.content.trim().length >= MIN_CONTENT_LENGTH
+      filtered = this.enforceSizeCap(
+        candidates.filter((c) => c.content.trim().length >= MIN_CONTENT_LENGTH)
       );
     }
 
@@ -161,6 +172,7 @@ export class SegmenterService {
           pageStart: c.pageStart,
           pageEnd: c.pageEnd,
           sectionRef: c.sectionRef,
+          sectionPath: JSON.stringify(c.sectionPath),
         }))
       );
       const rows = await repository.findUnitsByMaterialOrdered(materialId);
@@ -172,6 +184,7 @@ export class SegmenterService {
         pageStart: row.pageStart,
         pageEnd: row.pageEnd,
         sectionRef: row.sectionRef,
+        sectionPath: this.parseSectionPath(row.sectionPath),
         createdAt: row.createdAt.toISOString(),
       }));
     }
@@ -185,8 +198,64 @@ export class SegmenterService {
       pageStart: c.pageStart,
       pageEnd: c.pageEnd,
       sectionRef: c.sectionRef,
+      sectionPath: c.sectionPath,
       createdAt: now,
     }));
+  }
+
+  /** Parse the JSON-encoded sectionPath column back to string[]. Tolerant of
+   *  legacy null/undefined (pre-column rows) → empty breadcrumb. */
+  private parseSectionPath(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((s): s is string => typeof s === "string");
+    } catch {
+      return [];
+    }
+  }
+
+  /** Split any candidate whose content exceeds MAX_UNIT_CHARS into multiple
+   *  units on paragraph boundaries. Sub-units inherit page range, sectionRef
+   *  and sectionPath. Preserves input order. */
+  private enforceSizeCap(candidates: UnitCandidate[]): UnitCandidate[] {
+    const out: UnitCandidate[] = [];
+    for (const c of candidates) {
+      if (c.content.length <= MAX_UNIT_CHARS) {
+        out.push(c);
+        continue;
+      }
+      for (const chunk of this.splitByParagraph(c.content, MAX_UNIT_CHARS)) {
+        out.push({ ...c, content: chunk });
+      }
+    }
+    return out;
+  }
+
+  /** Greedily pack paragraphs into chunks of at most `maxChars`. A single
+   *  paragraph longer than the cap is hard-split on character boundaries. */
+  private splitByParagraph(text: string, maxChars: number): string[] {
+    const paragraphs = text.split(/\n\s*\n+/);
+    const chunks: string[] = [];
+    let current = "";
+    const flush = (): void => {
+      if (current.trim().length > 0) chunks.push(current.trim());
+      current = "";
+    };
+    for (const p of paragraphs) {
+      if (p.length > maxChars) {
+        flush();
+        for (let i = 0; i < p.length; i += maxChars) {
+          chunks.push(p.slice(i, i + maxChars));
+        }
+        continue;
+      }
+      if (current.length + p.length + 2 > maxChars) flush();
+      current = current.length > 0 ? `${current}\n\n${p}` : p;
+    }
+    flush();
+    return chunks.length > 0 ? chunks : [text.slice(0, maxChars)];
   }
 
   // ----- helpers -----
@@ -209,12 +278,7 @@ export class SegmenterService {
       return [];
     }
 
-    const result: Array<{
-      content: string;
-      pageStart: number | null;
-      pageEnd: number | null;
-      sectionRef: string | null;
-    }> = [];
+    const result: UnitCandidate[] = [];
 
     for (let i = 0; i < top.length; i++) {
       const sec = top[i];
@@ -229,6 +293,9 @@ export class SegmenterService {
         pageStart: sec.pageStart,
         pageEnd,
         sectionRef: sec.id,
+        // Breadcrumb: the section's own title. The tree-skeleton builder
+        // reconstructs multi-level nesting from numbering ("3.2" ⊂ "3").
+        sectionPath: sec.title ? [sec.title] : [],
       });
     }
 
@@ -252,14 +319,7 @@ export class SegmenterService {
   private async fallbackFromText(
     buffer: Buffer,
     pageCount: number
-  ): Promise<
-    Array<{
-      content: string;
-      pageStart: number | null;
-      pageEnd: number | null;
-      sectionRef: string | null;
-    }>
-  > {
+  ): Promise<UnitCandidate[]> {
     let text = "";
     try {
       const extracted = await this.pdfService.extractText(buffer);
@@ -290,12 +350,7 @@ export class SegmenterService {
     // the paragraph chunks. Otherwise, all chunks are null-paged.
     if (pageCount > 1 && paragraphs.length > 0) {
       const perPage = Math.max(1, Math.ceil(paragraphs.length / pageCount));
-      const result: Array<{
-        content: string;
-        pageStart: number | null;
-        pageEnd: number | null;
-        sectionRef: string | null;
-      }> = [];
+      const result: UnitCandidate[] = [];
       for (let i = 0; i < paragraphs.length; i += perPage) {
         const chunk = paragraphs.slice(i, i + perPage).join("\n\n");
         const pageStart = Math.min(pageCount, Math.floor(i / perPage) + 1);
@@ -308,6 +363,7 @@ export class SegmenterService {
           pageStart,
           pageEnd,
           sectionRef: null,
+          sectionPath: [],
         });
       }
       return result;
@@ -319,6 +375,7 @@ export class SegmenterService {
       pageStart: pageCount > 0 ? 1 : null,
       pageEnd: pageCount > 0 ? 1 : null,
       sectionRef: null,
+      sectionPath: [],
     }));
   }
 }

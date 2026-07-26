@@ -1,48 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
-import { readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { createMigratedTestDb, removeDbFiles } from "../helpers/migrate-test-db";
 
 const TEST_DB = join(process.cwd(), "prisma", "test-pipeline-tables.db");
-const TEST_DB_URL = `file:${TEST_DB}`;
-const MIGRATION_SQL = join(
-  process.cwd(),
-  "prisma",
-  "migrations",
-  "20260711161501_add_pipeline_tables",
-  "migration.sql"
-);
 
 let db: PrismaClient;
 
 beforeAll(async () => {
-  if (existsSync(TEST_DB)) {
-    rmSync(TEST_DB, { force: true });
-  }
-  if (existsSync(`${TEST_DB}-journal`)) {
-    rmSync(`${TEST_DB}-journal`, { force: true });
-  }
-  process.env.DATABASE_URL = TEST_DB_URL;
-  db = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
-  // Apply schema by executing the migration SQL directly.
-  // This bypasses prisma CLI's .env auto-loading, which would always target dev.db.
-  const sql = readFileSync(MIGRATION_SQL, "utf-8");
-  // SQLite via $executeRawUnsafe doesn't run multi-statement scripts, so split on ";\n" boundaries
-  // and execute each statement. Keeps comments out of executable statements.
-  const statements = sql
-    .split(/;\s*\n/)
-    .map((s) => s.replace(/^--.*$/gm, "").trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of statements) {
-    await db.$executeRawUnsafe(stmt);
-  }
+  // Applies the FULL migration history (helper) so new columns like
+  // SemanticUnit.sectionPath are present.
+  db = await createMigratedTestDb(TEST_DB);
 });
 
 afterAll(async () => {
   if (db) await db.$disconnect();
-  if (existsSync(TEST_DB)) {
-    rmSync(TEST_DB, { force: true });
-  }
+  removeDbFiles(TEST_DB);
 });
 
 describe("Pipeline tables — Prisma schema", () => {

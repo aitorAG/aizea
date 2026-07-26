@@ -14,10 +14,12 @@ vi.mock("@/lib/domain/prompts/PromptManager", () => ({
 import { TreeBuilder } from "@/lib/domain/pipeline/TreeBuilder";
 import type { TopicGroup } from "@/lib/types/pipeline";
 import type {
+  BatchTopicNodeInput,
   CreatedTopicNodeRow,
   CreateTopicNodeInput,
   ITreeBuilderRepository,
   TreeBuilderGroupRow,
+  UnitSectionPathRow,
 } from "@/lib/application/ports/tree-builder-repository.port";
 import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
 
@@ -44,6 +46,15 @@ function createFakeRepo() {
     deleteNodesByCourse: vi.fn<(courseId: string) => Promise<void>>(),
     createNode:
       vi.fn<(data: CreateTopicNodeInput) => Promise<CreatedTopicNodeRow>>(),
+    findSectionPathsByUnitIds:
+      vi.fn<(unitIds: string[]) => Promise<UnitSectionPathRow[]>>(),
+    replaceCourseNodes:
+      vi.fn<
+        (
+          courseId: string,
+          nodes: BatchTopicNodeInput[]
+        ) => Promise<CreatedTopicNodeRow[]>
+      >(),
   } satisfies ITreeBuilderRepository;
 }
 
@@ -359,6 +370,159 @@ describe("TreeBuilder", () => {
       });
       await builder.build("c-1");
       expect(repo.deleteNodesByCourse).toHaveBeenCalledWith("c-1");
+    });
+  });
+
+  // ----- PR3: structure strategy -----
+
+  describe("structure strategy", () => {
+    /** A group row that carries source unit ids (provenance for sectionPath). */
+    function groupWithUnits(
+      id: string,
+      name: string,
+      unitIds: string[]
+    ): TreeBuilderGroupRow {
+      return {
+        id,
+        name,
+        description: "d",
+        importance: 0.5,
+        concepts: "[]",
+        sourceUnitIds: JSON.stringify(unitIds),
+      };
+    }
+
+    let structureBuilder: TreeBuilder;
+
+    beforeEach(() => {
+      structureBuilder = new TreeBuilder({
+        repository: repo,
+        llmProvider: fakeLlm,
+        strategy: "structure",
+      });
+      // replaceCourseNodes echoes the batch back as created rows with
+      // deterministic ids (tempRef → "db:<tempRef>") so we can assert wiring.
+      repo.replaceCourseNodes.mockImplementation(async (courseId, nodes) => {
+        const idByRef = new Map(nodes.map((n) => [n.tempRef, `db:${n.tempRef}`]));
+        return nodes.map((n) => ({
+          id: idByRef.get(n.tempRef)!,
+          courseId,
+          parentId: n.parentTempRef ? idByRef.get(n.parentTempRef)! : null,
+          name: n.name,
+          summary: n.summary,
+          depth: n.depth,
+          isLeaf: n.isLeaf,
+          version: n.version,
+          sourceMaterialId: n.sourceMaterialId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }));
+      });
+    });
+
+    it("falls back to the LLM path when groups have no source units", async () => {
+      repo.findTopicGroupsByCourse.mockResolvedValue([makeGroupRow("g-1", "G1")]);
+      mockChatJSON.mockResolvedValue({
+        nodes: [{ ref: "g-1", name: "G1", summary: "d", parentRef: null, depth: 0 }],
+        roots: ["g-1"],
+      });
+      await structureBuilder.build("c-1");
+      // LLM path used → replaceCourseNodes NOT called, chatJSON called.
+      expect(repo.replaceCourseNodes).not.toHaveBeenCalled();
+      expect(mockChatJSON).toHaveBeenCalled();
+    });
+
+    it("falls back to LLM when units exist but none has a section path", async () => {
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        groupWithUnits("g-1", "G1", ["u-1"]),
+      ]);
+      repo.findSectionPathsByUnitIds.mockResolvedValue([
+        { unitId: "u-1", sectionPath: "[]" },
+      ]);
+      mockChatJSON.mockResolvedValue({
+        nodes: [{ ref: "g-1", name: "G1", summary: "d", parentRef: null, depth: 0 }],
+        roots: ["g-1"],
+      });
+      await structureBuilder.build("c-1");
+      expect(repo.replaceCourseNodes).not.toHaveBeenCalled();
+      expect(mockChatJSON).toHaveBeenCalled();
+    });
+
+    it("builds the skeleton from headings and hangs groups under their section (no LLM)", async () => {
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        groupWithUnits("g-1", "Calor específico", ["u-1"]),
+        groupWithUnits("g-2", "Entropía", ["u-2"]),
+      ]);
+      repo.findSectionPathsByUnitIds.mockResolvedValue([
+        { unitId: "u-1", sectionPath: JSON.stringify(["3. Termodinámica", "3.1 Calor"]) },
+        { unitId: "u-2", sectionPath: JSON.stringify(["3. Termodinámica", "3.2 Entropía"]) },
+      ]);
+
+      const result = await structureBuilder.build("c-1");
+
+      // No LLM call in the structure path.
+      expect(mockChatJSON).not.toHaveBeenCalled();
+      expect(repo.replaceCourseNodes).toHaveBeenCalledTimes(1);
+
+      // Skeleton: "3. Termodinámica" (root) → "3.1 Calor", "3.2 Entropía".
+      const root = result.find((n) => n.name === "3. Termodinámica");
+      expect(root).toBeDefined();
+      expect(root!.parentId).toBeNull();
+      expect(root!.depth).toBe(0);
+
+      const calor = result.find((n) => n.name === "3.1 Calor");
+      expect(calor!.parentId).toBe(root!.id);
+      expect(calor!.depth).toBe(1);
+
+      // Group "Calor específico" hangs under its section "3.1 Calor".
+      const grp = result.find((n) => n.name === "Calor específico");
+      expect(grp!.parentId).toBe(calor!.id);
+      expect(grp!.depth).toBe(2);
+      expect(grp!.isLeaf).toBe(true);
+    });
+
+    it("never exceeds MAX_DEPTH when hanging a group under a deep section", async () => {
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        groupWithUnits("g-1", "Hoja", ["u-1"]),
+      ]);
+      // A 4-level heading chain: depth 0,1,2,3 (already at MAX_DEPTH=3).
+      repo.findSectionPathsByUnitIds.mockResolvedValue([
+        {
+          unitId: "u-1",
+          sectionPath: JSON.stringify(["A", "A.1", "A.1.1", "A.1.1.1"]),
+        },
+      ]);
+
+      const result = await structureBuilder.build("c-1");
+      for (const n of result) {
+        expect(n.depth).toBeLessThanOrEqual(3);
+      }
+    });
+
+    it("persists atomically via replaceCourseNodes (build-before-delete)", async () => {
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        groupWithUnits("g-1", "X", ["u-1"]),
+      ]);
+      repo.findSectionPathsByUnitIds.mockResolvedValue([
+        { unitId: "u-1", sectionPath: JSON.stringify(["1. Intro"]) },
+      ]);
+      await structureBuilder.build("c-1");
+      // The atomic replace is used — NOT the per-node createNode + delete.
+      expect(repo.replaceCourseNodes).toHaveBeenCalledTimes(1);
+      expect(repo.deleteNodesByCourse).not.toHaveBeenCalled();
+      expect(repo.createNode).not.toHaveBeenCalled();
+    });
+
+    it("increments version in the structure path", async () => {
+      repo.findTopicGroupsByCourse.mockResolvedValue([
+        groupWithUnits("g-1", "X", ["u-1"]),
+      ]);
+      repo.findSectionPathsByUnitIds.mockResolvedValue([
+        { unitId: "u-1", sectionPath: JSON.stringify(["1. Intro"]) },
+      ]);
+      repo.findLatestVersion.mockResolvedValue(2);
+      const result = await structureBuilder.build("c-1");
+      for (const n of result) expect(n.version).toBe(3);
     });
   });
 });

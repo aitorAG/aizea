@@ -135,6 +135,51 @@ describe("SegmenterService", () => {
         expect(u.materialId).toBe("mat-99");
       }
     });
+
+    it("PR2: persists sectionPath as the section's title breadcrumb (JSON)", async () => {
+      await service.segment(Buffer.from("x"), "mat-1");
+      expect(repo.createUnits).toHaveBeenCalledTimes(1);
+      const created = repo.createUnits.mock.calls[0][0];
+      // Each top-level section → breadcrumb of its own title.
+      expect(created[0].sectionPath).toBe(JSON.stringify(["1. Introduction"]));
+      expect(created[1].sectionPath).toBe(JSON.stringify(["2. Methods"]));
+      expect(created[2].sectionPath).toBe(JSON.stringify(["3. Results"]));
+    });
+  });
+
+  describe("PR2: unit size cap", () => {
+    it("splits a section longer than MAX_UNIT_CHARS into multiple units sharing sectionRef/sectionPath", async () => {
+      // persist=false → we can inspect the returned in-memory units directly.
+      const dryService = new SegmenterService({ persist: false });
+      // One section with a body far exceeding the 6000-char cap, built from
+      // many paragraphs so the paragraph-boundary splitter has seams.
+      const bigBody = Array.from(
+        { length: 200 },
+        (_, i) => `Paragraph ${i} with enough words to be meaningful content here.`
+      ).join("\n\n");
+      mockParse.mockResolvedValue({
+        filename: "big.pdf",
+        pageCount: 2,
+        hasStructuralMarkup: true,
+        sections: [
+          { id: "sec-big", title: "1. Big", level: 0, numbering: "1", pageStart: 1, pageEnd: 2, content: bigBody, structural: true },
+        ],
+        toc: [],
+      });
+      const units = await dryService.segment(Buffer.from("x"), "mat-big");
+      // The single oversized section must have been split into 2+ units.
+      expect(units.length).toBeGreaterThan(1);
+      for (const u of units) {
+        expect(u.content.length).toBeLessThanOrEqual(6000);
+        // Sub-units inherit the parent section's identity + breadcrumb.
+        expect(u.sectionRef).toBe("sec-big");
+        expect(u.sectionPath).toEqual(["1. Big"]);
+      }
+      // Order is contiguous from 0.
+      expect(units.map((u) => u.order)).toEqual(
+        units.map((_, i) => i)
+      );
+    });
   });
 
   describe("unstructured PDFs (fallback)", () => {

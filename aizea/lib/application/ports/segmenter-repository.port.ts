@@ -14,6 +14,8 @@ export interface CreateSemanticUnitInput {
   pageStart: number | null;
   pageEnd: number | null;
   sectionRef: string | null;
+  /** PR2 — JSON-encoded breadcrumb of heading titles (string[] serialised). */
+  sectionPath: string;
 }
 
 /** Fila de SemanticUnit devuelta tras persistir (ordenada por `order`). */
@@ -24,6 +26,9 @@ export interface SegmenterUnitRow {
   pageStart: number | null;
   pageEnd: number | null;
   sectionRef: string | null;
+  /** PR2 — JSON-encoded breadcrumb (string[] serialised); may be undefined on
+   *  legacy rows read before the column existed. */
+  sectionPath?: string | null;
   createdAt: Date;
 }
 

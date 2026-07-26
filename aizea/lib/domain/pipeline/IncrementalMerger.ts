@@ -307,8 +307,23 @@ export class IncrementalMerger {
         "IncrementalMerger requiere un proveedor LLM inyectado (options.llmProvider)."
       );
     }
-    const { system, user } = this.promptManager.buildIntegrateConceptsPrompt(
-      decisions.map((d) => ({ concepts: [d.concept] }))
+    // PR4 (P7 fix): use the dedicated merge-decisions prompt that actually
+    // asks the LLM for { action, parentRef } per concept. The old code reused
+    // the integrate-concepts prompt, which never requested those fields, so
+    // validation always silently fell back to the raw cosine decisions.
+    const { system, user } = this.promptManager.buildMergeDecisionsPrompt(
+      decisions.map((d) => ({
+        concept: d.concept,
+        suggestedAction: d.kind,
+        targetId: d.targetId,
+        similarity: d.similarity,
+      })),
+      existing.map((n) => ({
+        id: n.id,
+        name: n.name,
+        depth: n.depth,
+        parentId: n.parentId,
+      }))
     );
     const response = await this.llmProvider.chatJSON<LlmMergeResponse>([
       { role: "system", content: system },

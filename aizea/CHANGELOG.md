@@ -2,6 +2,57 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.4.0] — 2026-07-27
+
+Calidad y eficiencia de la generación del árbol conceptual (ver
+`docs/ARBOL-CONCEPTUAL-analisis-y-estrategia.md`). Cuatro entregas, cada una
+reversible y con la suite verde.
+
+### Added
+- **Extracción concurrente** (PR1): nuevo `IBoundedPool`/`BoundedPool`
+  (`lib/infrastructure/concurrency/`) — pool acotado con orden preservado,
+  cancelación cooperativa vía `AbortSignal` y fail-fast que drena las tareas en
+  vuelo antes de rechazar. `PipelineService.runExtraction` pasa de un bucle
+  serial a `map` concurrente (límite configurable con
+  `AIZEA_EXTRACTION_CONCURRENCY`, default 6): el tiempo de la fase más cara baja
+  de `N·t` a ≈`N·t/límite` respetando el rate-limit y la cancelación.
+- **Estructura del documento como esqueleto del árbol** (PR2): `SemanticUnit`
+  gana `sectionPath` (breadcrumb de headings, columna nueva + migración
+  `add_section_path`). Nuevo `ITreeSkeletonBuilder`/`TreeSkeletonBuilder`
+  (`tree-skeleton.ts`) que deriva la jerarquía de los headings (adyacencia del
+  breadcrumb + numeración "3.2"⊂"3"), con `depth` **derivado de la cadena real**
+  (no declarado) → imposible declarar profundidad falsa; garantías anti-ciclo y
+  orden topológico.
+- **Estrategia "structure" del `TreeBuilder`** (PR3): feature flag
+  `AIZEA_TREE_STRATEGY` (`structure` por defecto, `llm` legacy). El camino
+  `structure` monta el esqueleto, cuelga cada `TopicGroup` bajo su sección
+  dominante (por `sourceUnitIds`→`sectionPath`) con clamp a `MAX_DEPTH`, y
+  persiste con `replaceCourseNodes` **transaccional** (build-before-delete: si
+  algo falla, el árbol viejo queda intacto). Fallback automático a `llm` cuando
+  no hay estructura.
+- **Prompt de merge propio** (PR4): `build-merge-decisions.template.ts` +
+  `PromptManager.buildMergeDecisionsPrompt`. `IncrementalMerger` ya pide al LLM
+  `{ action, parentRef }` por concepto en vez de reutilizar el prompt de
+  integración (que nunca los pedía).
+- **Tope de tamaño por unidad** (PR2): `MAX_UNIT_CHARS` parte secciones largas
+  por límites de párrafo → ninguna llamada de extracción arriesga el contexto.
+- **Helper de tests** `tests/helpers/migrate-test-db.ts`: aplica **todas** las
+  migraciones en orden (arregla la fragilidad de replays hard-coded a una sola).
+
+### Changed
+- **Clustering de conceptos exacto y más rápido** (PR4): `ConceptIntegrator`
+  normaliza los vectores una vez y usa producto punto + early-skip por
+  union-find en el bucle O(n²) (elimina 2 raíces por par). Resultados
+  **idénticos** (sin pérdida de recall). Decisión de diseño: se descartó
+  ANN/LanceDB por ser aproximado (degradaría la calidad del clustering) y la
+  abstracción equivocada para un lote transitorio en memoria.
+
+### Fixed
+- **Profundidad del árbol validada sobre la cadena real** (P2): el esqueleto
+  deriva `depth` recorriendo `parentRef`, no confiando en un número declarado.
+- **Sin ventana sin árbol** (P4): el reemplazo es atómico (transacción), no un
+  `delete` incondicional seguido de inserciones sueltas.
+
 ## [0.3.0] — 2026-07-26
 
 ### Added

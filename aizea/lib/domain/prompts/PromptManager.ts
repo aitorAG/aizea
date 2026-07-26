@@ -8,6 +8,11 @@ import {
 } from "./templates/integrate-concepts.template";
 import { buildBuildTreeTemplate } from "./templates/build-tree.template";
 import { buildSplitSubcontentsTemplate } from "./templates/split-subcontents.template";
+import {
+  buildMergeDecisionsTemplate,
+  type MergeDecisionInput,
+  type MergeExistingNode,
+} from "./templates/build-merge-decisions.template";
 import type {
   Concept,
   SemanticUnit,
@@ -73,5 +78,17 @@ export class PromptManager {
     nodeSummary: string | null
   ): { system: string; user: string } {
     return buildSplitSubcontentsTemplate(nodeName, nodeSummary);
+  }
+
+  /**
+   * PR4 — prompt used by IncrementalMerger to validate/adjust the local
+   * cosine merge decisions for newly extracted concepts against the existing
+   * tree. Returns { decisions: [{ concept, action, parentRef?, ... }] }.
+   */
+  buildMergeDecisionsPrompt(
+    decisions: MergeDecisionInput[],
+    existing: MergeExistingNode[]
+  ): { system: string; user: string } {
+    return buildMergeDecisionsTemplate(decisions, existing);
   }
 }

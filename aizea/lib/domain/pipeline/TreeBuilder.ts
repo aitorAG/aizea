@@ -24,11 +24,27 @@
 //   - Node refers to a non-existent parentRef → throw (orphan).
 
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
+import { TreeSkeletonBuilder } from "@/lib/domain/pipeline/tree-skeleton";
 import type { TopicGroup, TopicNode } from "@/lib/types/pipeline";
-import type { ITreeBuilderRepository } from "@/lib/application/ports/tree-builder-repository.port";
+import type {
+  BatchTopicNodeInput,
+  ITreeBuilderRepository,
+} from "@/lib/application/ports/tree-builder-repository.port";
+import type { ITreeSkeletonBuilder } from "@/lib/application/ports/tree-skeleton.port";
 import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
 
 const MAX_DEPTH = 3; // depth 0..3 = 4 levels
+
+/** PR3 — tree construction strategy.
+ *  - "structure": derive the hierarchy from the document's heading structure
+ *    (sectionPath), falling back to "llm" when no structure is available.
+ *  - "llm": ask the LLM to organise the groups from scratch (legacy path).
+ *  Controlled by AIZEA_TREE_STRATEGY or the `strategy` option. */
+export type TreeStrategy = "structure" | "llm";
+
+function resolveTreeStrategy(): TreeStrategy {
+  return process.env.AIZEA_TREE_STRATEGY === "llm" ? "llm" : "structure";
+}
 
 interface LlmHierarchyResponse {
   nodes: Array<{
@@ -60,17 +76,27 @@ export interface TreeBuilderOptions {
   /** Proveedor LLM inyectado por el composition root; en tests se pasa un
    *  fake. Sustituye el antiguo import de la función libre `chatJSON`. */
   llmProvider?: ILLMProvider;
+  /** PR3 — estrategia de construcción. Default: env AIZEA_TREE_STRATEGY o
+   *  "structure". */
+  strategy?: TreeStrategy;
+  /** PR3 — constructor del esqueleto (camino "structure"). Default:
+   *  TreeSkeletonBuilder. */
+  skeletonBuilder?: ITreeSkeletonBuilder;
 }
 
 export class TreeBuilder {
   private readonly promptManager: PromptManager;
   private readonly repository: ITreeBuilderRepository | undefined;
   private readonly llmProvider: ILLMProvider | undefined;
+  private readonly strategy: TreeStrategy;
+  private readonly skeletonBuilder: ITreeSkeletonBuilder;
 
   constructor(options: TreeBuilderOptions = {}) {
     this.promptManager = options.promptManager ?? new PromptManager();
     this.repository = options.repository;
     this.llmProvider = options.llmProvider;
+    this.strategy = options.strategy ?? resolveTreeStrategy();
+    this.skeletonBuilder = options.skeletonBuilder ?? new TreeSkeletonBuilder();
   }
 
   async build(courseId: string): Promise<TopicNode[]> {
@@ -79,15 +105,9 @@ export class TreeBuilder {
         "TreeBuilder requiere un repositorio inyectado (options.repository)."
       );
     }
-    if (!this.llmProvider) {
-      throw new Error(
-        "TreeBuilder requiere un proveedor LLM inyectado (options.llmProvider)."
-      );
-    }
     const repository = this.repository;
-    const llmProvider = this.llmProvider;
 
-    // 1. Load TopicGroups for the course.
+    // 1. Load TopicGroups for the course (shared by both strategies).
     const groupRows = await repository.findTopicGroupsByCourse(courseId);
     if (groupRows.length === 0) return [];
 
@@ -99,6 +119,36 @@ export class TreeBuilder {
       concepts: this.parseStringArray(r.concepts),
       sourceUnitIds: this.parseStringArray(r.sourceUnitIds),
     }));
+
+    // 2. Dispatch by strategy. The "structure" path derives the hierarchy
+    //    from the document headings; when there is no heading structure it
+    //    returns null and we fall back to the LLM path. This is why the
+    //    legacy LLM tests (groups with empty sourceUnitIds) keep working.
+    if (this.strategy === "structure") {
+      const viaStructure = await this.buildViaStructure(
+        courseId,
+        groups,
+        repository
+      );
+      if (viaStructure !== null) return viaStructure;
+    }
+
+    return this.buildViaLlm(courseId, groups, repository);
+  }
+
+  // ----- strategy: LLM (legacy) -----
+
+  private async buildViaLlm(
+    courseId: string,
+    groups: TopicGroup[],
+    repository: ITreeBuilderRepository
+  ): Promise<TopicNode[]> {
+    if (!this.llmProvider) {
+      throw new Error(
+        "TreeBuilder requiere un proveedor LLM inyectado (options.llmProvider)."
+      );
+    }
+    const llmProvider = this.llmProvider;
 
     // 2. Ask the LLM to build the hierarchy.
     const { system, user } = this.promptManager.buildBuildTreePrompt(groups);
@@ -159,6 +209,162 @@ export class TreeBuilder {
       });
     }
     return persisted;
+  }
+
+  // ----- strategy: structure (headings as ground-truth) -----
+
+  /**
+   * Build the tree from the document's heading structure. Returns null when
+   * there is no usable structure (no sectionPaths) so the caller falls back
+   * to the LLM path.
+   *
+   * Steps:
+   *   1. Gather the sectionPaths of every unit referenced by the groups.
+   *   2. Build a skeleton (headings → hierarchy, depth derived) — the tree's
+   *      backbone, no LLM.
+   *   3. Hang each group as a leaf under the skeleton node matching its most
+   *      frequent section (clamped to MAX_DEPTH).
+   *   4. Persist atomically (build-before-delete) in one transaction.
+   */
+  private async buildViaStructure(
+    courseId: string,
+    groups: TopicGroup[],
+    repository: ITreeBuilderRepository
+  ): Promise<TopicNode[] | null> {
+    // 1. Collect every referenced unit id, then load unit → sectionPath.
+    const allUnitIds = new Set<string>();
+    for (const g of groups) for (const u of g.sourceUnitIds) allUnitIds.add(u);
+    if (allUnitIds.size === 0) return null; // no provenance → fall back to LLM
+
+    const rows = await repository.findSectionPathsByUnitIds(
+      Array.from(allUnitIds)
+    );
+    const pathByUnit = new Map<string, string[]>();
+    for (const r of rows) {
+      pathByUnit.set(r.unitId, this.parseStringArray(r.sectionPath));
+    }
+
+    // 2. Build the skeleton from all non-empty section paths.
+    const allPaths = Array.from(pathByUnit.values()).filter(
+      (p) => p.length > 0
+    );
+    if (allPaths.length === 0) return null; // structure absent → fall back
+
+    const skeleton = this.skeletonBuilder.fromSectionPaths(allPaths);
+    if (skeleton.length === 0) return null;
+
+    // Skeleton ref = section title. Index by ref for parent/depth lookups.
+    const skeletonByRef = new Map(skeleton.map((s) => [s.ref, s]));
+
+    const previousVersion = await repository.findLatestVersion(courseId);
+    const nextVersion = (previousVersion ?? 0) + 1;
+
+    // 3. Assemble batch nodes. Skeleton nodes first (topological), each ref
+    //    prefixed to avoid colliding with group refs.
+    const skeletonPrefix = "sk:";
+    const groupPrefix = "grp:";
+    const batch: BatchTopicNodeInput[] = [];
+
+    for (const s of skeleton) {
+      batch.push({
+        tempRef: skeletonPrefix + s.ref,
+        parentTempRef: s.parentRef !== null ? skeletonPrefix + s.parentRef : null,
+        name: s.name,
+        summary: "",
+        depth: s.depth,
+        isLeaf: false, // fixed up below
+        version: nextVersion,
+        sourceMaterialId: null,
+      });
+    }
+
+    // 3b. Hang each group under the skeleton node for its dominant section.
+    for (const g of groups) {
+      const sectionRef = this.dominantSection(g, pathByUnit);
+      const parentSkeleton =
+        sectionRef !== null ? skeletonByRef.get(sectionRef) : undefined;
+
+      let parentTempRef: string | null;
+      let depth: number;
+      if (parentSkeleton && parentSkeleton.depth < MAX_DEPTH) {
+        parentTempRef = skeletonPrefix + parentSkeleton.ref;
+        depth = parentSkeleton.depth + 1;
+      } else if (parentSkeleton) {
+        // Parent is at max depth: attach the group AT the section (sibling
+        // depth) instead of exceeding MAX_DEPTH.
+        parentTempRef = parentSkeleton.parentRef
+          ? skeletonPrefix + parentSkeleton.parentRef
+          : null;
+        depth = parentSkeleton.depth;
+      } else {
+        // No matching section → the group becomes a root.
+        parentTempRef = null;
+        depth = 0;
+      }
+
+      batch.push({
+        tempRef: groupPrefix + g.id,
+        parentTempRef,
+        name: g.name,
+        summary: g.description ?? "",
+        depth,
+        isLeaf: true, // groups are always leaves in this strategy
+        version: nextVersion,
+        sourceMaterialId: null,
+      });
+    }
+
+    // 3c. Fix isLeaf on skeleton nodes: a skeleton node is a leaf only if
+    //     nothing (skeleton child or group) hangs under it.
+    const hasChild = new Set<string>();
+    for (const n of batch) {
+      if (n.parentTempRef !== null) hasChild.add(n.parentTempRef);
+    }
+    for (const n of batch) {
+      if (n.tempRef.startsWith(skeletonPrefix)) {
+        n.isLeaf = !hasChild.has(n.tempRef);
+      }
+    }
+
+    // 4. Persist atomically and map back to TopicNode[].
+    const created = await repository.replaceCourseNodes(courseId, batch);
+    return created.map((row) => ({
+      id: row.id,
+      courseId: row.courseId,
+      parentId: row.parentId,
+      name: row.name,
+      summary: row.summary,
+      depth: row.depth,
+      isLeaf: row.isLeaf,
+      version: row.version,
+      sourceMaterialId: row.sourceMaterialId,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    }));
+  }
+
+  /** The section (skeleton ref = leaf title) most frequently associated with a
+   *  group's source units. Null when none of its units has a section path. */
+  private dominantSection(
+    group: TopicGroup,
+    pathByUnit: Map<string, string[]>
+  ): string | null {
+    const tally = new Map<string, number>();
+    for (const unitId of group.sourceUnitIds) {
+      const path = pathByUnit.get(unitId);
+      if (!path || path.length === 0) continue;
+      const leaf = path[path.length - 1]; // deepest heading = the section
+      tally.set(leaf, (tally.get(leaf) ?? 0) + 1);
+    }
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [leaf, count] of tally) {
+      if (count > bestCount) {
+        bestCount = count;
+        best = leaf;
+      }
+    }
+    return best;
   }
 
   // ----- hierarchy resolution -----
