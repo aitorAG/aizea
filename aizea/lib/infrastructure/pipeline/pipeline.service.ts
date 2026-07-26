@@ -32,6 +32,8 @@ import { PrismaUnitExtractorRepository } from "@/lib/infrastructure/persistence/
 import { OpenRouterLLMProvider } from "@/lib/infrastructure/ai/openrouter-llm.provider";
 import { OpenRouterEmbeddingProvider } from "@/lib/infrastructure/ai/openrouter-embedding.provider";
 import { InAppNotifier } from "@/lib/infrastructure/notifications/in-app.notifier";
+import { BoundedPool } from "@/lib/infrastructure/concurrency/bounded-pool";
+import { PoolAbortedError, type IBoundedPool } from "@/lib/application/ports/concurrency.port";
 import type { INotifier } from "@/lib/application/ports/notifier.port";
 import type {
   ActiveJob,
@@ -90,11 +92,49 @@ export interface PipelineServiceOptions {
    * stub para simular cancelación en un momento concreto.
    */
   isJobCancelled?: (jobId: string) => Promise<boolean>;
+  /**
+   * PR1 — pool de concurrencia acotada para la fase de extracción. Default:
+   * `BoundedPool`. Tests pueden inyectar uno propio.
+   */
+  boundedPool?: IBoundedPool;
+  /**
+   * PR1 — máximo de extracciones concurrentes. Default: env
+   * `AIZEA_EXTRACTION_CONCURRENCY` o 6. Los tests que necesitan semántica
+   * serial estricta (p. ej. cancelación) fijan `1`.
+   */
+  extractionConcurrency?: number;
 }
 
 /** How long after a job's last update we still surface it to the
  *  banner on a fresh page load. Mirrors the value in actions/pipeline.ts. */
 const RECENT_JOB_WINDOW_MS = 10 * 60 * 1000;
+
+/** PR1 — default max concurrent unit extractions. Conservative to respect the
+ *  OpenRouter rate-limit; override with AIZEA_EXTRACTION_CONCURRENCY or the
+ *  `extractionConcurrency` option. */
+const DEFAULT_EXTRACTION_CONCURRENCY = 6;
+
+function resolveExtractionConcurrency(): number {
+  const raw = process.env.AIZEA_EXTRACTION_CONCURRENCY;
+  if (raw) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1) return n;
+  }
+  return DEFAULT_EXTRACTION_CONCURRENCY;
+}
+
+/** Parse the JSON-encoded SemanticUnit.sectionPath column to string[].
+ *  Tolerant of legacy null rows. */
+function parseSectionPath(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s): s is string => typeof s === "string");
+  } catch {
+    return [];
+  }
+}
 
 export class PipelineService implements IPipelineService {
   private readonly segmenter: SegmenterService;
@@ -103,6 +143,8 @@ export class PipelineService implements IPipelineService {
   private readonly notifyUserId: string;
   private readonly notificationsEnabled: boolean;
   private readonly isJobCancelled: (jobId: string) => Promise<boolean>;
+  private readonly boundedPool: IBoundedPool;
+  private readonly extractionConcurrency: number;
 
   constructor(options: PipelineServiceOptions = {}) {
     this.segmenter =
@@ -126,6 +168,9 @@ export class PipelineService implements IPipelineService {
         });
         return job?.status === "cancelled";
       });
+    this.boundedPool = options.boundedPool ?? new BoundedPool();
+    this.extractionConcurrency =
+      options.extractionConcurrency ?? resolveExtractionConcurrency();
   }
 
   // --- IPipelineService ---
@@ -418,6 +463,7 @@ export class PipelineService implements IPipelineService {
         pageStart: u.pageStart,
         pageEnd: u.pageEnd,
         sectionRef: u.sectionRef,
+        sectionPath: parseSectionPath(u.sectionPath),
         createdAt: u.createdAt.toISOString(),
       }));
     }
@@ -434,6 +480,7 @@ export class PipelineService implements IPipelineService {
       pageStart: u.pageStart,
       pageEnd: u.pageEnd,
       sectionRef: u.sectionRef,
+      sectionPath: parseSectionPath(u.sectionPath),
       createdAt: u.createdAt.toISOString(),
     }));
   }
@@ -445,23 +492,52 @@ export class PipelineService implements IPipelineService {
   ): Promise<void> {
     if (units.length === 0) return;
 
-    // MOD-04: BullMQ removed. All extraction runs in-process.
-    // The previous Redis probe + enqueue branch was dead code because
-    // no npm script ever started the workers. In-process extraction
-    // is the only path and works correctly for desktop deployment.
+    // PR1 — extracción CONCURRENTE con pool acotado. La extracción es la fase
+    // más cara (1 llamada LLM por unidad) y la más paralelizable; con `limit`
+    // en vuelo el tiempo baja de N·t a ≈N·t/limit sin saturar el rate-limit.
+    //
+    // Cancelación cooperativa (Fase 2.4): un AbortController se dispara en
+    // cuanto una tarea detecta que el job fue cancelado. El pool deja de
+    // arrancar tareas nuevas y drena las en vuelo; luego mapeamos su
+    // PoolAbortedError a PipelineCancelledError. Cada tarea, además,
+    // comprueba la cancelación ANTES de su llamada LLM para no gastar tokens.
+    const controller = new AbortController();
+    let cancelled = false;
     let processed = 0;
-    for (const u of units) {
-      // Fase 2.4 — cancelación cooperativa: antes de cada unidad (una
-      // llamada LLM, la operación más cara del pipeline) comprobamos si el
-      // usuario canceló este job desde el banner. Si es así, salimos limpio
-      // sin procesar las unidades restantes.
-      if (await this.isJobCancelled(jobId)) {
+
+    const markCancelled = (): void => {
+      cancelled = true;
+      if (!controller.signal.aborted) controller.abort();
+    };
+
+    try {
+      await this.boundedPool.map(
+        units,
+        async (unit) => {
+          if (controller.signal.aborted || (await this.isJobCancelled(jobId))) {
+            markCancelled();
+            throw new PipelineCancelledError(jobId);
+          }
+          await this.unitExtractor.extract(unit);
+          // Progreso atómico: contador compartido incrementado al completar.
+          processed += 1;
+          const progress = Math.round((processed / units.length) * 100);
+          // Fire-and-forget: la actualización de progreso no debe serializar
+          // las extracciones ni tumbarlas si la escritura falla.
+          void this.updateProgress(
+            jobId,
+            progress,
+            `Unidad ${processed}/${units.length}`
+          ).catch(() => {});
+        },
+        { limit: this.extractionConcurrency, signal: controller.signal }
+      );
+    } catch (err) {
+      // Un abort del pool por cancelación → error de cancelación de dominio.
+      if (err instanceof PoolAbortedError || cancelled) {
         throw new PipelineCancelledError(jobId);
       }
-      await this.unitExtractor.extract(u);
-      processed++;
-      const progress = Math.round((processed / units.length) * 100);
-      await this.updateProgress(jobId, progress, `Unidad ${processed}/${units.length}`);
+      throw err;
     }
   }
 

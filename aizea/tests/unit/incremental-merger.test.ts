@@ -7,6 +7,7 @@ const {
   mockChatJSON,
   mockBuildIntegrateConceptsPrompt,
   mockBuildBuildTreePrompt,
+  mockBuildMergeDecisionsPrompt,
 } = vi.hoisted(() => ({
   mockSegmenterSegment: vi.fn(),
   mockUnitExtractorExtract: vi.fn(),
@@ -14,6 +15,7 @@ const {
   mockChatJSON: vi.fn(),
   mockBuildIntegrateConceptsPrompt: vi.fn(),
   mockBuildBuildTreePrompt: vi.fn(),
+  mockBuildMergeDecisionsPrompt: vi.fn(),
 }));
 
 vi.mock("@/lib/domain/pipeline/SegmenterService", () => ({
@@ -32,6 +34,7 @@ vi.mock("@/lib/domain/prompts/PromptManager", () => ({
   PromptManager: class MockPromptManager {
     buildIntegrateConceptsPrompt = mockBuildIntegrateConceptsPrompt;
     buildBuildTreePrompt = mockBuildBuildTreePrompt;
+    buildMergeDecisionsPrompt = mockBuildMergeDecisionsPrompt;
   },
 }));
 
@@ -111,8 +114,9 @@ describe("IncrementalMerger", () => {
       embeddingProvider: fakeEmbedding,
       llmProvider: fakeLlm,
     });
-    mockBuildIntegrateConceptsPrompt.mockReturnValue({ system: "S", user: "U" });
-    mockBuildBuildTreePrompt.mockReturnValue({ system: "S", user: "U" });
+  mockBuildIntegrateConceptsPrompt.mockReturnValue({ system: "S", user: "U" });
+  mockBuildBuildTreePrompt.mockReturnValue({ system: "S", user: "U" });
+  mockBuildMergeDecisionsPrompt.mockReturnValue({ system: "S", user: "U" });
     mockSegmenterSegment.mockResolvedValue([]);
     mockUnitExtractorExtract.mockResolvedValue({
       id: "rep-1",
@@ -176,7 +180,7 @@ describe("IncrementalMerger", () => {
   describe("matching with existing tree", () => {
     it("finds matches between new concepts and existing TopicNodes by embedding similarity", async () => {
       mockSegmenterSegment.mockResolvedValue([
-        { id: "u-new", materialId: "m-new", content: "x", order: 0, pageStart: 1, pageEnd: 1, sectionRef: null, createdAt: "2026-01-01T00:00:00Z" },
+        { id: "u-new", materialId: "m-new", content: "x", order: 0, pageStart: 1, pageEnd: 1, sectionRef: null, sectionPath: [], createdAt: "2026-01-01T00:00:00Z" },
       ]);
       mockUnitExtractorExtract.mockResolvedValue({
         id: "rep-new",
@@ -244,7 +248,7 @@ describe("IncrementalMerger", () => {
 
     it("returns the existing nodes (unchanged) when the new material has no concepts", async () => {
       mockSegmenterSegment.mockResolvedValue([
-        { id: "u-new", materialId: "m-new", content: "x", order: 0, pageStart: 1, pageEnd: 1, sectionRef: null, createdAt: "2026-01-01T00:00:00Z" },
+        { id: "u-new", materialId: "m-new", content: "x", order: 0, pageStart: 1, pageEnd: 1, sectionRef: null, sectionPath: [], createdAt: "2026-01-01T00:00:00Z" },
       ]);
       mockUnitExtractorExtract.mockResolvedValue({
         id: "rep-new",
@@ -268,7 +272,7 @@ describe("IncrementalMerger", () => {
   describe("LLM validation", () => {
     it("uses LLM to validate merge decisions", async () => {
       mockSegmenterSegment.mockResolvedValue([
-        { id: "u-new", materialId: "m-new", content: "x", order: 0, pageStart: 1, pageEnd: 1, sectionRef: null, createdAt: "2026-01-01T00:00:00Z" },
+        { id: "u-new", materialId: "m-new", content: "x", order: 0, pageStart: 1, pageEnd: 1, sectionRef: null, sectionPath: [], createdAt: "2026-01-01T00:00:00Z" },
       ]);
       mockUnitExtractorExtract.mockResolvedValue({
         id: "rep-new",

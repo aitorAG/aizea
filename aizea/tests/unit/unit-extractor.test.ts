@@ -76,6 +76,7 @@ const sampleUnit: SemanticUnit = {
   pageStart: 1,
   pageEnd: 2,
   sectionRef: "sec-1",
+  sectionPath: ["1. Intro"],
   createdAt: "2026-01-01T00:00:00Z",
 };
 

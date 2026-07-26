@@ -243,10 +243,21 @@ export class ConceptIntegrator {
       if (ra !== rb) parent[ra] = rb;
     };
 
+    // P3 optimisation — EXACT (identical clusters), lower constant factor:
+    //   1. Pre-normalise every embedding to unit length ONCE. Cosine
+    //      similarity then reduces to a plain dot product in the O(n²) loop
+    //      (no per-pair sqrt / norm recomputation — the old hot path did two
+    //      sqrts per pair).
+    //   2. Early-skip pairs already in the same cluster (union-find) so we
+    //      avoid the dot product entirely once a merge is known.
+    const unit = embeddings.map((v) => normalise(v));
+
     for (let i = 0; i < names.length; i++) {
+      const vi = unit[i];
       for (let j = i + 1; j < names.length; j++) {
-        const sim = cosineSimilarity(embeddings[i], embeddings[j]);
-        if (sim >= threshold) {
+        // Already merged → their similarity can't change the partition.
+        if (find(i) === find(j)) continue;
+        if (dot(vi, unit[j]) >= threshold) {
           union(i, j);
         }
       }
@@ -299,4 +310,26 @@ function cosineSimilarity(a: number[], b: number[]): number {
   }
   const denom = Math.sqrt(normA) * Math.sqrt(normB);
   return denom === 0 ? 0 : dot / denom;
+}
+
+/** Return a unit-length copy of `v`. A zero vector stays zero (its dot with
+ *  anything is 0, matching cosineSimilarity's denom===0 → 0 behaviour). */
+function normalise(v: number[]): number[] {
+  if (!v || v.length === 0) return [];
+  let norm = 0;
+  for (let i = 0; i < v.length; i++) norm += v[i] * v[i];
+  const mag = Math.sqrt(norm);
+  if (mag === 0) return v.slice();
+  const out = new Array<number>(v.length);
+  for (let i = 0; i < v.length; i++) out[i] = v[i] / mag;
+  return out;
+}
+
+/** Dot product of two equal-length vectors (0 on shape mismatch). For unit
+ *  vectors this equals their cosine similarity. */
+function dot(a: number[], b: number[]): number {
+  if (!a || !b || a.length !== b.length) return 0;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+  return sum;
 }

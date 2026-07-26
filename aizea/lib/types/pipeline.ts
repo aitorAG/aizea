@@ -61,6 +61,10 @@ export interface SemanticUnit {
   pageEnd: number | null;
   /** Section this unit was derived from (its id in DocumentStructure). */
   sectionRef: string | null;
+  /** PR2 — breadcrumb of heading titles from the document root to this unit's
+   *  section (e.g. ["Cap 3","3.2 Termodinámica"]). Empty when docling gave no
+   *  structure (text-only fallback). Feeds the tree skeleton. */
+  sectionPath: string[];
   createdAt: string; // ISO 8601
 }
 

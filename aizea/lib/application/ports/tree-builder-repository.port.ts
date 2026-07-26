@@ -44,6 +44,28 @@ export interface CreatedTopicNodeRow {
   updatedAt: Date;
 }
 
+/** PR3 — mapeo unidad→sectionPath (JSON) para el camino "estructura". */
+export interface UnitSectionPathRow {
+  unitId: string;
+  /** JSON-encoded string[] (el breadcrumb). Puede ser "[]" o null (legacy). */
+  sectionPath: string | null;
+}
+
+/** PR3 — nodo para inserción en lote transaccional. Usa refs locales que el
+ *  adaptador resuelve a ids reales al insertar (padres antes que hijos). */
+export interface BatchTopicNodeInput {
+  /** Ref local estable (único en el lote). */
+  tempRef: string;
+  /** Ref local del padre, o null si es raíz. */
+  parentTempRef: string | null;
+  name: string;
+  summary: string;
+  depth: number;
+  isLeaf: boolean;
+  version: number;
+  sourceMaterialId: string | null;
+}
+
 export interface ITreeBuilderRepository {
   /** TopicGroups del curso (reducidos a lo que el builder necesita). */
   findTopicGroupsByCourse(courseId: string): Promise<TreeBuilderGroupRow[]>;
@@ -56,4 +78,19 @@ export interface ITreeBuilderRepository {
 
   /** Persiste un TopicNode y devuelve la fila resultante. */
   createNode(data: CreateTopicNodeInput): Promise<CreatedTopicNodeRow>;
+
+  /** PR3 — sectionPaths de las unidades indicadas (para colgar grupos bajo su
+   *  sección). Camino "estructura". */
+  findSectionPathsByUnitIds(
+    unitIds: string[]
+  ): Promise<UnitSectionPathRow[]>;
+
+  /** PR3 — reemplaza ATÓMICAMENTE el árbol del curso: en una transacción,
+   *  borra los nodos existentes e inserta `nodes` en orden topológico
+   *  (resolviendo tempRef→id). Si algo falla, el árbol viejo queda intacto
+   *  (build-before-delete atómico). Devuelve las filas creadas. */
+  replaceCourseNodes(
+    courseId: string,
+    nodes: BatchTopicNodeInput[]
+  ): Promise<CreatedTopicNodeRow[]>;
 }

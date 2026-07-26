@@ -29,6 +29,7 @@ export class PrismaSegmenterRepository implements ISegmenterRepository {
         pageStart: true,
         pageEnd: true,
         sectionRef: true,
+        sectionPath: true,
         createdAt: true,
       },
     });
