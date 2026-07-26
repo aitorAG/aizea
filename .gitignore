@@ -24,3 +24,8 @@ lancedb-data/
 # OS
 .DS_Store
 Thumbs.db
+
+# test/QA artifacts (no deben versionarse)
+Resources/
+baseline-*.png
+*.pdf

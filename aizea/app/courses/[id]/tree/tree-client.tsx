@@ -642,16 +642,18 @@ export function TreePageClient({
     });
 
     try {
+      // Fase 2.2 — `startPipelineAction` now ENQUEUES the run and returns
+      // immediately (no longer blocks for the whole pipeline). The worker
+      // creates the phase rows in the background; the banner's discovery
+      // re-list effect DISCOVERS them by courseId and inherits this
+      // placeholder's runId so they collapse into one banner group, then
+      // drops the placeholder. So on the happy path we KEEP the placeholder
+      // alive here — the banner takes over from this point.
       const result = await startPipelineAction(courseId);
-      // The placeholder's runId is the same as the real jobs'
-      // runId, so `getBannerGroups` keeps the banner row continuous
-      // across the swap. We must remove the placeholder BEFORE
-      // adding the real jobs so the banner doesn't briefly show
-      // group size 5 (1 placeholder + 4 real) and so the polling
-      // loop stops trying to fetch the fake jobId.
       const store = usePipelineStore.getState();
-      store.removeJob(placeholderJobId);
+
       if (!result.ok) {
+        store.removeJob(placeholderJobId);
         toast({
           title: "Error al iniciar el pipeline",
           description: result.error,
@@ -659,38 +661,13 @@ export function TreePageClient({
         });
         return;
       }
-      // v1.5 / Task 2.4 — auto-refresh the server component as
-      // soon as the pipeline has been kicked off successfully.
-      // The first refresh usually hits the server BEFORE the
-      // orchestrator has produced any TopicNode rows, so the
-      // tree is still empty here; the pipeline-completion effect
-      // below triggers a second refresh when the banner flips
-      // to "Árbol conceptual listo" so the TreeViewer finally
-      // lights up with the generated nodes — no manual reload
-      // required.
-      router.refresh();
-      const jobs = result.jobs;
-      const now = Date.now();
 
-      // When the pipeline had nothing to do (course has no materials
-      // / no extracted units), only the segmentation jobId is set.
-      // We still register it in the store so the user sees the
-      // completed banner; the toast below tells them WHY there is no
-      // tree.
+      // NO_MATERIALS: nothing was enqueued. Drop the placeholder and tell
+      // the user to upload a PDF. (Deeper empty cases — FILE_MISSING /
+      // ALL_EMPTY / ALL_FAILED — now surface in the worker via the
+      // in-app notifier and the banner's failed/empty phase rows.)
       if (result.empty) {
-        if (jobs.segmentationJobId) {
-          store.addJob({
-            jobId: jobs.segmentationJobId,
-            runId,
-            courseId,
-            courseName,
-            phase: "segmentation",
-            status: "completed",
-            progress: 100,
-            currentStep: "Sin unidades que procesar",
-            startedAt: now,
-          });
-        }
+        store.removeJob(placeholderJobId);
         toast({
           title: "Sin contenido que procesar",
           description: result.message,
@@ -699,48 +676,12 @@ export function TreePageClient({
         return;
       }
 
-      // Normal happy path: register the four phase jobs in the
-      // store. The server has already created the rows and the
-      // orchestrator's run() has returned the ids; the banner will
-      // hydrate the rest of the status (progress/error) via its
-      // own polling loop. Registering them optimistically means the
-      // user sees the banner immediately rather than waiting for
-      // the first poll. All four carry the SAME `runId` so the
-      // banner collapses them into ONE row (v1.9 / Issue 2 — the
-      // previous design rendered 1 banner per phase, stacking 4
-      // banners during a real run).
-      store.addJob({
-        jobId: jobs.segmentationJobId,
-        runId,
-        courseId,
-        courseName,
-        phase: "segmentation",
-        startedAt: now,
-      });
-      store.addJob({
-        jobId: jobs.extractionJobId,
-        runId,
-        courseId,
-        courseName,
-        phase: "extraction",
-        startedAt: now,
-      });
-      store.addJob({
-        jobId: jobs.integrationJobId,
-        runId,
-        courseId,
-        courseName,
-        phase: "integration",
-        startedAt: now,
-      });
-      store.addJob({
-        jobId: jobs.treeBuildingJobId,
-        runId,
-        courseId,
-        courseName,
-        phase: "tree-building",
-        startedAt: now,
-      });
+      // Enqueued OK. Auto-refresh the server component so the tree page
+      // reflects any state change; the completion effect refreshes again
+      // when the banner flips to done. The placeholder stays until the
+      // banner discovers the real phase rows (see discovery re-list effect
+      // in GlobalPipelineBanner), which removes it and shows live progress.
+      router.refresh();
       toast({
         title: "Pipeline iniciado",
         description: "El árbol se está generando. Te avisaremos cuando termine.",

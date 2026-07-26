@@ -1,6 +1,6 @@
 {
   "name": "aizea",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "local": "node scripts/start-local.cjs",

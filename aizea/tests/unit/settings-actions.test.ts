@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import { readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { isEncrypted, decryptSecret } from "@/lib/infrastructure/crypto/secret-cipher";
 
 const TEST_DB = join(process.cwd(), "prisma", "test-settings-actions.db");
 const TEST_DB_URL = `file:${TEST_DB}`;
@@ -116,7 +117,11 @@ describe("updateSettingsAction", () => {
     });
     expect(result.ok).toBe(true);
     const row = await testDb.settings.findUnique({ where: { id: "default" } });
-    expect(row?.openrouterApiKey).toBe("sk-new-1234567");
+    // Fase 5-A: the key is stored ENCRYPTED at rest — the raw DB value is an
+    // envelope, and it decrypts back to the plaintext the user entered.
+    expect(row?.openrouterApiKey).not.toBe("sk-new-1234567");
+    expect(isEncrypted(row!.openrouterApiKey!)).toBe(true);
+    expect(decryptSecret(row!.openrouterApiKey!)).toBe("sk-new-1234567");
     expect(row?.chatModel).toBe("gpt-4o");
     expect(row?.embedModel).toBe("text-embedding-3-large");
   });
@@ -169,7 +174,9 @@ describe("updateSettingsAction", () => {
     });
     expect(result.ok).toBe(true);
     const row = await testDb.settings.findUnique({ where: { id: "default" } });
-    expect(row?.openrouterApiKey).toBe("sk-padded");
+    // Fase 5-A: stored encrypted; the decrypted value is the trimmed key.
+    expect(isEncrypted(row!.openrouterApiKey!)).toBe(true);
+    expect(decryptSecret(row!.openrouterApiKey!)).toBe("sk-padded");
   });
 
   it("rejects an empty chat model", async () => {

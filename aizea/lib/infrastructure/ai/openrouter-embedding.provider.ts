@@ -3,6 +3,8 @@
 import type { IEmbeddingProvider } from "@/lib/application/ports/embedding-provider.port";
 import { LLMProviderError, withRetries, DEFAULT_LLM_RETRY_POLICY } from "@/lib/domain/ai/llm-error";
 import { getApiKey, getEmbedModel } from "@/lib/config-service";
+import { CircuitBreaker } from "@/lib/infrastructure/circuit-breaker";
+import { openRouterEmbeddingBreaker } from "@/lib/infrastructure/ai/openrouter-breakers";
 
 const OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -14,7 +16,9 @@ export class OpenRouterEmbeddingProvider implements IEmbeddingProvider {
   constructor(
     private readonly getKey: () => Promise<string> = getApiKey,
     private readonly getModel: () => Promise<string> = getEmbedModel,
-    dimensions = 1536
+    dimensions = 1536,
+    // Fase 2.5 — breaker compartido de backpressure. Inyectable para tests.
+    private readonly breaker: CircuitBreaker = openRouterEmbeddingBreaker
   ) {
     this.dimensions = dimensions;
   }
@@ -28,7 +32,10 @@ export class OpenRouterEmbeddingProvider implements IEmbeddingProvider {
   async embedBatch(texts: string[]): Promise<number[][]> {
     if (await this._isDummyMode()) return texts.map((t) => this.dummyVector(t));
     const [model, apiKey] = await Promise.all([this.getModel(), this.getKey()]);
-    return withRetries(() => this._fetchEmbeddings(texts, model, apiKey), DEFAULT_LLM_RETRY_POLICY);
+    // El breaker envuelve la llamada YA reintentada (backpressure ortogonal).
+    return this.breaker.execute(() =>
+      withRetries(() => this._fetchEmbeddings(texts, model, apiKey), DEFAULT_LLM_RETRY_POLICY)
+    );
   }
 
   dummyVector(seed = ""): number[] {

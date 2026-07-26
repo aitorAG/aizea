@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { container } from "@/lib/composition/container";
 
 /**
  * GET /api/pipeline/[jobId]/status
@@ -22,7 +22,7 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { jobId } = await params;
-    const job = await db.processingJob.findUnique({ where: { id: jobId } });
+    const job = await container.processingJobs.findById(jobId);
     if (!job) {
       return NextResponse.json(
         { error: "Trabajo no encontrado" },

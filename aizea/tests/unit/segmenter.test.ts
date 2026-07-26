@@ -1,11 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 
-const { mockParse, mockSemanticUnitCreateMany, mockSemanticUnitFindMany, mockFigureFindMany, mockExtractText } = vi.hoisted(() => ({
+const { mockParse, mockExtractText } = vi.hoisted(() => ({
   mockParse: vi.fn(),
-  mockSemanticUnitCreateMany: vi.fn(),
-  mockSemanticUnitFindMany: vi.fn(),
-  mockFigureFindMany: vi.fn(),
   mockExtractText: vi.fn(),
 }));
 
@@ -24,55 +21,34 @@ vi.mock("@/lib/domain/pdf/PDFService", () => ({
   },
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
-    semanticUnit: {
-      createMany: mockSemanticUnitCreateMany,
-      findMany: mockSemanticUnitFindMany,
-    },
-    figure: {
-      findMany: mockFigureFindMany,
-    },
-  },
-}));
-
 import { SegmenterService } from "@/lib/domain/pipeline/SegmenterService";
+import type {
+  CreateSemanticUnitInput,
+  ISegmenterRepository,
+  SegmenterUnitRow,
+} from "@/lib/application/ports/segmenter-repository.port";
+
+// ----- fake repository -----
+//
+// La purificación del dominio (Fase 1) hace que SegmenterService dependa de
+// `ISegmenterRepository` en vez de Prisma. El test inyecta este fake en lugar
+// de mockear `@/lib/db`.
+function createFakeRepo() {
+  return {
+    createUnits: vi.fn<(units: CreateSemanticUnitInput[]) => Promise<void>>(),
+    findUnitsByMaterialOrdered:
+      vi.fn<(materialId: string) => Promise<SegmenterUnitRow[]>>(),
+  } satisfies ISegmenterRepository;
+}
 
 const SAMPLE_STRUCTURE = {
   filename: "test.pdf",
   pageCount: 5,
   hasStructuralMarkup: true,
   sections: [
-    {
-      id: "sec-1",
-      title: "1. Introduction",
-      level: 0,
-      numbering: "1",
-      pageStart: 1,
-      pageEnd: 2,
-      content: "Intro content here",
-      structural: true,
-    },
-    {
-      id: "sec-2",
-      title: "2. Methods",
-      level: 0,
-      numbering: "2",
-      pageStart: 3,
-      pageEnd: 4,
-      content: "Methods content here",
-      structural: true,
-    },
-    {
-      id: "sec-3",
-      title: "3. Results",
-      level: 0,
-      numbering: "3",
-      pageStart: 5,
-      pageEnd: 5,
-      content: "Results content here",
-      structural: true,
-    },
+    { id: "sec-1", title: "1. Introduction", level: 0, numbering: "1", pageStart: 1, pageEnd: 2, content: "Intro content here", structural: true },
+    { id: "sec-2", title: "2. Methods", level: 0, numbering: "2", pageStart: 3, pageEnd: 4, content: "Methods content here", structural: true },
+    { id: "sec-3", title: "3. Results", level: 0, numbering: "3", pageStart: 5, pageEnd: 5, content: "Results content here", structural: true },
   ],
   toc: [],
 };
@@ -87,28 +63,24 @@ const SAMPLE_UNSTRUCTURED = {
 
 describe("SegmenterService", () => {
   let service: SegmenterService;
+  let repo: ReturnType<typeof createFakeRepo>;
 
   beforeEach(() => {
-    service = new SegmenterService();
+    repo = createFakeRepo();
+    service = new SegmenterService({ repository: repo });
     mockParse.mockReset();
-    mockSemanticUnitCreateMany.mockReset();
-    mockSemanticUnitFindMany.mockReset();
-    mockFigureFindMany.mockReset();
     mockExtractText.mockReset();
 
     // Default mocks
     mockParse.mockResolvedValue(SAMPLE_STRUCTURE);
-    mockSemanticUnitCreateMany.mockResolvedValue({ count: 3 });
-    // findMany returns rows matching what createMany would have produced.
-    // pageEnd values kept at or below the smallest pageCount used in tests (3).
-    mockSemanticUnitFindMany.mockImplementation(async ({ where }) => {
-      return [
-        { id: randomUUID(), materialId: where.materialId, content: "1. Introduction\n\nIntro content here", order: 0, pageStart: 1, pageEnd: 2, sectionRef: "sec-1", createdAt: new Date() },
-        { id: randomUUID(), materialId: where.materialId, content: "2. Methods\n\nMethods content here", order: 1, pageStart: 2, pageEnd: 3, sectionRef: "sec-2", createdAt: new Date() },
-        { id: randomUUID(), materialId: where.materialId, content: "3. Results\n\nResults content here", order: 2, pageStart: 3, pageEnd: 3, sectionRef: "sec-3", createdAt: new Date() },
-      ];
-    });
-    mockFigureFindMany.mockResolvedValue([]);
+    repo.createUnits.mockResolvedValue(undefined);
+    // findUnitsByMaterialOrdered returns rows matching what createUnits
+    // would have produced. pageEnd values kept ≤ smallest pageCount (3).
+    repo.findUnitsByMaterialOrdered.mockResolvedValue([
+      { id: randomUUID(), content: "1. Introduction\n\nIntro content here", order: 0, pageStart: 1, pageEnd: 2, sectionRef: "sec-1", createdAt: new Date() },
+      { id: randomUUID(), content: "2. Methods\n\nMethods content here", order: 1, pageStart: 2, pageEnd: 3, sectionRef: "sec-2", createdAt: new Date() },
+      { id: randomUUID(), content: "3. Results\n\nResults content here", order: 2, pageStart: 3, pageEnd: 3, sectionRef: "sec-3", createdAt: new Date() },
+    ]);
     // Default extractText: a fake plain text (used by fallback path)
     mockExtractText.mockResolvedValue({
       text: "Paragraph one with some meaningful content. ".repeat(5) +
@@ -195,12 +167,12 @@ describe("SegmenterService", () => {
   });
 
   describe("persistence", () => {
-    it("persists units to the database via db.semanticUnit.createMany", async () => {
+    it("persists units to the database via the repository", async () => {
       await service.segment(Buffer.from("x"), "mat-3");
-      expect(mockSemanticUnitCreateMany).toHaveBeenCalled();
-      const [callArg] = mockSemanticUnitCreateMany.mock.calls[0];
-      expect(Array.isArray(callArg.data)).toBe(true);
-      for (const row of callArg.data) {
+      expect(repo.createUnits).toHaveBeenCalled();
+      const callArg = repo.createUnits.mock.calls[0][0];
+      expect(Array.isArray(callArg)).toBe(true);
+      for (const row of callArg) {
         expect(row.materialId).toBe("mat-3");
         expect(row.content.length).toBeGreaterThan(0);
         expect(typeof row.order).toBe("number");
@@ -219,9 +191,9 @@ describe("SegmenterService", () => {
   describe("size constraints", () => {
     it("does not persist empty units", async () => {
       await service.segment(Buffer.from("x"), "mat-1");
-      expect(mockSemanticUnitCreateMany).toHaveBeenCalled();
-      const [callArg] = mockSemanticUnitCreateMany.mock.calls[0];
-      for (const row of callArg.data) {
+      expect(repo.createUnits).toHaveBeenCalled();
+      const callArg = repo.createUnits.mock.calls[0][0];
+      for (const row of callArg) {
         expect(row.content).not.toBe("");
         expect(row.content.trim().length).toBeGreaterThan(0);
       }

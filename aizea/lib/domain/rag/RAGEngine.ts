@@ -1,8 +1,10 @@
-import { db } from "@/lib/db";
 import { TextChunker } from "./TextChunker";
-import { EmbeddingService } from "./EmbeddingService";
-import { VectorStore, type SearchResult } from "./VectorStore";
-import { getLanceDbDir } from "@/lib/paths";
+import type {
+  IVectorStore,
+  SearchResult,
+} from "@/lib/application/ports/vector-store.port";
+import type { IRagRepository } from "@/lib/application/ports/rag-repository.port";
+import type { IEmbeddingProvider } from "@/lib/application/ports/embedding-provider.port";
 
 export interface RelevantChunk {
   id: string;
@@ -13,23 +15,24 @@ export interface RelevantChunk {
 
 export class RAGEngine {
   private chunker: typeof TextChunker;
-  private embedder: EmbeddingService;
-  private vectorStore: VectorStore;
+  private embedder: IEmbeddingProvider | undefined;
+  private vectorStore: IVectorStore | undefined;
+  private repository: IRagRepository | undefined;
 
   constructor(options?: {
     chunker?: typeof TextChunker;
-    embedder?: EmbeddingService;
-    vectorStore?: VectorStore;
+    embedder?: IEmbeddingProvider;
+    vectorStore?: IVectorStore;
+    repository?: IRagRepository;
   }) {
     this.chunker = options?.chunker ?? TextChunker;
-    this.embedder = options?.embedder ?? new EmbeddingService();
-    this.vectorStore =
-      options?.vectorStore ??
-      new VectorStore({
-        uri: process.env.NODE_ENV === "test" ? "memory://" : getLanceDbDir(),
-        tableName: "material_chunks",
-        dimension: this.embedder.dimension,
-      });
+    // El proveedor de embeddings, el almacén vectorial (lancedb) y el
+    // repositorio Prisma se inyectan por el composition root / factory de
+    // infra. Sustituye el antiguo acoplamiento directo a `EmbeddingService`,
+    // `VectorStore` (lancedb) + `@/lib/db`.
+    this.embedder = options?.embedder;
+    this.vectorStore = options?.vectorStore;
+    this.repository = options?.repository;
   }
 
   /**
@@ -42,16 +45,22 @@ export class RAGEngine {
    * a re-index can recover the vector store later.
    */
   async indexMaterial(materialId: string): Promise<void> {
-    const material = await db.material.findUnique({
-      where: { id: materialId },
-    });
+    if (!this.repository || !this.vectorStore || !this.embedder) {
+      throw new Error(
+        "RAGEngine.indexMaterial requiere repository, vectorStore y embedder inyectados."
+      );
+    }
+    const repository = this.repository;
+    const vectorStore = this.vectorStore;
+    const embedder = this.embedder;
 
-    if (!material) {
+    const text = await repository.findMaterialContent(materialId);
+
+    if (text === null) {
       throw new Error(`Material not found: ${materialId}`);
     }
 
-    const text = material.content;
-    if (!text || text.trim().length === 0) {
+    if (text.trim().length === 0) {
       return;
     }
 
@@ -59,7 +68,7 @@ export class RAGEngine {
     const chunks = this.chunker.chunk(text, { chunkSize: 500, overlap: 50 });
 
     // 2. Generate embeddings
-    const embeddings = await this.embedder.embedBatch(chunks);
+    const embeddings = await embedder.embedBatch(chunks);
 
     const tokenCounts = chunks.map((c) => Math.ceil(c.length / 4));
     const chunkData = chunks.map((content, i) => ({
@@ -73,10 +82,7 @@ export class RAGEngine {
     // 3. DB-first: clear old chunks and write new ones atomically.
     //    If this fails, the vector store is untouched and the material
     //    still has its old (stale) data — recoverable on next index.
-    await db.$transaction([
-      db.textChunk.deleteMany({ where: { materialId } }),
-      db.textChunk.createMany({ data: chunkData }),
-    ]);
+    await repository.replaceChunks(materialId, chunkData);
 
     // 4. Update vector store (best-effort — failure is logged, not thrown).
     //    The DB is now the source of truth; the vector store can be rebuilt.
@@ -87,8 +93,8 @@ export class RAGEngine {
     }));
 
     try {
-      await this.vectorStore.deleteByMaterialId(materialId);
-      await this.vectorStore.insert(vectorRecords);
+      await vectorStore.deleteByMaterialId(materialId);
+      await vectorStore.insert(vectorRecords);
     } catch (err) {
       console.warn(
         "[RAGEngine] Vector store update failed after DB write. " +
@@ -106,6 +112,11 @@ export class RAGEngine {
     materialId: string,
     topK: number = 5
   ): Promise<RelevantChunk[]> {
+    if (!this.vectorStore || !this.embedder) {
+      throw new Error(
+        "RAGEngine.searchRelevant requiere vectorStore y embedder inyectados."
+      );
+    }
     const queryVector = await this.embedder.embed(query);
     const results = await this.vectorStore.search(queryVector, topK);
 

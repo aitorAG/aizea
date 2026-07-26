@@ -43,17 +43,42 @@ vi.mock("next/cache", () => ({
   revalidatePath: () => undefined,
 }));
 
-const { mockProcessCourse } = vi.hoisted(() => ({
+const { mockProcessCourse, mockPump } = vi.hoisted(() => ({
   mockProcessCourse: vi.fn(),
+  mockPump: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/composition/container", () => ({
-  container: {
-    processCourse: {
-      execute: mockProcessCourse,
+// 1.3 + 2.2: pipeline actions route through the composition root. We back the
+// container mock with the REAL Prisma repos (queries identical to prod, on the
+// mocked testDb). Fase 2.2: `startPipelineAction` now ENQUEUES a run and fires
+// the worker's pump instead of running the pipeline inline, so the mock must
+// expose `materials` (NO_MATERIALS guard), a real `jobQueue` (PrismaJobQueue,
+// so enqueue persists a pipeline-run row we can assert on) and a spy
+// `pipelineWorker.pump`.
+vi.mock("@/lib/composition/container", async () => {
+  const { PrismaProcessingJobRepository } = await import(
+    "@/lib/infrastructure/persistence/prisma-processing-job.repository"
+  );
+  const { PrismaCourseRepository } = await import(
+    "@/lib/infrastructure/persistence/prisma-course.repository"
+  );
+  const { PrismaMaterialRepository } = await import(
+    "@/lib/infrastructure/persistence/prisma-material.repository"
+  );
+  const { PrismaJobQueue } = await import(
+    "@/lib/infrastructure/queue/prisma-job-queue"
+  );
+  return {
+    container: {
+      processCourse: { execute: mockProcessCourse },
+      processingJobs: new PrismaProcessingJobRepository(),
+      courses: new PrismaCourseRepository(),
+      materials: new PrismaMaterialRepository(),
+      jobQueue: new PrismaJobQueue(),
+      pipelineWorker: { pump: mockPump, recover: vi.fn().mockResolvedValue(0) },
     },
-  },
-}));
+  };
+});
 
 let startPipelineAction: typeof import("@/lib/actions/pipeline").startPipelineAction;
 let getJobStatusAction: typeof import("@/lib/actions/pipeline").getJobStatusAction;
@@ -94,7 +119,23 @@ beforeEach(async () => {
   });
 });
 
-describe("startPipelineAction", () => {
+describe("startPipelineAction (Fase 2.2 — enqueue contract)", () => {
+  // Helper: create a course WITH a material so the NO_MATERIALS guard passes
+  // and the action reaches the enqueue path.
+  async function courseWithMaterial(name: string) {
+    const course = await testDb.course.create({ data: { name } });
+    await testDb.material.create({
+      data: {
+        id: `m-${course.id}`,
+        courseId: course.id,
+        filename: "doc.pdf",
+        content: "some text",
+        pageCount: 1,
+      },
+    });
+    return course;
+  }
+
   it("rejects when the course does not exist", async () => {
     const result = await startPipelineAction("non-existent-course");
     expect(result.ok).toBe(false);
@@ -103,52 +144,8 @@ describe("startPipelineAction", () => {
     }
   });
 
-  it("calls ProcessCourseUseCase.execute with the courseId", async () => {
-    const course = await testDb.course.create({ data: { name: "Test" } });
-    const result = await startPipelineAction(course.id);
-    expect(result.ok).toBe(true);
-    expect(mockProcessCourse).toHaveBeenCalled();
-    expect(mockProcessCourse.mock.calls[0][0]).toBe(course.id);
-  });
-
-  it("returns the four job ids from the use case result", async () => {
-    const course = await testDb.course.create({ data: { name: "Test" } });
-    const result = await startPipelineAction(course.id);
-    expect(result.ok).toBe(true);
-    if (result.ok && !result.empty) {
-      expect(result.jobs).toEqual({
-        segmentationJobId: "seg-1",
-        extractionJobId: "ext-1",
-        integrationJobId: "int-1",
-        treeBuildingJobId: "tree-1",
-      });
-    }
-  });
-
-  it("propagates errors from the use case as ok: false", async () => {
-    const course = await testDb.course.create({ data: { name: "Test" } });
-    mockProcessCourse.mockRejectedValue(new Error("pipeline failed"));
-    const result = await startPipelineAction(course.id);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/pipeline failed/);
-    }
-  });
-
-  it("returns empty:true with NO_MATERIALS reason when the use case reports no materials", async () => {
+  it("returns NO_MATERIALS (synchronously, without enqueuing) when the course has no materials", async () => {
     const course = await testDb.course.create({ data: { name: "Empty" } });
-    mockProcessCourse.mockResolvedValue({
-      ok: true,
-      empty: true,
-      reason: "NO_MATERIALS",
-      message: "Sube un PDF antes de generar el árbol.",
-      jobs: {
-        segmentationJobId: "",
-        extractionJobId: "",
-        integrationJobId: "",
-        treeBuildingJobId: "",
-      },
-    });
     const result = await startPipelineAction(course.id);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -158,31 +155,46 @@ describe("startPipelineAction", () => {
         expect(result.message).toMatch(/sube un pdf/i);
       }
     }
+    // No run was enqueued and the worker was NOT kicked.
+    expect(mockPump).not.toHaveBeenCalled();
+    const runs = await testDb.processingJob.findMany({
+      where: { type: "pipeline-run" },
+    });
+    expect(runs).toHaveLength(0);
   });
 
-  it("returns empty:true with FILE_MISSING reason when the use case reports a missing file", async () => {
-    const course = await testDb.course.create({ data: { name: "Missing" } });
-    mockProcessCourse.mockResolvedValue({
-      ok: true,
-      empty: true,
-      reason: "FILE_MISSING",
-      message: "El archivo no está disponible. Sube el PDF de nuevo.",
-      jobs: {
-        segmentationJobId: "",
-        extractionJobId: "",
-        integrationJobId: "",
-        treeBuildingJobId: "",
-      },
-    });
+  it("enqueues a pipeline-run and fires the worker when materials exist", async () => {
+    const course = await courseWithMaterial("Test");
     const result = await startPipelineAction(course.id);
     expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.empty).toBe(true);
-      if (result.empty) {
-        expect(result.reason).toBe("FILE_MISSING");
-        expect(result.message).toMatch(/no está disponible|sube el pdf de nuevo/i);
-      }
+    if (result.ok && !result.empty) {
+      expect(result.enqueued).toBe(true);
+      expect(result.runId).toMatch(/^run-/);
     }
+    // The run row was persisted as pending/running for the worker to claim.
+    const runs = await testDb.processingJob.findMany({
+      where: { type: "pipeline-run", courseId: course.id },
+    });
+    expect(runs).toHaveLength(1);
+    // The worker's pump was kicked (fire-and-forget).
+    expect(mockPump).toHaveBeenCalled();
+    // The pipeline is NOT run inline anymore.
+    expect(mockProcessCourse).not.toHaveBeenCalled();
+  });
+
+  it("returns ok:false when enqueue throws", async () => {
+    const course = await courseWithMaterial("Boom");
+    // Force the queue create to fail by dropping the course row's FK target
+    // is overkill; instead spy through the real queue by making create throw.
+    const spy = vi
+      .spyOn(testDb.processingJob, "create")
+      .mockRejectedValueOnce(new Error("db down"));
+    const result = await startPipelineAction(course.id);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/db down/i);
+    }
+    spy.mockRestore();
   });
 });
 

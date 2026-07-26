@@ -7,6 +7,7 @@ import type {
   ProcessingJobRow,
   ProcessingJobWithCourseName,
 } from "@/lib/application/ports/processing-job-repository.port";
+import { PIPELINE_RUN_TYPE } from "@/lib/application/ports/job-queue.port";
 
 export class PrismaProcessingJobRepository implements IProcessingJobRepository {
   constructor(private readonly prisma: PrismaClient = db) {}
@@ -32,7 +33,13 @@ export class PrismaProcessingJobRepository implements IProcessingJobRepository {
     const cutoff = new Date(Date.now() - options.windowMs);
 
     const orFilters = options.statusFilter
-      ? options.statusFilter.map((s) => ({ status: s }))
+      ? options.statusFilter.map((s) => ({
+          status: s,
+          // "Finished jobs" semantics: only terminal jobs updated within
+          // the window. Without this cutoff the filter would return the
+          // full history. `listFinishedJobsAction` relies on it.
+          updatedAt: { gte: cutoff },
+        }))
       : options.terminalStatuses
         ? [
             { status: { in: ["pending", "running"] as string[] } },
@@ -45,6 +52,9 @@ export class PrismaProcessingJobRepository implements IProcessingJobRepository {
 
     const rows = await this.prisma.processingJob.findMany({
       where: {
+        // Exclude the queue's meta-row (Fase 2.2): "pipeline-run" tracks the
+        // whole run, not a phase, so the banner must not surface it as a job.
+        type: { not: PIPELINE_RUN_TYPE },
         ...(options.courseId ? { courseId: options.courseId } : {}),
         OR: orFilters,
       },

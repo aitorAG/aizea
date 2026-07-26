@@ -10,13 +10,8 @@
 // `lib/application/use-cases/process-course.use-case.ts` and is
 // tested independently of Next.js, the DB, and the filesystem.
 
-import { db } from "@/lib/db";
 import { container } from "@/lib/composition/container";
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
-import type {
-  ProcessCourseOutcome,
-} from "@/lib/application/use-cases/process-course.use-case";
 
 export type StartPipelineResult =
   | {
@@ -24,32 +19,17 @@ export type StartPipelineResult =
       /** True when the pipeline had nothing to do. The client
        *  surfaces `message` as a toast. */
       empty: true;
-      reason: "NO_MATERIALS" | "FILE_MISSING" | "ALL_EMPTY" | "ALL_FAILED";
+      reason: "NO_MATERIALS";
       message: string;
-      jobs: {
-        segmentationJobId: string;
-        extractionJobId: string;
-        integrationJobId: string;
-        treeBuildingJobId: string;
-      };
-      /** Per-material failures (when the use case reports ALL_FAILED). */
-      materialErrors: Array<{ materialId: string; filename: string; error: string }>;
     }
   | {
       ok: true;
+      /** Fase 2.2 — el run se ENCOLÓ y se ejecuta en el worker de fondo.
+       *  El pipeline ya no bloquea el request. El cliente descubre las
+       *  filas de fase vía `listActiveJobsAction` (polling del banner). */
       empty: false;
-      jobs: {
-        segmentationJobId: string;
-        extractionJobId: string;
-        integrationJobId: string;
-        treeBuildingJobId: string;
-      };
-      /** Number of materials that successfully produced units
-       *  (v1.5 #2.5: the user may have uploaded multiple files). */
-      processedMaterials: number;
-      totalMaterials: number;
-      /** Per-material failures. Empty when every file was OK. */
-      materialErrors: Array<{ materialId: string; filename: string; error: string }>;
+      enqueued: true;
+      runId: string;
     }
   | { ok: false; error: string };
 
@@ -72,51 +52,50 @@ export type StartPipelineResult =
 export async function startPipelineAction(
   courseId: string
 ): Promise<StartPipelineResult> {
-  // Verify the course exists. The use case is happy to receive any
-  // id, but a missing course is a 404 and we want a clear error.
-  const course = await db.course.findUnique({ where: { id: courseId } });
-  if (!course) {
+  // Verify the course exists. A missing course is a 404.
+  const courseExists = await container.courses.exists(courseId);
+  if (!courseExists) {
     return { ok: false, error: "Curso no encontrado." };
   }
 
-  let outcome: ProcessCourseOutcome;
+  // Fase 2.2 — fast NO_MATERIALS guard, kept SYNCHRONOUS so the user gets an
+  // immediate "upload a PDF" toast without spinning up a background run. The
+  // deeper empty cases (FILE_MISSING / ALL_EMPTY / ALL_FAILED) require running
+  // segmentation, which now happens in the worker; they surface via the
+  // in-app notifier + the banner's failed/empty phase rows.
+  const materials = await container.materials.findByCourseId(courseId);
+  if (materials.length === 0) {
+    return {
+      ok: true,
+      empty: true,
+      reason: "NO_MATERIALS",
+      message: "Sube un PDF antes de generar el árbol.",
+    };
+  }
+
+  // Enqueue the run and kick the worker WITHOUT awaiting it: the pipeline now
+  // executes outside the request cycle (the core of Fase 2). `startPipelineAction`
+  // returns as soon as the run is persisted; the worker drains the queue and
+  // creates the phase rows the banner polls for.
+  let runId: string;
   try {
-    outcome = await container.processCourse.execute(courseId);
+    const run = await container.jobQueue.enqueue({ courseId });
+    runId = run.runId;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
     return { ok: false, error: message };
   }
 
+  // Fire-and-forget. The worker's pump is reentrant, so concurrent starts are
+  // safe. A rejected pump is swallowed here (the run row already records the
+  // failure via the worker's markFailed), so we don't crash the request.
+  void container.pipelineWorker.pump().catch((err) => {
+    console.error("[startPipelineAction] worker pump failed:", err);
+  });
+
   revalidatePath(`/courses/${courseId}`);
 
-  if (!outcome.ok) {
-    return { ok: false, error: outcome.error };
-  }
-
-  if (outcome.empty) {
-    return {
-      ok: true,
-      empty: true,
-      reason: outcome.reason,
-      message: outcome.message,
-      jobs: outcome.jobs,
-      materialErrors: outcome.materialErrors,
-    };
-  }
-
-  return {
-    ok: true,
-    empty: false,
-    jobs: {
-      segmentationJobId: outcome.result.segmentationJobId,
-      extractionJobId: outcome.result.extractionJobId,
-      integrationJobId: outcome.result.integrationJobId,
-      treeBuildingJobId: outcome.result.treeBuildingJobId,
-    },
-    processedMaterials: outcome.processedMaterials,
-    totalMaterials: outcome.totalMaterials,
-    materialErrors: outcome.materialErrors,
-  };
+  return { ok: true, empty: false, enqueued: true, runId };
 }
 
 // --- read-only pipeline actions (unchanged) -----------------------------
@@ -170,7 +149,7 @@ export async function getJobStatusAction(
   jobId: string
 ): Promise<GetJobStatusResult> {
   try {
-    const job = await db.processingJob.findUnique({ where: { id: jobId } });
+    const job = await container.processingJobs.findById(jobId);
     if (!job) {
       return { ok: false, error: "Trabajo no encontrado." };
     }
@@ -241,51 +220,21 @@ export async function listActiveJobsAction(
   options: ListActiveJobsOptions = {}
 ): Promise<ListActiveJobsResult> {
   try {
-    const recentCutoff = new Date(Date.now() - RECENT_JOB_WINDOW_MS);
-    const orFilters: Prisma.ProcessingJobWhereInput[] = [
-      { status: { in: ["pending", "running"] } },
-      { status: "completed", updatedAt: { gte: recentCutoff } },
-      { status: "failed", updatedAt: { gte: recentCutoff } },
-      { status: "cancelled", updatedAt: { gte: recentCutoff } },
-    ];
-    const where: Prisma.ProcessingJobWhereInput = {
-      ...(options.courseId
-        ? { AND: [{ OR: orFilters }, { courseId: options.courseId }] }
-        : { OR: orFilters }),
-    };
-    const rows = await db.processingJob.findMany({
-      where,
-      orderBy: { updatedAt: "desc" },
+    // The port resolves course names via a relation include and applies
+    // the "in-flight OR recently-terminal" window. `terminalStatuses`
+    // mode = pending/running (any age) + completed/failed/cancelled
+    // within the 30s window. v1.5 #2.3.
+    const rows = await container.processingJobs.findRecentWithCourseNames({
+      windowMs: RECENT_JOB_WINDOW_MS,
+      courseId: options.courseId,
+      terminalStatuses: ["completed", "failed", "cancelled"],
     });
-    // `ProcessingJob` has no Prisma relation to `Course` (only a
-    // raw `courseId` string), so we resolve course names with a
-    // follow-up query scoped to the distinct courseIds we just
-    // fetched. v1.5 issue 2.1: the banner needs the course name.
-    const courseIds = Array.from(
-      new Set(
-        rows
-          .map((row) => row.courseId)
-          .filter((id): id is string => typeof id === "string" && id.length > 0)
-      )
-    );
-    const courses =
-      courseIds.length > 0
-        ? await db.course.findMany({
-            where: { id: { in: courseIds } },
-            select: { id: true, name: true },
-          })
-        : [];
-    const courseNameById = new Map<string, string>(
-      courses.map((c) => [c.id, c.name])
-    );
     return {
       ok: true,
       jobs: rows.map((row) => ({
         jobId: row.id,
         courseId: row.courseId,
-        courseName: row.courseId
-          ? courseNameById.get(row.courseId) ?? null
-          : null,
+        courseName: row.courseName,
         phase: row.type,
         status: row.status,
         progress: row.progress,
@@ -340,10 +289,7 @@ export type RetryPipelineResult =
 export async function retryPipelineAction(
   jobId: string
 ): Promise<RetryPipelineResult> {
-  const job = await db.processingJob.findUnique({
-    where: { id: jobId },
-    select: { courseId: true },
-  });
+  const job = await container.processingJobs.findById(jobId);
   if (!job) {
     return { ok: false, error: "Trabajo no encontrado." };
   }
@@ -376,41 +322,20 @@ export async function listFinishedJobsAction(
   options: ListActiveJobsOptions = {}
 ): Promise<ListFinishedJobsResult> {
   try {
-    const cutoff = new Date(Date.now() - FINISHED_JOB_WINDOW_MS);
-    const where: Prisma.ProcessingJobWhereInput = {
-      status: { in: ["completed", "failed", "cancelled"] },
-      updatedAt: { gte: cutoff },
-      ...(options.courseId ? { courseId: options.courseId } : {}),
-    };
-    const rows = await db.processingJob.findMany({
-      where,
-      orderBy: { updatedAt: "desc" },
+    // `statusFilter` mode = only the given terminal statuses, each
+    // constrained to the window (the port applies the `updatedAt`
+    // cutoff). No pending/running here — this is the "Finalizados" tab.
+    const rows = await container.processingJobs.findRecentWithCourseNames({
+      windowMs: FINISHED_JOB_WINDOW_MS,
+      courseId: options.courseId,
+      statusFilter: ["completed", "failed", "cancelled"],
     });
-    const courseIds = Array.from(
-      new Set(
-        rows
-          .map((row) => row.courseId)
-          .filter((id): id is string => typeof id === "string" && id.length > 0)
-      )
-    );
-    const courses =
-      courseIds.length > 0
-        ? await db.course.findMany({
-            where: { id: { in: courseIds } },
-            select: { id: true, name: true },
-          })
-        : [];
-    const courseNameById = new Map<string, string>(
-      courses.map((c) => [c.id, c.name])
-    );
     return {
       ok: true,
       jobs: rows.map((row) => ({
         jobId: row.id,
         courseId: row.courseId,
-        courseName: row.courseId
-          ? courseNameById.get(row.courseId) ?? null
-          : null,
+        courseName: row.courseName,
         phase: row.type,
         status: row.status,
         progress: row.progress,
@@ -439,7 +364,7 @@ export async function cancelPipelineAction(
   jobId: string
 ): Promise<CancelPipelineResult> {
   try {
-    const job = await db.processingJob.findUnique({ where: { id: jobId } });
+    const job = await container.processingJobs.findById(jobId);
     if (!job) {
       return { ok: false, error: "Trabajo no encontrado." };
     }
@@ -452,13 +377,10 @@ export async function cancelPipelineAction(
     if (job.status === "cancelled") {
       return { ok: true, jobId, status: "cancelled" };
     }
-    await db.processingJob.update({
-      where: { id: jobId },
-      data: {
-        status: "cancelled",
-        currentStep: "Cancelado por el usuario",
-        error: "Cancelado por el usuario",
-      },
+    await container.processingJobs.update(jobId, {
+      status: "cancelled",
+      currentStep: "Cancelado por el usuario",
+      error: "Cancelado por el usuario",
     });
     return { ok: true, jobId, status: "cancelled" };
   } catch (err) {

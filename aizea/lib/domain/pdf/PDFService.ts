@@ -1,9 +1,9 @@
 import pdfParse from "pdf-parse";
-import { PDFServiceTauri } from "./PDFServiceTauri";
 import { compressToWebP } from "@/lib/domain/utils/image-compressor";
 import { extractFigureReferences } from "@/lib/domain/figures/figure-references";
 import { PDFDocument, PDFDict, PDFStream, PDFNumber, PDFName } from "pdf-lib";
 import { randomUUID } from "node:crypto";
+import type { IPdfBackend } from "@/lib/application/ports/pdf-backend.port";
 
 export interface PDFExtractResult {
   text: string;
@@ -38,7 +38,7 @@ function isTauri(): boolean {
   );
 }
 
-class PDFServiceJS {
+class PDFServiceJS implements IPdfBackend {
   async extractText(buffer: Buffer): Promise<PDFExtractResult> {
     const data = await pdfParse(buffer);
     return {
@@ -189,27 +189,48 @@ class PDFServiceJS {
 // PDFName shim — pdf-lib's public PDFName import is missing in some builds,
 // but PDFName.of works on the underlying class.
 export class PDFService {
-  private backend: PDFServiceJS | PDFServiceTauri;
+  /** Backend JS (server/web). En runtime Tauri se resuelve el adaptador de
+   *  infra por import dinámico (`getBackend`), de modo que el dominio nunca
+   *  importa `@tauri-apps` estáticamente. Inyectable para tests. */
+  private jsBackend: IPdfBackend;
+  private tauriBackend: IPdfBackend | null = null;
+  private readonly useTauri: boolean;
 
-  constructor() {
-    this.backend = isTauri() ? new PDFServiceTauri() : new PDFServiceJS();
+  constructor(backend?: IPdfBackend) {
+    this.jsBackend = backend ?? new PDFServiceJS();
+    // Si se inyecta un backend explícito (tests), nunca se usa Tauri.
+    this.useTauri = backend ? false : isTauri();
+  }
+
+  /** Resuelve el backend efectivo. En Tauri, importa el adaptador de infra
+   *  de forma perezosa (solo la primera vez) para no acoplar el dominio a
+   *  `@tauri-apps`. En server/web devuelve el backend JS directamente. */
+  private async getBackend(): Promise<IPdfBackend> {
+    if (!this.useTauri) return this.jsBackend;
+    if (!this.tauriBackend) {
+      const { PdfServiceTauri } = await import(
+        "@/lib/infrastructure/pdf/pdf-service-tauri"
+      );
+      this.tauriBackend = new PdfServiceTauri();
+    }
+    return this.tauriBackend;
   }
 
   async extractText(buffer: Buffer): Promise<PDFExtractResult> {
-    return this.backend.extractText(buffer);
+    return (await this.getBackend()).extractText(buffer);
   }
 
   async extractImages(buffer: Buffer): Promise<PDFImage[]> {
-    return this.backend.extractImages(buffer);
+    return (await this.getBackend()).extractImages(buffer);
   }
 
   async extractAll(buffer: Buffer): Promise<PDFExtractResult> {
-    return this.backend.extractAll(buffer);
+    return (await this.getBackend()).extractAll(buffer);
   }
 
   async extractFigures(
     buffer: Buffer
   ): Promise<Array<{ caption: string; pageNum: number | null }>> {
-    return this.backend.extractFigures(buffer);
+    return (await this.getBackend()).extractFigures(buffer);
   }
 }

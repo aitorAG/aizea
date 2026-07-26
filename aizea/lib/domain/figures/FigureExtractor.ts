@@ -1,9 +1,6 @@
-import { db } from "@/lib/db";
 import { PDFService, PDFImage } from "@/lib/domain/pdf/PDFService";
 import { compressToWebP } from "@/lib/domain/utils/image-compressor";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { getUploadsDir } from "@/lib/paths";
+import type { IFigureStore } from "@/lib/application/ports/figure-store.port";
 
 export interface ExtractedFigure {
   id: string;
@@ -14,19 +11,26 @@ export interface ExtractedFigure {
 
 export class FigureExtractor {
   private pdfService: PDFService;
-  private figuresDir: string;
+  private readonly store: IFigureStore | undefined;
 
-  constructor(pdfService?: PDFService, figuresDir?: string) {
+  constructor(pdfService?: PDFService, store?: IFigureStore) {
     this.pdfService = pdfService ?? new PDFService();
-    // Store figures alongside uploads in the data dir so they survive
-    // in the writable location on desktop (.exe/.msi) installs.
-    this.figuresDir = figuresDir ?? path.join(getUploadsDir(), "figures");
+    // El almacén (FS + persistencia) se inyecta por el composition root; en
+    // tests se pasa un store apuntando a un tempDir. Sustituye el antiguo
+    // acoplamiento directo a `node:fs` + `@/lib/db`.
+    this.store = store;
   }
 
   async extractAndSave(
     buffer: Buffer,
     courseId: string
   ): Promise<ExtractedFigure[]> {
+    if (!this.store) {
+      throw new Error(
+        "FigureExtractor requiere un almacén inyectado (constructor store)."
+      );
+    }
+    const store = this.store;
     const [figures, rawImages] = await Promise.all([
       this.pdfService.extractFigures(buffer),
       this.pdfService.extractImages(buffer).catch(() => [] as PDFImage[]),
@@ -60,7 +64,7 @@ export class FigureExtractor {
 
       if (pageImages.length > 0) {
         const imageData = pageImages[0].data;
-        await this.writeImageFile(filename, imageData);
+        await store.writeImage(filename, imageData);
         pageImages.shift();
       } else {
         // Fallback: tiny 1x1 transparent PNG. Real images are obtained when
@@ -69,16 +73,14 @@ export class FigureExtractor {
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
           "base64"
         );
-        await this.writeImageFile(filename, tinyPng);
+        await store.writeImage(filename, tinyPng);
       }
 
-      const dbFigure = await db.figure.create({
-        data: {
-          courseId,
-          filename,
-          caption: figure.caption,
-          pageNum: figure.pageNum,
-        },
+      const dbFigure = await store.createFigure({
+        courseId,
+        filename,
+        caption: figure.caption,
+        pageNum: figure.pageNum,
       });
 
       results.push({
@@ -104,11 +106,5 @@ export class FigureExtractor {
           .substring(0, 30)
       : "figure";
     return `fig_${courseId.substring(0, 8)}_${index}_${safeCaption}.png`;
-  }
-
-  private async writeImageFile(filename: string, data: Buffer): Promise<void> {
-    const filePath = path.join(this.figuresDir, filename);
-    await fs.mkdir(this.figuresDir, { recursive: true });
-    await fs.writeFile(filePath, data);
   }
 }

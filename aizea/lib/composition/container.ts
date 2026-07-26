@@ -10,6 +10,8 @@
 // database, network, or filesystem.
 
 import { PipelineService } from "@/lib/infrastructure/pipeline/pipeline.service";
+import { PrismaJobQueue } from "@/lib/infrastructure/queue/prisma-job-queue";
+import { PipelineWorker } from "@/lib/infrastructure/queue/pipeline-worker";
 import { PrismaMaterialRepository } from "@/lib/infrastructure/persistence/prisma-material.repository";
 import { PrismaCourseRepository } from "@/lib/infrastructure/persistence/prisma-course.repository";
 import { PrismaSlideRepository } from "@/lib/infrastructure/persistence/prisma-slide.repository";
@@ -28,8 +30,9 @@ import {
 } from "@/lib/application/use-cases/upload-material.use-case";
 import { PDFService } from "@/lib/domain/pdf/PDFService";
 import { FigureExtractor } from "@/lib/domain/figures/FigureExtractor";
+import { FsFigureStore } from "@/lib/infrastructure/figures/figure-store";
 import { LayoutParser } from "@/lib/domain/pdf/LayoutParser";
-import { RAGEngine } from "@/lib/domain/rag/RAGEngine";
+import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { getDoclingBaseUrl } from "@/lib/config-service";
 import type { IPipelineService } from "@/lib/application/ports/pipeline.port";
 import type { IMaterialRepository } from "@/lib/application/ports/material-repository.port";
@@ -43,9 +46,12 @@ import type { IFigureRepository } from "@/lib/application/ports/figure-repositor
 import type { ITextChunkRepository } from "@/lib/application/ports/text-chunk-repository.port";
 import type { ISettingsRepository } from "@/lib/application/ports/settings-repository.port";
 import type { ISemanticUnitRepository } from "@/lib/application/ports/semantic-unit-repository.port";
+import type { IJobQueue } from "@/lib/application/ports/job-queue.port";
+import type { IJobWorker } from "@/lib/infrastructure/queue/pipeline-worker";
 
 export interface ContainerOverrides {
   pipeline?: IPipelineService;
+  jobQueue?: IJobQueue;
   materials?: IMaterialRepository;
   notifier?: INotifier;
   courses?: ICourseRepository;
@@ -68,8 +74,13 @@ export interface ContainerOverrides {
 export interface Container {
   processCourse: ProcessCourseUseCase;
   uploadMaterial: UploadMaterialUseCase;
+  // Cola persistente + worker de fondo (Fase 2.1/2.2). El worker consume la
+  // cola invocando `processCourse.execute` como primitiva síncrona.
+  jobQueue: IJobQueue;
+  pipelineWorker: IJobWorker;
   // Repositories — exposed so server actions can consume them via the
   // composition root instead of importing concrete implementations directly.
+  materials: IMaterialRepository;
   courses: ICourseRepository;
   slides: ISlideRepository;
   slideBoxes: ISlideBoxRepository;
@@ -95,17 +106,28 @@ export function createContainer(overrides: ContainerOverrides = {}): Container {
   const settings = overrides.settings ?? new PrismaSettingsRepository();
   const semanticUnits = overrides.semanticUnits ?? new PrismaSemanticUnitRepository();
   const pdfExtractor = overrides.pdfExtractor ?? new PDFService();
-  const figureExtractor = overrides.figureExtractor ?? new FigureExtractor();
+  const figureExtractor =
+    overrides.figureExtractor ??
+    new FigureExtractor(undefined, new FsFigureStore());
   // Pass a lazy resolver so the Docling URL configured in /settings is always
   // used — avoiding the bug where LayoutParser was constructed with a hardcoded
   // URL and ignored the DB-stored value entirely.
   const layoutParser =
     overrides.layoutParser ??
     new LayoutParser({ getBaseUrl: getDoclingBaseUrl });
-  const ragIndexer = overrides.ragIndexer ?? new RAGEngine();
+  const ragIndexer = overrides.ragIndexer ?? createRAGEngine();
+
+  const jobQueue = overrides.jobQueue ?? new PrismaJobQueue();
+  const processCourse = new ProcessCourseUseCase({ pipeline, materials, notifier });
+  // The worker's runCourse is the synchronous pipeline primitive. Injecting a
+  // closure (not the use case) keeps the worker decoupled and testable.
+  const pipelineWorker = new PipelineWorker({
+    queue: jobQueue,
+    runCourse: (courseId: string) => processCourse.execute(courseId),
+  });
 
   return {
-    processCourse: new ProcessCourseUseCase({ pipeline, materials, notifier }),
+    processCourse,
     // uploadMaterial does NOT receive `pipeline` (v1.5 finding 1.7):
     // the upload use case is intentionally decoupled from the pipeline.
     // The pipeline only runs on explicit "Generar árbol" via `processCourse`.
@@ -117,6 +139,7 @@ export function createContainer(overrides: ContainerOverrides = {}): Container {
       layoutParser,
       ragIndexer,
     }),
+    materials,
     courses,
     slides,
     slideBoxes,
@@ -126,6 +149,8 @@ export function createContainer(overrides: ContainerOverrides = {}): Container {
     textChunks,
     settings,
     semanticUnits,
+    jobQueue,
+    pipelineWorker,
   };
 }
 

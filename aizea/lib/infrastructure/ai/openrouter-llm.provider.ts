@@ -7,6 +7,8 @@
 import type { ILLMProvider, ChatMessage, ChatOptions } from "@/lib/application/ports/llm-provider.port";
 import { LLMProviderError, withRetries, DEFAULT_LLM_RETRY_POLICY } from "@/lib/domain/ai/llm-error";
 import { getApiKey, getChatModel } from "@/lib/config-service";
+import { CircuitBreaker } from "@/lib/infrastructure/circuit-breaker";
+import { openRouterChatBreaker } from "@/lib/infrastructure/ai/openrouter-breakers";
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -16,11 +18,17 @@ export class OpenRouterLLMProvider implements ILLMProvider {
 
   constructor(
     private readonly getKey: () => Promise<string> = getApiKey,
-    private readonly getModel: () => Promise<string> = getChatModel
+    private readonly getModel: () => Promise<string> = getChatModel,
+    // Fase 2.5 — breaker compartido de backpressure. Inyectable para tests.
+    private readonly breaker: CircuitBreaker = openRouterChatBreaker
   ) {}
 
   async chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
-    return withRetries(() => this._chatOnce(messages, options), DEFAULT_LLM_RETRY_POLICY);
+    // El breaker envuelve la llamada YA reintentada: tras N peticiones
+    // consecutivas fallidas (salud de endpoint) abre y falla rápido.
+    return this.breaker.execute(() =>
+      withRetries(() => this._chatOnce(messages, options), DEFAULT_LLM_RETRY_POLICY)
+    );
   }
 
   async chatJSON<T>(messages: ChatMessage[], options: ChatOptions = {}): Promise<T> {

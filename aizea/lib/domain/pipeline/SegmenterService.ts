@@ -17,17 +17,21 @@
 // LLM" step is currently a no-op (left as a future improvement); boundary
 // quality is already good because Docling does the section detection.
 
-import { db } from "@/lib/db";
 import { LayoutParser } from "@/lib/domain/pdf/LayoutParser";
 import { PDFService } from "@/lib/domain/pdf/PDFService";
 import { randomUUID } from "node:crypto";
 import type { SemanticUnit } from "@/lib/types/pipeline";
+import type { ISegmenterRepository } from "@/lib/application/ports/segmenter-repository.port";
 
 export interface SegmenterOptions {
   layoutParser?: LayoutParser;
   pdfService?: PDFService;
   /** If true, persist created units to the database (default: true). */
   persist?: boolean;
+  /** Repositorio de persistencia (inyectado por el composition root; en
+   *  tests se pasa un fake). Requerido solo cuando `persist` es true.
+   *  Sustituye el antiguo acoplamiento directo a Prisma (`@/lib/db`). */
+  repository?: ISegmenterRepository;
 }
 
 const MIN_CONTENT_LENGTH = 32;
@@ -36,11 +40,13 @@ export class SegmenterService {
   private readonly layoutParser: LayoutParser;
   private readonly pdfService: PDFService;
   private readonly persist: boolean;
+  private readonly repository: ISegmenterRepository | undefined;
 
   constructor(options: SegmenterOptions = {}) {
     this.layoutParser = options.layoutParser ?? new LayoutParser();
     this.pdfService = options.pdfService ?? new PDFService();
     this.persist = options.persist ?? true;
+    this.repository = options.repository;
   }
 
   /**
@@ -138,23 +144,26 @@ export class SegmenterService {
     const now = new Date().toISOString();
 
     if (this.persist) {
+      if (!this.repository) {
+        throw new Error(
+          "SegmenterService con persist=true requiere un repositorio inyectado (options.repository)."
+        );
+      }
+      const repository = this.repository;
       // Use createMany so N units = 1 round-trip instead of N.
       // createMany in SQLite does not return inserted rows, so we
       // fetch them back ordered by order index.
-      await db.semanticUnit.createMany({
-        data: filtered.map((c, i) => ({
+      await repository.createUnits(
+        filtered.map((c, i) => ({
           materialId,
           content: c.content,
           order: i,
           pageStart: c.pageStart,
           pageEnd: c.pageEnd,
           sectionRef: c.sectionRef,
-        })),
-      });
-      const rows = await db.semanticUnit.findMany({
-        where: { materialId },
-        orderBy: { order: "asc" },
-      });
+        }))
+      );
+      const rows = await repository.findUnitsByMaterialOrdered(materialId);
       return rows.map((row) => ({
         id: row.id,
         materialId,

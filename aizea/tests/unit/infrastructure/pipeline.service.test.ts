@@ -233,6 +233,89 @@ describe("PipelineService (infrastructure layer)", () => {
     });
   });
 
+  describe("cooperative cancellation (Fase 2.4)", () => {
+    it("stops the extraction loop early and does NOT process remaining units", async () => {
+      // Three units; cancel fires before the 2nd. Only the 1st is extracted.
+      const units = [1, 2, 3].map((n) => ({
+        id: `u-${n}`,
+        materialId: "m-1",
+        content: "x",
+        order: n - 1,
+        pageStart: 1,
+        pageEnd: 1,
+        sectionRef: null,
+        createdAt: new Date().toISOString(),
+      }));
+      mockSegmenterSegment.mockResolvedValue(units);
+
+      // isJobCancelled: false for unit 1, true from unit 2 onward (only for
+      // the extraction job — segmentation already completed).
+      let extractionChecks = 0;
+      const cancellingService = new PipelineService({
+        isJobCancelled: async () => {
+          extractionChecks++;
+          return extractionChecks >= 2; // cancel arrives before the 2nd unit
+        },
+      });
+
+      await expect(
+        cancellingService.processCourse({
+          courseId: "c-cancel",
+          materialId: "m-1",
+          buffer: Buffer.from("pdf"),
+        })
+      ).rejects.toThrow(/cancel/i);
+
+      // Only the first unit was extracted (loop bailed before unit 2).
+      expect(mockUnitExtractorExtract).toHaveBeenCalledTimes(1);
+      // Integration / tree-building never ran.
+      const types = createdJobs.map((j) => j.type);
+      expect(types).not.toContain("integration");
+      expect(types).not.toContain("tree-building");
+    });
+
+    it("does NOT overwrite a cancelled job's status with 'failed'", async () => {
+      const units = [1, 2].map((n) => ({
+        id: `u-${n}`,
+        materialId: "m-1",
+        content: "x",
+        order: n - 1,
+        pageStart: 1,
+        pageEnd: 1,
+        sectionRef: null,
+        createdAt: new Date().toISOString(),
+      }));
+      mockSegmenterSegment.mockResolvedValue(units);
+
+      const cancellingService = new PipelineService({
+        // Cancel immediately (before the 1st unit). The extraction job row
+        // is marked "cancelled" out-of-band to mirror the real cancel path.
+        isJobCancelled: async (jobId: string) => {
+          const job = createdJobs.find((j) => j.id === jobId);
+          if (job && job.type === "extraction") {
+            job.status = "cancelled";
+            return true;
+          }
+          return false;
+        },
+      });
+
+      await expect(
+        cancellingService.processCourse({
+          courseId: "c-cancel-2",
+          materialId: "m-1",
+          buffer: Buffer.from("pdf"),
+        })
+      ).rejects.toThrow(/cancel/i);
+
+      // failPhase must NOT flip the cancelled extraction job to "failed",
+      // nor write a failure error message (it stays as the cancel left it).
+      const ext = createdJobs.find((j) => j.type === "extraction");
+      expect(ext?.status).toBe("cancelled");
+      expect(ext?.error).toBeFalsy();
+    });
+  });
+
   describe("getStatus", () => {
     it("returns the job when it exists", async () => {
       await service.processCourse({

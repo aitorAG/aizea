@@ -5,23 +5,10 @@ const {
   mockChatJSON,
   mockBuildExtractUnitPrompt,
   mockRenderLatexToPng,
-  mockUnitRepresentationUpsert,
-  mockUnitRepresentationFindUnique,
-  mockFigureFindMany,
-  mockMaterialFindUnique,
 } = vi.hoisted(() => ({
   mockChatJSON: vi.fn(),
   mockBuildExtractUnitPrompt: vi.fn(),
   mockRenderLatexToPng: vi.fn(),
-  mockUnitRepresentationUpsert: vi.fn(),
-  mockUnitRepresentationFindUnique: vi.fn(),
-  mockFigureFindMany: vi.fn(),
-  mockMaterialFindUnique: vi.fn(),
-}));
-
-vi.mock("@/lib/domain/llm/LLMClient", () => ({
-  chatJSON: mockChatJSON,
-  chat: vi.fn(),
 }));
 
 vi.mock("@/lib/domain/prompts/PromptManager", () => ({
@@ -34,26 +21,52 @@ vi.mock("@/lib/domain/utils/latex-renderer", () => ({
   renderLatexToPng: mockRenderLatexToPng,
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
-    unitRepresentation: {
-      upsert: mockUnitRepresentationUpsert,
-      findUnique: mockUnitRepresentationFindUnique,
-    },
-    figure: {
-      findMany: mockFigureFindMany,
-    },
-    // UnitExtractor.loadFiguresForUnit resolves the unit's courseId via
-    // material.findUnique so figures are scoped to the right course
-    // (cross-course leak fix). The mock must provide it.
-    material: {
-      findUnique: mockMaterialFindUnique,
-    },
-  },
-}));
-
 import { UnitExtractor } from "@/lib/domain/pipeline/UnitExtractor";
 import type { SemanticUnit } from "@/lib/types/pipeline";
+import type {
+  FigureRowForUnit,
+  IUnitExtractorRepository,
+  UnitRepresentationData,
+  UpsertedRepresentationRow,
+} from "@/lib/application/ports/unit-extractor-repository.port";
+import type { ILLMProvider } from "@/lib/application/ports/llm-provider.port";
+
+// ----- fake LLM provider -----
+//
+// La inversión DI (Fase 1) hace que UnitExtractor dependa de `ILLMProvider`
+// inyectado en vez de la función libre `chatJSON`. El test inyecta este fake.
+const fakeLlm: ILLMProvider = {
+  chatJSON: mockChatJSON,
+  chat: vi.fn(),
+  name: "fake-llm",
+};
+
+// ----- fake repository -----
+//
+// La purificación del dominio (Fase 1) hace que UnitExtractor dependa de
+// `IUnitExtractorRepository` en vez de Prisma. El test inyecta este fake en
+// lugar de mockear `@/lib/db`.
+function createFakeRepo() {
+  return {
+    upsertRepresentation:
+      vi.fn<
+        (
+          unitId: string,
+          data: UnitRepresentationData
+        ) => Promise<UpsertedRepresentationRow>
+      >(),
+    findCourseIdByMaterial:
+      vi.fn<(materialId: string) => Promise<string | null>>(),
+    findFiguresByPageRange:
+      vi.fn<
+        (
+          courseId: string,
+          pageStart: number,
+          pageEnd: number
+        ) => Promise<FigureRowForUnit[]>
+      >(),
+  } satisfies IUnitExtractorRepository;
+}
 
 const sampleUnit: SemanticUnit = {
   id: "u-1",
@@ -68,27 +81,22 @@ const sampleUnit: SemanticUnit = {
 
 describe("UnitExtractor", () => {
   let extractor: UnitExtractor;
+  let repo: ReturnType<typeof createFakeRepo>;
 
   beforeEach(() => {
-    extractor = new UnitExtractor();
+    repo = createFakeRepo();
+    extractor = new UnitExtractor({ repository: repo, llmProvider: fakeLlm });
     mockChatJSON.mockReset();
     mockBuildExtractUnitPrompt.mockReset();
     mockRenderLatexToPng.mockReset();
-    mockUnitRepresentationUpsert.mockReset();
-    mockUnitRepresentationFindUnique.mockReset();
-    mockFigureFindMany.mockReset();
 
-    mockBuildExtractUnitPrompt.mockReturnValue({
-      system: "S",
-      user: "U",
-    });
+    mockBuildExtractUnitPrompt.mockReturnValue({ system: "S", user: "U" });
     mockRenderLatexToPng.mockResolvedValue(Buffer.from("PNG-FAKE"));
-    mockFigureFindMany.mockResolvedValue([]);
-    // The extractor upserts (idempotent). The mock merges create+update
-    // payloads the same way Prisma would, returning the persisted row.
-    mockUnitRepresentationUpsert.mockImplementation(async ({ create }) => ({
+    repo.findCourseIdByMaterial.mockResolvedValue(null);
+    repo.findFiguresByPageRange.mockResolvedValue([]);
+    // Idempotent upsert: return the persisted row's identity fields.
+    repo.upsertRepresentation.mockImplementation(async () => ({
       id: randomUUID(),
-      ...create,
       createdAt: new Date(),
       updatedAt: new Date(),
     }));
@@ -225,61 +233,27 @@ describe("UnitExtractor", () => {
     });
 
     await extractor.extract(sampleUnit);
-    expect(mockUnitRepresentationUpsert).toHaveBeenCalled();
-    const call = mockUnitRepresentationUpsert.mock.calls[0][0];
-    // Idempotent upsert: keyed by unitId, with create+update payloads.
-    expect(call.where.unitId).toBe("u-1");
-    expect(call.create.unitId).toBe("u-1");
-    expect(typeof call.create.concepts).toBe("string"); // JSON-stringified
-    expect(JSON.parse(call.create.concepts)).toEqual([
-      { name: "x", importance: 0.5 },
-    ]);
-    // The update branch must carry the same JSON payload (minus unitId).
-    expect(JSON.parse(call.update.concepts)).toEqual([
-      { name: "x", importance: 0.5 },
-    ]);
+    expect(repo.upsertRepresentation).toHaveBeenCalled();
+    const [unitId, data] = repo.upsertRepresentation.mock.calls[0];
+    // Idempotent upsert: keyed by unitId with a JSON-stringified payload.
+    expect(unitId).toBe("u-1");
+    expect(typeof data.concepts).toBe("string"); // JSON-stringified
+    expect(JSON.parse(data.concepts)).toEqual([{ name: "x", importance: 0.5 }]);
   });
 
   it("attaches figures from the database filtered by the unit's page range", async () => {
-    const allFigures = [
-      {
-        id: "f-1",
-        courseId: "c-1",
-        filename: "fig1.png",
-        caption: "First figure",
-        pageNum: 1,
-        tags: "[]",
-        createdAt: new Date(),
-      },
-      {
-        id: "f-2",
-        courseId: "c-1",
-        filename: "fig2.png",
-        caption: "Out of range figure",
-        pageNum: 99,
-        tags: "[]",
-        createdAt: new Date(),
-      },
+    const allFigures: FigureRowForUnit[] = [
+      { id: "f-1", filename: "fig1.png", caption: "First figure", pageNum: 1, tags: "[]" },
+      { id: "f-2", filename: "fig2.png", caption: "Out of range figure", pageNum: 99, tags: "[]" },
     ];
-    // The extractor resolves the unit's courseId from the material
-    // before querying figures (cross-course leak fix). Return the
-    // course the sample figures belong to.
-    mockMaterialFindUnique.mockResolvedValue({ courseId: "c-1" });
-    // Simulate Prisma's courseId + pageNum filtering at the mock level.
-    mockFigureFindMany.mockImplementation(async (args: { where?: { courseId?: string; pageNum?: { gte?: number; lte?: number } } }) => {
-      const courseId = args?.where?.courseId;
-      const range = args?.where?.pageNum;
-      let out = allFigures;
-      if (courseId != null) out = out.filter((f) => f.courseId === courseId);
-      if (range) {
-        out = out.filter((f) => {
-          if (range.gte != null && (f.pageNum ?? 0) < range.gte) return false;
-          if (range.lte != null && (f.pageNum ?? 0) > range.lte) return false;
-          return true;
-        });
-      }
-      return out;
-    });
+    // The extractor resolves the unit's courseId from the material before
+    // querying figures (cross-course leak fix). Return the course the sample
+    // figures belong to.
+    repo.findCourseIdByMaterial.mockResolvedValue("c-1");
+    // Simulate the repository's courseId + pageNum filtering.
+    repo.findFiguresByPageRange.mockImplementation(async (_courseId, pageStart, pageEnd) =>
+      allFigures.filter((f) => (f.pageNum ?? 0) >= pageStart && (f.pageNum ?? 0) <= pageEnd)
+    );
     mockChatJSON.mockResolvedValue({
       concepts: [],
       mainIdeas: [],

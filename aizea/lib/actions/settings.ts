@@ -5,7 +5,7 @@
 // and invalidates the in-process config cache so the next LLM call sees
 // the new values without waiting for the 30s TTL.
 
-import { db } from "@/lib/db";
+import { container } from "@/lib/composition/container";
 import { invalidateConfigCache } from "@/lib/config-service";
 import { revalidatePath } from "next/cache";
 
@@ -22,7 +22,7 @@ export interface SettingsView {
 
 /** Read the current effective settings. Safe to call from server components. */
 export async function getSettingsAction(): Promise<SettingsView> {
-  const row = await db.settings.findUnique({ where: { id: "default" } });
+  const row = await container.settings.get();
   if (!row) {
     return {
       openrouterApiKey: null,
@@ -101,21 +101,11 @@ export async function updateSettingsAction(
         ? null
         : input.apiKey.trim();
 
-  await db.settings.upsert({
-    where: { id: "default" },
-    update: {
-      ...(apiKey !== undefined ? { openrouterApiKey: apiKey } : {}),
-      chatModel,
-      embedModel,
-      doclingBaseUrl,
-    },
-    create: {
-      id: "default",
-      openrouterApiKey: apiKey ?? null,
-      chatModel,
-      embedModel,
-      doclingBaseUrl,
-    },
+  await container.settings.upsert({
+    ...(apiKey !== undefined ? { openrouterApiKey: apiKey } : {}),
+    chatModel,
+    embedModel,
+    doclingBaseUrl,
   });
 
   // Force the next config-service call to read the DB.

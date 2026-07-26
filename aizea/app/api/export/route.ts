@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { container } from "@/lib/composition/container";
 import { ExportService } from "@/lib/application/ExportService";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -10,15 +11,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Falta courseId" }, { status: 400 });
     }
 
-    const course = await db.course.findUnique({
-      where: { id: courseId },
-      select: { name: true },
-    });
+    const course = await container.courses.findById(courseId);
 
     if (!course) {
       return NextResponse.json({ error: "Curso no encontrado" }, { status: 404 });
     }
 
+    // ExportService keeps its own Prisma handle (already constructor-injected).
     const exportService = new ExportService(db);
     const html = await exportService.exportToHtml(courseId);
 
