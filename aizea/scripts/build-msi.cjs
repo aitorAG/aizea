@@ -154,6 +154,11 @@ if (existsSync(devDb)) {
     const f = join(STANDALONE, `db.sqlite${ext}`);
     if (existsSync(f)) rmSync(f, { force: true });
   }
+  // CRITICAL: dev.db carries the developer's test data (courses, materials…).
+  // Wipe every row from the COPY so a fresh install starts EMPTY. This keeps
+  // the schema (tables/columns) but removes all data. Never touches dev.db.
+  log("Emptying installer db.sqlite (ship schema, zero data)…");
+  run("node", ["scripts/seed-installer-db.cjs"]);
 } else {
   log(
     "WARN: prisma/dev.db not found — the installer will start with an " +
