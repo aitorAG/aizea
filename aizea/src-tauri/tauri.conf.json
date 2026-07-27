@@ -45,7 +45,8 @@
         "installMode": "currentUser"
       },
       "wix": {
-        "language": "es-ES"
+        "language": "es-ES",
+        "upgradeCode": "60418511-84f1-568b-9944-be04e2ab6037"
       }
     }
   }
