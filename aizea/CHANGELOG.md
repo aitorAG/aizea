@@ -2,6 +2,41 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.5.0] — 2026-07-27
+
+Robustez del instalador y de las actualizaciones del escritorio.
+
+### Fixed
+- **Actualizaciones sin perder datos ni romper el esquema** (causa raíz): el
+  launcher solo sembraba `db.sqlite` en la primera ejecución, así que al
+  **actualizar** (p. ej. 0.3.0 → 0.4.0) la base de datos existente se quedaba
+  sin las columnas nuevas y "Generar árbol" fallaba con
+  `column sectionPath does not exist`. Nuevo
+  `lib/infrastructure/persistence/schema-reconciler.ts`: en el arranque
+  (una vez por proceso, en `/api/health`, antes del worker) reconcilia la BD
+  viva contra el **DMMF de Prisma** (ya embebido en el cliente del standalone
+  → cero binario extra, cero drift con `schema.prisma`) y añade con
+  `ALTER TABLE ADD COLUMN` cualquier columna escalar que falte. Idempotente,
+  aditivo y no destructivo (conserva los datos del usuario). Elimina la clase
+  entera de bugs "columna nueva rompe la actualización". Se descartó
+  `prisma db push` en runtime: el schema-engine (17,9 MB) no viaja en el
+  standalone y engordaría el instalador.
+- **El instalador ya no arranca con datos de desarrollo**: el build copiaba
+  `prisma/dev.db` CON datos (cursos y materiales de prueba) al instalador, así
+  que toda instalación nueva los mostraba. Nuevo
+  `scripts/seed-installer-db.cjs` vacía todas las filas de la COPIA del
+  instalador (enumera tablas de `sqlite_master`, `DELETE` con FKs off,
+  `VACUUM` + checkpoint) conservando el esquema. Nunca toca `dev.db`.
+
+### Changed
+- **Versión del instalador sincronizada**: `tauri.conf.json` toma la versión de
+  `../package.json` en vez de un literal hardcoded (el MSI/NSIS salía 0.3.0
+  cuando `package.json` ya iba por 0.4.0). Fin del drift de versión.
+- **`upgradeCode` del MSI fijado** (`60418511-84f1-568b-9944-be04e2ab6037`, el
+  mismo que Tauri derivaba) para que las actualizaciones reconozcan la
+  instalación previa y no dupliquen la app aunque cambie el `productName`. El
+  `.exe` NSIS ya detecta instalación previa y ofrece reinstalar/actualizar.
+
 ## [0.4.0] — 2026-07-27
 
 Calidad y eficiencia de la generación del árbol conceptual (ver
