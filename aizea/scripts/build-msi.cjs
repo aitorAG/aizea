@@ -231,13 +231,6 @@ const sidecarDest = join(binariesDir, "node-x86_64-pc-windows-msvc.exe");
 copyFileSync(nodeExe, sidecarDest);
 log(`  node runtime: ${nodeExe} -> ${sidecarDest}`);
 
-// --- 5b. Generate installer release notes from CHANGELOG --------------
-// Regenerate release-notes.rtf from the latest CHANGELOG.md section so the
-// installer (MSI + NSIS) shows the current version's notes on its license
-// page. Single source of truth: CHANGELOG.md.
-log("Generating installer release notes from CHANGELOG…");
-run("node", ["scripts/gen-release-notes.cjs"]);
-
 // --- 6. Tauri build ---------------------------------------------------
 log("Running tauri build (compiles Rust + bundles MSI/NSIS)…");
 run("npx", ["tauri", "build"]);
