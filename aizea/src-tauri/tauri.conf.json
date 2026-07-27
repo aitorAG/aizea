@@ -36,7 +36,6 @@
     ],
     "publisher": "AIzea",
     "category": "Education",
-    "licenseFile": "release-notes.rtf",
     "externalBin": ["binaries/node"],
     "resources": {
       "../.next/standalone": "standalone"
