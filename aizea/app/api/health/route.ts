@@ -19,9 +19,22 @@ import { db } from "@/lib/db";
 import { checkHealth } from "@/lib/application/health";
 import { container } from "@/lib/composition/container";
 import { bootstrapWorkerOnce } from "@/lib/infrastructure/queue/worker-bootstrap";
+import { reconcileSchema } from "@/lib/infrastructure/persistence/schema-reconciler";
 
 // Always dynamic: readiness must reflect the live process, never a cache.
 export const dynamic = "force-dynamic";
+
+// Desktop upgrade safety: reconcile the DB schema against the DMMF ONCE per
+// process, before the worker touches any table. On an upgrade the seeded
+// db.sqlite is NOT re-copied (it already exists), so new columns must be
+// added here. Guarded so the (possibly repeated) health polls run it once.
+let schemaReconciled: Promise<void> | null = null;
+function reconcileSchemaOnce(): Promise<void> {
+  if (!schemaReconciled) {
+    schemaReconciled = reconcileSchema(db).then(() => undefined);
+  }
+  return schemaReconciled;
+}
 
 export async function GET(): Promise<NextResponse> {
   const report = await checkHealth({
@@ -33,15 +46,17 @@ export async function GET(): Promise<NextResponse> {
     version: process.env.npm_package_version ?? "0.2.0",
   });
 
-  // Kick the worker bootstrap once, only when the DB is actually ready (no
-  // point recovering runs against a DB that isn't answering). Guarded to run
-  // once per process by `bootstrapWorkerOnce`. Not awaited — readiness must
-  // not block on draining the queue.
+  // Reconcile the schema, THEN kick the worker bootstrap — both once per
+  // process, only when the DB answers. The worker's recover()/pump() read
+  // tables (incl. columns added by an upgrade), so reconciliation must finish
+  // first. Not awaited by the response: readiness must not block on either.
   if (report.status === "ok") {
-    void bootstrapWorkerOnce({
-      recover: () => container.pipelineWorker.recover(),
-      pump: () => container.pipelineWorker.pump(),
-    });
+    void reconcileSchemaOnce().then(() =>
+      bootstrapWorkerOnce({
+        recover: () => container.pipelineWorker.recover(),
+        pump: () => container.pipelineWorker.pump(),
+      })
+    );
   }
 
   return NextResponse.json(report, {

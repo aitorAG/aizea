@@ -228,9 +228,16 @@ pub fn run() {
                     data_dir_str.replace('\\', "/")
                 );
 
-                // First-run: seed an empty DB by running prisma migrate is
-                // not available offline, so we ship a pre-migrated db.sqlite
-                // as a resource and copy it on first launch.
+                // First-run: prisma migrate is not available offline, so we
+                // ship a pre-migrated db.sqlite as a resource and copy it on
+                // first launch ONLY (when no DB exists yet).
+                //
+                // On UPGRADES the existing DB is intentionally left untouched
+                // (it holds the user's data). New columns from a newer version
+                // are applied at runtime by the schema reconciler in
+                // `/api/health` (reconcileSchema), which diffs the live DB
+                // against Prisma's DMMF and adds any missing column. So a
+                // stale seed here is fine — the reconciler brings it up to date.
                 let db_target = app_data_dir.join("db.sqlite");
                 if !db_target.exists() {
                     let seed = resource_dir.join("standalone").join("db.sqlite");
