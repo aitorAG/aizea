@@ -62,48 +62,82 @@ export class FigureExtractor {
       imagesByPage.set(img.pageNum, list);
     }
 
-    const results: ExtractedFigure[] = [];
+    // Pass 1 — decide each figure's image source. A figure backed by a real
+    // embedded raster on its page consumes one; the rest are queued for
+    // rasterisation, grouped by page so we can cluster distinct figures and
+    // render each page only once.
+    interface Pending {
+      index: number;
+      caption: string | null;
+      pageNum: number | null;
+      embedded: Buffer | null;
+    }
+    const pending: Pending[] = [];
+    const rasterQueueByPage = new Map<number, number[]>(); // pageNum → pending idx[]
 
     for (let i = 0; i < figures.length; i++) {
       const figure = figures[i];
+      const pageImages =
+        figure.pageNum != null ? imagesByPage.get(figure.pageNum) ?? [] : [];
 
-      const pageImages = figure.pageNum != null
-        ? imagesByPage.get(figure.pageNum) ?? []
-        : [];
-
-      const filename = this.generateFilename(courseId, i, figure.caption);
-      let imageData: Buffer | null = null;
-
+      let embedded: Buffer | null = null;
       if (pageImages.length > 0) {
-        // Preferred: a real embedded raster image on the caption's page.
-        imageData = pageImages[0].data;
+        embedded = pageImages[0].data;
         pageImages.shift();
-      } else if (this.rasterizer && figure.pageNum != null) {
-        // v1.0 (Opción B) — no embedded raster (vector diagram / composite).
-        // Rasterise the figure region from the PDF and crop it, instead of
-        // dropping the figure. Fully in-process (no docling). Degrades to
-        // "skip" when the rasterizer can't produce a usable crop.
-        const raster = await this.rasterizer
-          .rasterizeFigure(buffer, figure.pageNum)
-          .catch(() => null);
-        if (raster) {
-          imageData = await compressToWebP(raster.png);
+      }
+
+      const p: Pending = {
+        index: i,
+        caption: figure.caption,
+        pageNum: figure.pageNum,
+        embedded,
+      };
+      const pendingIdx = pending.push(p) - 1;
+
+      // Queue for rasterisation only when there is no embedded image AND we can
+      // rasterise (rasterizer present + known page).
+      if (!embedded && this.rasterizer && figure.pageNum != null) {
+        const list = rasterQueueByPage.get(figure.pageNum) ?? [];
+        list.push(pendingIdx);
+        rasterQueueByPage.set(figure.pageNum, list);
+      }
+    }
+
+    // Pass 2 — rasterise per page (one render per page; clusters = caption
+    // count) and hand the crops back to their pending entries in reading order.
+    const rasterByPending = new Map<number, Buffer>();
+    if (this.rasterizer) {
+      for (const [pageNum, pendingIdxs] of rasterQueueByPage) {
+        const crops = await this.rasterizer
+          .rasterizeFigures(buffer, pageNum, pendingIdxs.length)
+          .catch(() => [] as Awaited<ReturnType<IFigureRasterizer["rasterizeFigures"]>>);
+        // Assign crops to captions in order; extra captions get no image.
+        for (let k = 0; k < pendingIdxs.length && k < crops.length; k++) {
+          const compressed = await compressToWebP(crops[k].png);
+          rasterByPending.set(pendingIdxs[k], compressed);
         }
       }
+    }
+
+    // Pass 3 — persist every figure that ended up with an image, preserving the
+    // original figure order.
+    const results: ExtractedFigure[] = [];
+    for (let pi = 0; pi < pending.length; pi++) {
+      const p = pending[pi];
+      const imageData = p.embedded ?? rasterByPending.get(pi) ?? null;
 
       // No real image and no rasterised crop → skip (no 1×1 placeholder), so
       // downstream "one slide per visual" never emits empty placeholder slides.
-      if (!imageData) {
-        continue;
-      }
+      if (!imageData) continue;
 
+      const filename = this.generateFilename(courseId, p.index, p.caption ?? undefined);
       await store.writeImage(filename, imageData);
 
       const dbFigure = await store.createFigure({
         courseId,
         filename,
-        caption: figure.caption,
-        pageNum: figure.pageNum,
+        caption: p.caption,
+        pageNum: p.pageNum,
       });
 
       results.push({

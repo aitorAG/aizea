@@ -28,6 +28,15 @@ Captura de figuras vectoriales/compuestas mediante recorte fino, in-process
   - Motor de rasterizado y `pngjs` declarados en `serverExternalPackages` para
     que el build *standalone* del `.exe` los trace correctamente (incluido
     `pdfium.wasm`, ~3.9 MB).
+- **Separación de varias figuras en una misma página.** Cuando una página tiene
+  ≥2 captions "Figura N" sin imagen embebida, la geometría de dibujo se agrupa
+  en **clústeres espaciales** (una figura = un clúster) mediante *union-find* por
+  proximidad, con filtrado de ruido (reglas/bordes de página), fusión
+  aglomerativa hasta el nº de captions y ordenación en orden de lectura
+  (arriba→abajo, izquierda→derecha). Cada clúster se recorta como una figura
+  independiente; con un único caption se usa la unión de toda la geometría
+  (robusto ante figuras fragmentadas). La página se **renderiza una sola vez**
+  y se recortan todas sus figuras (`rasterizeAndCropMany`).
 
 ## [0.6.0] — 2026-08-11
 

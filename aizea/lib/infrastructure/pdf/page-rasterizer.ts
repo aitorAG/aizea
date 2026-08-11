@@ -79,10 +79,75 @@ function clamp(v: number, lo: number, hi: number): number {
  * The raw bitmap is BGRA (4 bytes/px, top-left origin). The bbox is in PDF user
  * space (bottom-left origin) so the Y axis is flipped during the crop.
  */
-export async function rasterizeAndCrop(
+/** Raw rendered page bitmap (BGRA, top-left origin). */
+interface RenderedBitmap {
+  rw: number;
+  rh: number;
+  data: Uint8Array;
+  originalWidth: number;
+  originalHeight: number;
+}
+
+/** Crop one bbox (PDF user space) out of an already-rendered bitmap → PNG. */
+function cropBitmap(
+  bmp: RenderedBitmap,
+  bbox: Bbox | null,
+  padding: number
+): RasterizeResult | null {
+  const { rw, rh, data, originalWidth, originalHeight } = bmp;
+  const sx = rw / originalWidth;
+  const sy = rh / originalHeight;
+
+  let dx0 = 0;
+  let dy0 = 0;
+  let dx1 = rw;
+  let dy1 = rh;
+  if (bbox) {
+    const px0 = (bbox.x0 - padding) * sx;
+    const px1 = (bbox.x1 + padding) * sx;
+    // Flip Y: user-space y grows up; device y grows down from the top.
+    const py0 = (originalHeight - (bbox.y1 + padding)) * sy;
+    const py1 = (originalHeight - (bbox.y0 - padding)) * sy;
+    dx0 = clamp(Math.floor(px0), 0, rw);
+    dx1 = clamp(Math.ceil(px1), 0, rw);
+    dy0 = clamp(Math.floor(py0), 0, rh);
+    dy1 = clamp(Math.ceil(py1), 0, rh);
+  }
+
+  const cw = dx1 - dx0;
+  const ch = dy1 - dy0;
+  // Reject degenerate / suspiciously tiny crops (< 8px either side).
+  if (cw < 8 || ch < 8) return null;
+
+  const png = new PNG({ width: cw, height: ch });
+  for (let y = 0; y < ch; y++) {
+    const srcRow = (dy0 + y) * rw * 4;
+    const dstRow = y * cw * 4;
+    for (let x = 0; x < cw; x++) {
+      const s = srcRow + (dx0 + x) * 4;
+      const d = dstRow + x * 4;
+      // BGRA → RGBA
+      png.data[d] = data[s + 2];
+      png.data[d + 1] = data[s + 1];
+      png.data[d + 2] = data[s];
+      png.data[d + 3] = data[s + 3];
+    }
+  }
+  return { png: PNG.sync.write(png), width: cw, height: ch };
+}
+
+/**
+ * Render page `pageIndex` ONCE and crop it to EACH of `bboxes` (PDF user
+ * space). Returns one result per input bbox (null for degenerate crops),
+ * preserving order. Returns null (whole array unavailable) when pdfium can't
+ * load or render. Far cheaper than N separate renders for multi-figure pages.
+ */
+export async function rasterizeAndCropMany(
   pdfBuffer: Buffer,
-  opts: RasterizeCropOptions
-): Promise<RasterizeResult | null> {
+  pageIndex: number,
+  bboxes: (Bbox | null)[],
+  opts: { scale?: number; paddingPt?: number } = {}
+): Promise<(RasterizeResult | null)[] | null> {
   const scale = opts.scale ?? 2;
   const padding = opts.paddingPt ?? 6;
 
@@ -94,56 +159,17 @@ export async function rasterizeAndCrop(
   try {
     lib = await PDFiumLibrary.init();
     doc = await lib.loadDocument(pdfBuffer);
-    const page = doc.getPage(opts.pageIndex);
+    const page = doc.getPage(pageIndex);
     const { originalWidth, originalHeight } = page.getOriginalSize();
-
     const render = await page.render({ scale, render: "bitmap" });
-    const { width: rw, height: rh, data } = render;
-    // Effective scale actually used by the renderer (guard against rounding).
-    const sx = rw / originalWidth;
-    const sy = rh / originalHeight;
-
-    // Determine crop rect in device pixels.
-    let dx0 = 0;
-    let dy0 = 0;
-    let dx1 = rw;
-    let dy1 = rh;
-    if (opts.bbox) {
-      const b = opts.bbox;
-      const px0 = (b.x0 - padding) * sx;
-      const px1 = (b.x1 + padding) * sx;
-      // Flip Y: user-space y grows up; device y grows down from the top.
-      const py0 = (originalHeight - (b.y1 + padding)) * sy;
-      const py1 = (originalHeight - (b.y0 - padding)) * sy;
-      dx0 = clamp(Math.floor(px0), 0, rw);
-      dx1 = clamp(Math.ceil(px1), 0, rw);
-      dy0 = clamp(Math.floor(py0), 0, rh);
-      dy1 = clamp(Math.ceil(py1), 0, rh);
-    }
-
-    const cw = dx1 - dx0;
-    const ch = dy1 - dy0;
-    // Reject degenerate / suspiciously tiny crops (< 8px either side).
-    if (cw < 8 || ch < 8) return null;
-
-    // Copy the crop region, converting BGRA → RGBA for pngjs.
-    const png = new PNG({ width: cw, height: ch });
-    for (let y = 0; y < ch; y++) {
-      const srcRow = (dy0 + y) * rw * 4;
-      const dstRow = y * cw * 4;
-      for (let x = 0; x < cw; x++) {
-        const s = srcRow + (dx0 + x) * 4;
-        const d = dstRow + x * 4;
-        // BGRA → RGBA
-        png.data[d] = data[s + 2]; // R
-        png.data[d + 1] = data[s + 1]; // G
-        png.data[d + 2] = data[s]; // B
-        png.data[d + 3] = data[s + 3]; // A
-      }
-    }
-
-    const buf = PNG.sync.write(png);
-    return { png: buf, width: cw, height: ch };
+    const bmp: RenderedBitmap = {
+      rw: render.width,
+      rh: render.height,
+      data: render.data,
+      originalWidth,
+      originalHeight,
+    };
+    return bboxes.map((b) => cropBitmap(bmp, b, padding));
   } catch {
     return null;
   } finally {
@@ -158,4 +184,17 @@ export async function rasterizeAndCrop(
       /* ignore */
     }
   }
+}
+
+export async function rasterizeAndCrop(
+  pdfBuffer: Buffer,
+  opts: RasterizeCropOptions
+): Promise<RasterizeResult | null> {
+  const many = await rasterizeAndCropMany(
+    pdfBuffer,
+    opts.pageIndex,
+    [opts.bbox],
+    { scale: opts.scale, paddingPt: opts.paddingPt }
+  );
+  return many ? many[0] : null;
 }

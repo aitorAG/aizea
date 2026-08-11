@@ -135,18 +135,20 @@ describe("FigureExtractor", () => {
       expect(results).toEqual([]);
     });
 
+    const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const makePng = (tag: string) =>
+      Buffer.concat([PNG_HEADER, Buffer.from(tag)]);
+
     it("v1.0 (Opción B): rasterises figures with a caption but NO embedded image", async () => {
       const { course } = await makeFixture();
       // Caption on page 3 with no embedded raster; a rasterizer produces a crop.
       mockExtractFigures.mockResolvedValueOnce([
         { caption: "Figura 9: diagrama vectorial", pageNum: 3 },
       ]);
-      const rasterPng = Buffer.concat([
-        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-        Buffer.from("rasterised-vector-figure-crop"),
-      ]);
       const rasterizer = {
-        rasterizeFigure: vi.fn(async () => ({ png: rasterPng, width: 300, height: 200 })),
+        rasterizeFigures: vi.fn(async () => [
+          { png: makePng("vector-crop"), width: 300, height: 200 },
+        ]),
       };
       const extractorWithRaster = new FigureExtractor(
         new PDFService(),
@@ -157,22 +159,20 @@ describe("FigureExtractor", () => {
       const results = await extractorWithRaster.extractAndSave(fakeBuffer, course.id);
 
       expect(results).toHaveLength(1);
-      expect(rasterizer.rasterizeFigure).toHaveBeenCalledWith(fakeBuffer, 3);
+      // Single caption on the page → expectedCount 1.
+      expect(rasterizer.rasterizeFigures).toHaveBeenCalledWith(fakeBuffer, 3, 1);
       createdFigureIds.push(results[0].id);
-      // The stored file is the rasterised crop (PNG magic header).
       const content = await fs.readFile(path.join(tempDir, results[0].filename));
-      expect(content.subarray(0, 8)).toEqual(
-        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-      );
+      expect(content.subarray(0, 8)).toEqual(PNG_HEADER);
       expect(content.length).toBeGreaterThan(8);
     });
 
-    it("v1.0 (Opción B): still skips when the rasterizer returns null", async () => {
+    it("v1.0 (Opción B): still skips when the rasterizer returns no crops", async () => {
       const { course } = await makeFixture();
       mockExtractFigures.mockResolvedValueOnce([
         { caption: "Figura 9: sin geometria", pageNum: 3 },
       ]);
-      const rasterizer = { rasterizeFigure: vi.fn(async () => null) };
+      const rasterizer = { rasterizeFigures: vi.fn(async () => []) };
       const extractorWithRaster = new FigureExtractor(
         new PDFService(),
         new FsFigureStore(tempDir),
@@ -182,7 +182,66 @@ describe("FigureExtractor", () => {
       const results = await extractorWithRaster.extractAndSave(fakeBuffer, course.id);
 
       expect(results).toEqual([]);
-      expect(rasterizer.rasterizeFigure).toHaveBeenCalledWith(fakeBuffer, 3);
+      expect(rasterizer.rasterizeFigures).toHaveBeenCalledWith(fakeBuffer, 3, 1);
+    });
+
+    it("v1.0 (Opción B): TWO captions on one page → clustered into two crops, one render", async () => {
+      const { course } = await makeFixture();
+      // Two vector figures on page 3, no embedded images on that page.
+      mockExtractFigures.mockResolvedValueOnce([
+        { caption: "Figura 5: arriba", pageNum: 3 },
+        { caption: "Figura 6: abajo", pageNum: 3 },
+      ]);
+      const rasterizer = {
+        rasterizeFigures: vi.fn(async () => [
+          { png: makePng("cluster-top"), width: 200, height: 120 },
+          { png: makePng("cluster-bottom"), width: 210, height: 130 },
+        ]),
+      };
+      const extractorWithRaster = new FigureExtractor(
+        new PDFService(),
+        new FsFigureStore(tempDir),
+        rasterizer
+      );
+
+      const results = await extractorWithRaster.extractAndSave(fakeBuffer, course.id);
+
+      expect(results).toHaveLength(2);
+      // ONE render for the page, with expectedCount = 2 (both captions).
+      expect(rasterizer.rasterizeFigures).toHaveBeenCalledTimes(1);
+      expect(rasterizer.rasterizeFigures).toHaveBeenCalledWith(fakeBuffer, 3, 2);
+      // Distinct crops assigned in reading order → distinct files on disk.
+      for (const r of results) createdFigureIds.push(r.id);
+      const a = await fs.readFile(path.join(tempDir, results[0].filename));
+      const b = await fs.readFile(path.join(tempDir, results[1].filename));
+      expect(a.equals(b)).toBe(false);
+    });
+
+    it("v1.0 (Opción B): more captions than crops → extra captions are skipped", async () => {
+      const { course } = await makeFixture();
+      mockExtractFigures.mockResolvedValueOnce([
+        { caption: "Figura 5", pageNum: 3 },
+        { caption: "Figura 6", pageNum: 3 },
+        { caption: "Figura 7", pageNum: 3 },
+      ]);
+      const rasterizer = {
+        // Only two clusters found for three captions.
+        rasterizeFigures: vi.fn(async () => [
+          { png: makePng("c1"), width: 200, height: 120 },
+          { png: makePng("c2"), width: 200, height: 120 },
+        ]),
+      };
+      const extractorWithRaster = new FigureExtractor(
+        new PDFService(),
+        new FsFigureStore(tempDir),
+        rasterizer
+      );
+
+      const results = await extractorWithRaster.extractAndSave(fakeBuffer, course.id);
+
+      expect(results).toHaveLength(2);
+      expect(rasterizer.rasterizeFigures).toHaveBeenCalledWith(fakeBuffer, 3, 3);
+      for (const r of results) createdFigureIds.push(r.id);
     });
 
     it("returns empty array when no figures are found", async () => {

@@ -15,13 +15,22 @@ export interface RasterizedFigure {
 
 export interface IFigureRasterizer {
   /**
-   * Rasteriza y recorta la figura de la página `pageNum` (1-based) del PDF.
-   * Devuelve null cuando no hay geometría de dibujo utilizable, el motor no está
-   * disponible, o el recorte resultante es degenerado — el llamador degrada
-   * saltándose la figura (sin placeholder).
+   * Rasteriza y recorta las figuras de la página `pageNum` (1-based) del PDF.
+   *
+   * `expectedCount` es el número de captions "Figura N" detectados en esa
+   * página que aún no tienen imagen embebida. Cuando es 1, se devuelve un único
+   * recorte con TODA la geometría de dibujo de la página (robusto ante figuras
+   * fragmentadas). Cuando es ≥2, la geometría se agrupa en clústeres espaciales
+   * (figuras distintas) y se devuelve un recorte por clúster, en orden de
+   * lectura (arriba→abajo, izquierda→derecha), como máximo `expectedCount`.
+   *
+   * Devuelve [] cuando no hay geometría utilizable, el motor no está disponible,
+   * o todos los recortes salen degenerados — el llamador degrada saltándose las
+   * figuras sin recorte (sin placeholder).
    */
-  rasterizeFigure(
+  rasterizeFigures(
     pdfBuffer: Buffer,
-    pageNum: number
-  ): Promise<RasterizedFigure | null>;
+    pageNum: number,
+    expectedCount: number
+  ): Promise<RasterizedFigure[]>;
 }
