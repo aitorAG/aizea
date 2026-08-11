@@ -97,6 +97,8 @@ function makeNodeRow(
     isLeaf: false,
     version: 1,
     sourceMaterialId: null,
+    pageStart: null,
+    pageEnd: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -151,6 +153,8 @@ describe("IncrementalMerger", () => {
         isLeaf: data.isLeaf,
         version: data.version,
         sourceMaterialId: data.sourceMaterialId,
+        pageStart: null,
+        pageEnd: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

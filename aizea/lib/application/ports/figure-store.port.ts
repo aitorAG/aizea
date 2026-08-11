@@ -24,8 +24,12 @@ export interface SavedFigure {
 }
 
 export interface IFigureStore {
-  /** Escribe los bytes de la imagen bajo `filename` en el almacén de figuras. */
+  /** Escribe los bytes de la imagen bajo `filename` en el almac�n de figuras. */
   writeImage(filename: string, data: Buffer): Promise<void>;
+
+  /** Lee los bytes de la imagen `filename`, o null si no existe. v1.0: se usa
+   *  para embeber la figura como data URI en la diapositiva-figura. */
+  readImage(filename: string): Promise<Buffer | null>;
 
   /** Persiste la fila Figure y devuelve su identidad. */
   createFigure(data: FigureToSave): Promise<SavedFigure>;

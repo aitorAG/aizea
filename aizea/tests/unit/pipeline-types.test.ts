@@ -115,6 +115,8 @@ describe("lib/types/pipeline — runtime shape (sample instances)", () => {
       summary: null,
       depth: 0,
       orderIndex: 0,
+      pageStart: null,
+      pageEnd: null,
       isLeaf: false,
       version: 1,
       sourceMaterialId: null,

@@ -90,6 +90,8 @@ describe("TreeBuilder", () => {
         parentId: data.parentId,
         depth: data.depth,
         orderIndex: data.orderIndex,
+        pageStart: data.pageStart ?? null,
+        pageEnd: data.pageEnd ?? null,
         version: data.version,
         name: data.name,
         summary: data.summary,
@@ -413,6 +415,8 @@ describe("TreeBuilder", () => {
           summary: n.summary,
           depth: n.depth,
           orderIndex: n.orderIndex,
+          pageStart: n.pageStart ?? null,
+          pageEnd: n.pageEnd ?? null,
           isLeaf: n.isLeaf,
           version: n.version,
           sourceMaterialId: n.sourceMaterialId,
@@ -439,7 +443,7 @@ describe("TreeBuilder", () => {
         groupWithUnits("g-1", "G1", ["u-1"]),
       ]);
       repo.findSectionPathsByUnitIds.mockResolvedValue([
-        { unitId: "u-1", sectionPath: "[]" },
+        { unitId: "u-1", sectionPath: "[]", pageStart: null, pageEnd: null },
       ]);
       mockChatJSON.mockResolvedValue({
         nodes: [{ ref: "g-1", name: "G1", summary: "d", parentRef: null, depth: 0 }],
@@ -456,8 +460,8 @@ describe("TreeBuilder", () => {
         groupWithUnits("g-2", "Entropía", ["u-2"]),
       ]);
       repo.findSectionPathsByUnitIds.mockResolvedValue([
-        { unitId: "u-1", sectionPath: JSON.stringify(["3. Termodinámica", "3.1 Calor"]) },
-        { unitId: "u-2", sectionPath: JSON.stringify(["3. Termodinámica", "3.2 Entropía"]) },
+        { unitId: "u-1", sectionPath: JSON.stringify(["3. Termodinámica", "3.1 Calor"]), pageStart: null, pageEnd: null },
+        { unitId: "u-2", sectionPath: JSON.stringify(["3. Termodinámica", "3.2 Entropía"]), pageStart: null, pageEnd: null },
       ]);
 
       const result = await structureBuilder.build("c-1");
@@ -492,6 +496,8 @@ describe("TreeBuilder", () => {
         {
           unitId: "u-1",
           sectionPath: JSON.stringify(["A", "A.1", "A.1.1", "A.1.1.1"]),
+          pageStart: null,
+          pageEnd: null,
         },
       ]);
 
@@ -506,7 +512,7 @@ describe("TreeBuilder", () => {
         groupWithUnits("g-1", "X", ["u-1"]),
       ]);
       repo.findSectionPathsByUnitIds.mockResolvedValue([
-        { unitId: "u-1", sectionPath: JSON.stringify(["1. Intro"]) },
+        { unitId: "u-1", sectionPath: JSON.stringify(["1. Intro"]), pageStart: null, pageEnd: null },
       ]);
       await structureBuilder.build("c-1");
       // The atomic replace is used — NOT the per-node createNode + delete.
@@ -520,7 +526,7 @@ describe("TreeBuilder", () => {
         groupWithUnits("g-1", "X", ["u-1"]),
       ]);
       repo.findSectionPathsByUnitIds.mockResolvedValue([
-        { unitId: "u-1", sectionPath: JSON.stringify(["1. Intro"]) },
+        { unitId: "u-1", sectionPath: JSON.stringify(["1. Intro"]), pageStart: null, pageEnd: null },
       ]);
       repo.findLatestVersion.mockResolvedValue(2);
       const result = await structureBuilder.build("c-1");

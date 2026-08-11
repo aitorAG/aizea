@@ -1,0 +1,4 @@
+ALTER TABLE "TopicNode" ADD COLUMN "pageStart" INTEGER;
+ALTER TABLE "TopicNode" ADD COLUMN "pageEnd" INTEGER;
+ALTER TABLE "Slide" ADD COLUMN "kind" TEXT NOT NULL DEFAULT 'concept';
+ALTER TABLE "Course" ADD COLUMN "slideTarget" INTEGER;

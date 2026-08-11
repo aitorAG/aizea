@@ -76,40 +76,56 @@ describe("PDFService", () => {
   });
 
   describe("extractFigures", () => {
-    it("extracts figure references with captions", async () => {
-      mockPdfParse.mockResolvedValueOnce({
-        text: "Figura 1: Diagrama de flujo. Figure 2.1: Detalle del sistema.",
-        numpages: 2,
-        metadata: {},
-      });
+    // v1.0 — extractFigures now drives pdf-parse's `pagerender` callback so
+    // each caption carries its page. This helper makes the mock invoke
+    // pagerender once per supplied page text.
+    function mockPages(pages: string[]) {
+      mockPdfParse.mockImplementationOnce(
+        async (
+          _buf: Buffer,
+          opts?: {
+            pagerender?: (pd: {
+              getTextContent: (o: unknown) => Promise<{ items: Array<{ str: string }> }>;
+            }) => Promise<string>;
+          }
+        ) => {
+          if (opts?.pagerender) {
+            for (const text of pages) {
+              await opts.pagerender({
+                getTextContent: async () => ({ items: [{ str: text }] }),
+              });
+            }
+          }
+          return { text: pages.join("\n"), numpages: pages.length, metadata: {} };
+        }
+      );
+    }
+
+    it("extracts figure references with captions and per-page numbers", async () => {
+      mockPages([
+        "Figura 1: Diagrama de flujo.",
+        "Figure 2.1: Detalle del sistema.",
+      ]);
 
       const result = await service.extractFigures(fakeBuffer);
 
       expect(result).toEqual([
-        { caption: "Figura 1: Diagrama de flujo", pageNum: null },
-        { caption: "Figura 2.1: Detalle del sistema", pageNum: null },
+        { caption: "Figura 1: Diagrama de flujo", pageNum: 1 },
+        { caption: "Figura 2.1: Detalle del sistema", pageNum: 2 },
       ]);
     });
 
     it("deduplicates repeated figure references", async () => {
-      mockPdfParse.mockResolvedValueOnce({
-        text: "Figura 1: A. Later Figura 1: A.",
-        numpages: 1,
-        metadata: {},
-      });
+      mockPages(["Figura 1: A. Later Figura 1: A."]);
 
       const result = await service.extractFigures(fakeBuffer);
 
       expect(result).toHaveLength(1);
-      expect(result[0]).toEqual({ caption: "Figura 1: A", pageNum: null });
+      expect(result[0]).toEqual({ caption: "Figura 1: A", pageNum: 1 });
     });
 
     it("returns empty array when no figure references are present", async () => {
-      mockPdfParse.mockResolvedValueOnce({
-        text: "Just plain text without any figures.",
-        numpages: 1,
-        metadata: {},
-      });
+      mockPages(["Just plain text without any figures."]);
 
       const result = await service.extractFigures(fakeBuffer);
 

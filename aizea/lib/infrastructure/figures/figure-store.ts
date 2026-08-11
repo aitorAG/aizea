@@ -31,6 +31,14 @@ export class FsFigureStore implements IFigureStore {
     await fs.writeFile(filePath, data);
   }
 
+  async readImage(filename: string): Promise<Buffer | null> {
+    try {
+      return await fs.readFile(path.join(this.figuresDir, filename));
+    } catch {
+      return null; // missing/unreadable → caller skips the figure slide
+    }
+  }
+
   async createFigure(data: FigureToSave): Promise<SavedFigure> {
     const row = await db.figure.create({
       data: {

@@ -154,6 +154,9 @@ export interface TopicNode {
   /** Increments on every tree rebuild / merge (rollback support). */
   version: number;
   sourceMaterialId: string | null;
+  /** v1.0 — page range of this node's source content (for figure slides). */
+  pageStart: number | null;
+  pageEnd: number | null;
   createdAt: string;
   updatedAt: string;
 }

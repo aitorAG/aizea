@@ -52,6 +52,8 @@ function toTopicNode(row: {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  pageStart: number | null;
+  pageEnd: number | null;
   createdAt: Date;
   updatedAt: Date;
 }): TopicNode {
@@ -66,6 +68,8 @@ function toTopicNode(row: {
     isLeaf: row.isLeaf,
     version: row.version,
     sourceMaterialId: row.sourceMaterialId,
+    pageStart: row.pageStart,
+    pageEnd: row.pageEnd,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

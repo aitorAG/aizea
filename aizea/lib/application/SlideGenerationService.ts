@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { chatJSON, type ChatMessage } from "@/lib/infrastructure/ai/llm-client";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import { dfsPreorder } from "@/lib/domain/pipeline/tree-order";
+import type { IFigureStore } from "@/lib/application/ports/figure-store.port";
+import { buildFigureSlideHtml, imageMimeFromMagic } from "@/lib/domain/slides/figure-slide";
 import { RAGEngine, type RelevantChunk } from "@/lib/domain/rag/RAGEngine";
 import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { SlideBoxService } from "@/lib/application/SlideBoxService";
@@ -32,7 +34,10 @@ export class SlideGenerationService {
     private promptManager: PromptManager = new PromptManager(),
     private ragEngine: RAGEngine = createRAGEngine(),
     private database: PrismaClient = db,
-    boxService?: SlideBoxService
+    boxService?: SlideBoxService,
+    // v1.0 — optional figure store: when present, "Generar diapositivas"
+    // emits one figure-slide per real image on each concept's page range.
+    private figureStore?: IFigureStore
   ) {
     this.boxService = boxService ?? new SlideBoxService(database);
   }
@@ -76,6 +81,8 @@ export class SlideGenerationService {
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
+        pageStart: row.pageStart,
+        pageEnd: row.pageEnd,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       });
@@ -222,6 +229,8 @@ export class SlideGenerationService {
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
+        pageStart: row.pageStart,
+        pageEnd: row.pageEnd,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       });
@@ -235,6 +244,11 @@ export class SlideGenerationService {
       .filter((x): x is TopicNode => x !== undefined);
     const finalIds = dfsPreorder(selectedNodes).map((n) => n.id);
 
+    // v1.0 — for each concept, load its figure-slides (one real image per
+    // visual on the node's page range) so they can be interleaved right AFTER
+    // the concept slide, preserving the DFS order.
+    const figureSlidesByNode = await this.loadFigureSlides(courseId, finalIds, nodesById);
+
     // Compute the starting `order` so the new slides are appended
     // at the end of the existing list, not on top of existing rows.
     const tail = await this.database.slide.findFirst({
@@ -244,63 +258,90 @@ export class SlideGenerationService {
     });
     const startOrder = (tail?.order ?? -1) + 1;
 
-    // First pass: create slides without parent links. The parent
-    // slide may be created later in the same batch, so we resolve
-    // `parentSlideId` in a second pass.
-    const created = await this.database.$transaction(
-      finalIds.map((id, idx) => {
-        const node = nodesById.get(id);
-        if (!node) {
-          // Should never happen because we filtered finalIds above.
-          throw new Error(`Nodo no encontrado: ${id}`);
-        }
-        return this.database.slide.create({
-          data: {
-            courseId,
-            title: node.name,
-            description: node.summary ?? "",
-            order: startOrder + idx,
-            sourceNodeId: node.id,
-            // htmlDesign is left null — the slide page is the place
-            // where the user (or a subsequent "Generar todo" call)
-            // fills it in.
-            // boxes is implicitly empty — no SlideBox rows are
-            // created here. The slides page derives `hasContent`
-            // from the box count, so empty boxes == "Sin
-            // contenido" badge.
-          },
-        });
-      })
-    );
-
-    const slideIdByNodeId = new Map<string, string>();
-    created.forEach((slide, i) => {
-      slideIdByNodeId.set(finalIds[i], slide.id);
-    });
-
-    // Second pass: link each new slide to its parent's slide (if
-    // any) based on the source TopicNode's parentId. This is the
-    // same pattern `generateOutlineFromTree` uses — it just runs
-    // over a much smaller set (the new slides only, not the
-    // entire course).
-    const parentUpdates: { id: string; parentSlideId: string | null }[] = [];
+    // Build the interleaved creation plan: concept, then its figure-slides.
+    interface SlideSpec {
+      title: string;
+      description: string;
+      sourceNodeId: string;
+      kind: "concept" | "figure";
+      htmlDesign: string | null;
+      /** For figure-slides: the sourceNodeId of the concept they belong to. */
+      conceptNodeId: string | null;
+    }
+    const specs: SlideSpec[] = [];
     for (const id of finalIds) {
       const node = nodesById.get(id);
+      if (!node) throw new Error(`Nodo no encontrado: ${id}`);
+      specs.push({
+        title: node.name,
+        description: node.summary ?? "",
+        sourceNodeId: node.id,
+        kind: "concept",
+        htmlDesign: null,
+        conceptNodeId: null,
+      });
+      for (const fig of figureSlidesByNode.get(node.id) ?? []) {
+        specs.push({
+          title: fig.title,
+          description: fig.caption ?? "",
+          sourceNodeId: node.id,
+          kind: "figure",
+          htmlDesign: fig.htmlDesign,
+          conceptNodeId: node.id,
+        });
+      }
+    }
+
+    // First pass: create all slides (concepts + figures) in order.
+    const created = await this.database.$transaction(
+      specs.map((spec, idx) =>
+        this.database.slide.create({
+          data: {
+            courseId,
+            title: spec.title,
+            description: spec.description,
+            order: startOrder + idx,
+            sourceNodeId: spec.sourceNodeId,
+            kind: spec.kind,
+            htmlDesign: spec.htmlDesign,
+            // Figure slides ship their visual already; concept slides leave
+            // htmlDesign null for the user / "Generar todo" to fill in.
+          },
+        })
+      )
+    );
+
+    // Map each CONCEPT node to its slide id (figure-slides share sourceNodeId
+    // but must not overwrite the concept mapping).
+    const slideIdByNodeId = new Map<string, string>();
+    created.forEach((slide, i) => {
+      if (specs[i].kind === "concept") {
+        slideIdByNodeId.set(specs[i].sourceNodeId, slide.id);
+      }
+    });
+
+    // Second pass: link each new slide to its parent slide.
+    //  - concept slides hang under their source node's parent concept slide;
+    //  - figure slides hang under their own concept slide.
+    const parentUpdates: { id: string; parentSlideId: string | null }[] = [];
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+      const slideId = created[i].id;
+
+      if (spec.kind === "figure" && spec.conceptNodeId) {
+        const parentSlideId = slideIdByNodeId.get(spec.conceptNodeId) ?? null;
+        if (parentSlideId !== null) parentUpdates.push({ id: slideId, parentSlideId });
+        continue;
+      }
+
+      const node = nodesById.get(spec.sourceNodeId);
       if (!node) continue;
-      const slideId = slideIdByNodeId.get(node.id);
-      if (!slideId) continue;
-      // The parent slide might already exist (existing slide for
-      // the parent node from a previous batch) OR be created in
-      // the same batch (when the parent is in finalIds too). Both
-      // cases are handled by looking up via `slideIdByNodeId` first
-      // and falling back to the DB only when the parent node is
-      // not in the current selection.
       let parentSlideId: string | null = null;
       if (node.parentId) {
         parentSlideId = slideIdByNodeId.get(node.parentId) ?? null;
         if (parentSlideId === null) {
           const existing = await this.database.slide.findFirst({
-            where: { courseId, sourceNodeId: node.parentId },
+            where: { courseId, sourceNodeId: node.parentId, kind: "concept" },
             select: { id: true },
           });
           parentSlideId = existing?.id ?? null;
@@ -333,6 +374,52 @@ export class SlideGenerationService {
       description: slide.description,
       order: slide.order,
     }));
+  }
+
+  /**
+   * v1.0 — for each concept node with a page range, load the REAL figures on
+   * those pages and build one figure-slide spec per image (embedded base64).
+   * Returns a map nodeId → figure-slide specs (empty when no figure store is
+   * wired or the node has no page range / no figures).
+   */
+  private async loadFigureSlides(
+    courseId: string,
+    nodeIds: string[],
+    nodesById: Map<string, TopicNode>
+  ): Promise<Map<string, Array<{ title: string; caption: string | null; htmlDesign: string }>>> {
+    const result = new Map<
+      string,
+      Array<{ title: string; caption: string | null; htmlDesign: string }>
+    >();
+    const store = this.figureStore;
+    if (!store) return result; // no store wired → concept-only (tests, etc.)
+
+    for (const id of nodeIds) {
+      const node = nodesById.get(id);
+      if (!node || node.pageStart == null || node.pageEnd == null) continue;
+
+      const figures = await this.database.figure.findMany({
+        where: {
+          courseId,
+          pageNum: { gte: node.pageStart, lte: node.pageEnd },
+        },
+        orderBy: { pageNum: "asc" },
+      });
+      if (figures.length === 0) continue;
+
+      const slides: Array<{ title: string; caption: string | null; htmlDesign: string }> = [];
+      for (const fig of figures) {
+        const bytes = await store.readImage(fig.filename);
+        if (!bytes) continue; // missing image → skip (no placeholder slide)
+        slides.push({
+          title: fig.caption ?? `Figura (p. ${fig.pageNum ?? "?"})`,
+          caption: fig.caption,
+          htmlDesign: buildFigureSlideHtml({ imageData: bytes, caption: fig.caption }),
+        });
+      }
+      if (slides.length > 0) result.set(node.id, slides);
+    }
+    return result;
   }
 
   /**
