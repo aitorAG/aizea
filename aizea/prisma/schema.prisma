@@ -152,6 +152,7 @@ model TopicNode {
   name             String
   summary          String?
   depth            Int         @default(0)
+  orderIndex       Int         @default(0)
   isLeaf           Boolean     @default(false)
   version          Int         @default(1)
   sourceMaterialId String?

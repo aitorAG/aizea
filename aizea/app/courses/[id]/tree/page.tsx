@@ -32,7 +32,7 @@ export default async function TreePage({ params }: TreePageProps) {
 
   const treeRows = await db.topicNode.findMany({
     where: { courseId },
-    orderBy: [{ depth: "asc" }, { name: "asc" }],
+    orderBy: [{ depth: "asc" }, { orderIndex: "asc" }, { name: "asc" }],
   });
 
   const initialNodes = treeRows.map((row) => ({
@@ -42,6 +42,7 @@ export default async function TreePage({ params }: TreePageProps) {
     name: row.name,
     summary: row.summary,
     depth: row.depth,
+    orderIndex: row.orderIndex,
     isLeaf: row.isLeaf,
     version: row.version,
     sourceMaterialId: row.sourceMaterialId,

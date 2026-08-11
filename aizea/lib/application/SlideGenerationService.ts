@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { chatJSON, type ChatMessage } from "@/lib/infrastructure/ai/llm-client";
 import { PromptManager } from "@/lib/domain/prompts/PromptManager";
+import { dfsPreorder } from "@/lib/domain/pipeline/tree-order";
 import { RAGEngine, type RelevantChunk } from "@/lib/domain/rag/RAGEngine";
 import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { SlideBoxService } from "@/lib/application/SlideBoxService";
@@ -71,6 +72,7 @@ export class SlideGenerationService {
         name: row.name,
         summary: row.summary,
         depth: row.depth,
+        orderIndex: row.orderIndex,
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
@@ -216,6 +218,7 @@ export class SlideGenerationService {
         name: row.name,
         summary: row.summary,
         depth: row.depth,
+        orderIndex: row.orderIndex,
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
@@ -224,12 +227,13 @@ export class SlideGenerationService {
       });
     }
 
-    // Order the new slides in the same order the caller asked for.
-    // Unlike `generateOutlineFromTree` we do NOT call the LLM here:
-    // the toolbar action is supposed to be instant (no LLM cost,
-    // no prompt latency). The user is expected to author the slide
-    // ordering from the slides page.
-    const finalIds = selectedNodeIds.filter((id) => nodesById.has(id));
+    // v1.0 — order the new slides by a DFS pre-order of the tree (top-to-bottom),
+    // so slides, the tree visual and the slides list all share the same order.
+    // No LLM here: the toolbar action stays instant.
+    const selectedNodes = selectedNodeIds
+      .map((id) => nodesById.get(id))
+      .filter((x): x is TopicNode => x !== undefined);
+    const finalIds = dfsPreorder(selectedNodes).map((n) => n.id);
 
     // Compute the starting `order` so the new slides are appended
     // at the end of the existing list, not on top of existing rows.

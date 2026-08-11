@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { readFileSync, existsSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { migrationSqlFiles } from "../helpers/migrate-test-db";
 
 const TEST_DB = join(process.cwd(), "prisma", "test-pipeline-e2e.db");
 const TEST_DB_URL = `file:${TEST_DB}`;
@@ -23,12 +24,8 @@ let ProcessCourseUseCaseDeps: any;
 let SlideService: any;
 
 async function applyMigrations(db: any): Promise<void> {
-  const migrationPaths = [
-    join(process.cwd(), "prisma", "migrations", "20260711161501_add_pipeline_tables", "migration.sql"),
-    join(process.cwd(), "prisma", "migrations", "20260711200000_add_topic_group_table", "migration.sql"),
-  ];
-  for (const migrationPath of migrationPaths) {
-    if (!existsSync(migrationPath)) continue;
+  // Apply ALL migrations in order (picks up new ones automatically).
+  for (const migrationPath of migrationSqlFiles()) {
     const sql = readFileSync(migrationPath, "utf-8");
     const statements = sql.split(/;\s*\n/).map((s) => s.replace(/^--.*$/gm, "").trim()).filter((s) => s.length > 0);
     for (const stmt of statements) {
@@ -37,6 +34,7 @@ async function applyMigrations(db: any): Promise<void> {
   }
 
   // Helper: add column only if it doesn't exist yet (SQLite doesn't support IF NOT EXISTS on ALTER).
+  // Defensive backstop for columns that historically only entered via db push.
   async function addColumnIfMissing(table: string, column: string, type: string) {
     const info: any[] = await db.$queryRawUnsafe(`PRAGMA table_info("${table}")`);
     if (!info.some((c) => c.name === column)) {
@@ -49,6 +47,7 @@ async function applyMigrations(db: any): Promise<void> {
   await addColumnIfMissing("ProcessingJob", "materialId", "TEXT");
   await addColumnIfMissing("TopicNode", "sourceMaterialId", "TEXT");
   await addColumnIfMissing("SemanticUnit", "sectionPath", "TEXT NOT NULL DEFAULT '[]'");
+  await addColumnIfMissing("TopicNode", "orderIndex", "INTEGER NOT NULL DEFAULT 0");
 }
 
 describe("Pipeline end-to-end (integration)", () => {

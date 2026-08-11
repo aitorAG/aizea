@@ -2,23 +2,10 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vites
 import { readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { migrationSqlFiles } from "../helpers/migrate-test-db";
 
 const TEST_DB = join(process.cwd(), "prisma", "test-actions-tree.db");
 const TEST_DB_URL = `file:${TEST_DB}`;
-const MIGRATION_SQL = join(
-  process.cwd(),
-  "prisma",
-  "migrations",
-  "20260711161501_add_pipeline_tables",
-  "migration.sql"
-);
-const MIGRATION_TOPIC_GROUP_SQL = join(
-  process.cwd(),
-  "prisma",
-  "migrations",
-  "20260711200000_add_topic_group_table",
-  "migration.sql"
-);
 
 for (const suffix of ["", "-journal", "-shm", "-wal"]) {
   if (existsSync(TEST_DB + suffix)) rmSync(TEST_DB + suffix, { force: true });
@@ -26,7 +13,9 @@ for (const suffix of ["", "-journal", "-shm", "-wal"]) {
 process.env.DATABASE_URL = TEST_DB_URL;
 
 const testDb = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
-for (const migrationPath of [MIGRATION_SQL, MIGRATION_TOPIC_GROUP_SQL]) {
+// Apply ALL migrations in order (picks up new ones like orderIndex
+// automatically — no more hard-coded migration list).
+for (const migrationPath of migrationSqlFiles()) {
   const sql = readFileSync(migrationPath, "utf-8");
   const statements = sql
     .split(/;\s*\n/)

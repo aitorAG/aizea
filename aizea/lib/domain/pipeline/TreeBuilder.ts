@@ -180,15 +180,22 @@ export class TreeBuilder {
     //    can resolve parentRef at insert time.
     const refToDbId = new Map<string, string>();
     const persisted: TopicNode[] = [];
+    // Per-parent sibling counter → orderIndex. `resolved` is DFS pre-ordered,
+    // so siblings are encountered in their intended order.
+    const siblingCounter = new Map<string, number>();
     for (const n of resolved) {
       const dbParentId = n.parentRef !== null ? refToDbId.get(n.parentRef) ?? null : null;
       const isLeaf = !resolved.some((other) => other.parentRef === n.ref);
+      const parentKey = n.parentRef ?? "__root__";
+      const orderIndex = siblingCounter.get(parentKey) ?? 0;
+      siblingCounter.set(parentKey, orderIndex + 1);
       const row = await repository.createNode({
         courseId,
         parentId: dbParentId,
         name: n.name,
         summary: n.summary,
         depth: n.depth,
+        orderIndex,
         isLeaf,
         version: nextVersion,
         sourceMaterialId: null,
@@ -201,6 +208,7 @@ export class TreeBuilder {
         name: row.name,
         summary: row.summary,
         depth: row.depth,
+        orderIndex: row.orderIndex,
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
@@ -272,6 +280,7 @@ export class TreeBuilder {
         name: s.name,
         summary: "",
         depth: s.depth,
+        orderIndex: 0, // assigned in the sibling-order pass below
         isLeaf: false, // fixed up below
         version: nextVersion,
         sourceMaterialId: null,
@@ -308,6 +317,7 @@ export class TreeBuilder {
         name: g.name,
         summary: g.description ?? "",
         depth,
+        orderIndex: 0, // assigned in the sibling-order pass below
         isLeaf: true, // groups are always leaves in this strategy
         version: nextVersion,
         sourceMaterialId: null,
@@ -326,6 +336,17 @@ export class TreeBuilder {
       }
     }
 
+    // 3d. Assign orderIndex per parent from batch position (skeleton nodes are
+    //     topologically ordered; groups follow). Siblings get 0,1,2… in the
+    //     order they appear — the basis for the DFS pre-order traversal.
+    const siblingCounter = new Map<string, number>();
+    for (const n of batch) {
+      const parentKey = n.parentTempRef ?? "__root__";
+      const idx = siblingCounter.get(parentKey) ?? 0;
+      n.orderIndex = idx;
+      siblingCounter.set(parentKey, idx + 1);
+    }
+
     // 4. Persist atomically and map back to TopicNode[].
     const created = await repository.replaceCourseNodes(courseId, batch);
     return created.map((row) => ({
@@ -335,6 +356,7 @@ export class TreeBuilder {
       name: row.name,
       summary: row.summary,
       depth: row.depth,
+      orderIndex: row.orderIndex,
       isLeaf: row.isLeaf,
       version: row.version,
       sourceMaterialId: row.sourceMaterialId,
