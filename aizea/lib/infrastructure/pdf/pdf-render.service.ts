@@ -125,9 +125,12 @@ export class PdfRenderService {
     try {
       const context = await browser.newContext();
       const page = await context.newPage();
-      // Viewport que coincide con el área imprimible A4 a ~96dpi para que la
-      // regla CSS @page produzca una paginación predecible.
-      await page.setViewportSize({ width: 794, height: 1123 });
+      // Viewport ancho suficiente para ambas orientaciones A4 a ~96dpi
+      // (retrato 794px y apaisado 1123px). Con preferCSSPageSize la regla CSS
+      // @page (landscape/portrait por sección) manda en la paginación real;
+      // el viewport solo evita que el layout apaisado se constriña antes de
+      // paginar (v1.0: 2 páginas/diapositiva, mezcla de orientaciones).
+      await page.setViewportSize({ width: 1123, height: 1123 });
       await page.setContent(html, { waitUntil: "networkidle" });
       const katex = await waitForKatexRender(page);
       if (katex.hadLatex && katex.rendered === 0) {
