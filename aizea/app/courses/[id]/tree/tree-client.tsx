@@ -37,9 +37,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, GitBranch, Sparkles, FilePlus2, Plus } from "lucide-react";
+import { ArrowLeft, GitBranch, Sparkles, FilePlus2, Plus, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TreeViewer } from "@/components/TreeViewer/TreeViewer";
+import { TreeAgentChat } from "@/components/TreeViewer/TreeAgentChat";
 import { PipelineProgress } from "@/components/PipelineProgress/PipelineProgress";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -96,6 +97,9 @@ export function TreePageClient({
   // v1.0 — target slide count slider (0-300). Default 50 when unset (the
   // middle orientation). Persisted on change so the pipeline/agent can read it.
   const [slideTarget, setSlideTarget] = useState<number>(initialSlideTarget ?? 50);
+  // v1.0 — the tree agent chat panel toggle. When the agent applies changes it
+  // returns the fresh tree, which we push straight into `setNodes` (live).
+  const [chatOpen, setChatOpen] = useState(false);
   // v1.9 / Issue 3+4 — dedicated flag for the "Generar diapositivas"
   // toolbar action. The previous design re-used `generating` here,
   // but `generating` also gates the per-selection "Generar N
@@ -791,6 +795,18 @@ export function TreePageClient({
               : `Generar ${selectedIds.length} diapositiva${selectedIds.length !== 1 ? "s" : ""}`}
           </Button>
         )}
+        {hasTree && (
+          <Button
+            onClick={() => setChatOpen((v) => !v)}
+            variant={chatOpen ? "default" : "outline"}
+            size="default"
+            data-testid="toggle-agent-chat"
+            aria-pressed={chatOpen}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Asistente
+          </Button>
+        )}
       </div>
 
       {/* v1.8 / Issue 2.1 — local loading banner. Mounts the
@@ -957,30 +973,42 @@ export function TreePageClient({
         </div>
       )}
 
-      {/* No active job — TreeViewer takes the full width */}
+      {/* No active job — TreeViewer (optionally beside the agent chat) */}
       {hasTree && !generatingTree && !activeJobId && (
         <div
           className={cn(
-            "min-h-[70vh] flex-1 overflow-hidden rounded-lg border border-border bg-card",
-            isFullscreen && "min-h-0 rounded-none border-0"
+            "flex min-h-[70vh] flex-1 gap-3 overflow-hidden",
+            isFullscreen && "min-h-0"
           )}
         >
-          <TreeViewer
-            nodes={nodes}
-            onChange={handleTreeChange}
-            onGenerateSlides={handleSelection}
-            // v1.9 / Issue 3+4 — same handler swap as the
-            // active-job branch above. The toolbar button is the
-            // entry point on every layout of the tree page.
-            onGenerateAllSlides={handleGenerateSlidesOnly}
-            onAddRequest={handleAddRequest}
-            isNewNode={isNewNode}
-            onSaveInlineEdit={handleSaveInlineEdit}
-            onNodesChanged={handleNodesChanged}
-            isFullscreen={isFullscreen}
-            onToggleFullscreen={handleToggleFullscreen}
-            busy={generatingSlidesOnly}
-          />
+          <div
+            className={cn(
+              "min-h-[70vh] flex-1 overflow-hidden rounded-lg border border-border bg-card",
+              isFullscreen && "min-h-0 rounded-none border-0"
+            )}
+          >
+            <TreeViewer
+              nodes={nodes}
+              onChange={handleTreeChange}
+              onGenerateSlides={handleSelection}
+              // v1.9 / Issue 3+4 — same handler swap as the
+              // active-job branch above. The toolbar button is the
+              // entry point on every layout of the tree page.
+              onGenerateAllSlides={handleGenerateSlidesOnly}
+              onAddRequest={handleAddRequest}
+              isNewNode={isNewNode}
+              onSaveInlineEdit={handleSaveInlineEdit}
+              onNodesChanged={handleNodesChanged}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={handleToggleFullscreen}
+              busy={generatingSlidesOnly}
+            />
+          </div>
+          {chatOpen && !isFullscreen && (
+            <div className="hidden w-80 shrink-0 lg:block" data-testid="agent-chat-panel">
+              <TreeAgentChat courseId={courseId} onTreeUpdated={setNodes} />
+            </div>
+          )}
         </div>
       )}
     </div>
