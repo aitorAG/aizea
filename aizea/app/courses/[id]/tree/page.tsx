@@ -46,6 +46,8 @@ export default async function TreePage({ params }: TreePageProps) {
     isLeaf: row.isLeaf,
     version: row.version,
     sourceMaterialId: row.sourceMaterialId,
+    pageStart: row.pageStart,
+    pageEnd: row.pageEnd,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }));

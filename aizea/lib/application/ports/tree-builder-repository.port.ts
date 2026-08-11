@@ -29,6 +29,9 @@ export interface CreateTopicNodeInput {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  /** v1.0 — rango de paginas del nodo (para colgar figuras). */
+  pageStart?: number | null;
+  pageEnd?: number | null;
 }
 
 /** Fila de TopicNode devuelta tras persistir. */
@@ -43,6 +46,8 @@ export interface CreatedTopicNodeRow {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  pageStart: number | null;
+  pageEnd: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,6 +57,9 @@ export interface UnitSectionPathRow {
   unitId: string;
   /** JSON-encoded string[] (el breadcrumb). Puede ser "[]" o null (legacy). */
   sectionPath: string | null;
+  /** v1.0 — rango de paginas de la unidad (para colgar figuras en el nodo). */
+  pageStart: number | null;
+  pageEnd: number | null;
 }
 
 /** PR3 — nodo para inserción en lote transaccional. Usa refs locales que el
@@ -64,11 +72,14 @@ export interface BatchTopicNodeInput {
   name: string;
   summary: string;
   depth: number;
-  /** v1.0 — orden entre hermanos (menor = antes). Base del recorrido DFS. */
+  /** v1.0 - orden entre hermanos (menor = antes). Base del recorrido DFS. */
   orderIndex: number;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  /** v1.0 - rango de paginas del nodo (para colgar figuras). */
+  pageStart?: number | null;
+  pageEnd?: number | null;
 }
 
 export interface ITreeBuilderRepository {

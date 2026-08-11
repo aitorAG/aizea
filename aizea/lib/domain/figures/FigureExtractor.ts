@@ -56,25 +56,22 @@ export class FigureExtractor {
 
     for (let i = 0; i < figures.length; i++) {
       const figure = figures[i];
-      const filename = this.generateFilename(courseId, i, figure.caption);
 
       const pageImages = figure.pageNum != null
         ? imagesByPage.get(figure.pageNum) ?? []
         : [];
 
-      if (pageImages.length > 0) {
-        const imageData = pageImages[0].data;
-        await store.writeImage(filename, imageData);
-        pageImages.shift();
-      } else {
-        // Fallback: tiny 1x1 transparent PNG. Real images are obtained when
-        // the PDF has extractable XObject streams on the right page.
-        const tinyPng = Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-          "base64"
-        );
-        await store.writeImage(filename, tinyPng);
+      // v1.0 — only persist figures backed by a REAL extracted image. A caption
+      // with no matching image on its page is skipped (no 1×1 placeholder), so
+      // downstream "one slide per visual" never emits empty placeholder slides.
+      if (pageImages.length === 0) {
+        continue;
       }
+
+      const filename = this.generateFilename(courseId, i, figure.caption);
+      const imageData = pageImages[0].data;
+      await store.writeImage(filename, imageData);
+      pageImages.shift();
 
       const dbFigure = await store.createFigure({
         courseId,

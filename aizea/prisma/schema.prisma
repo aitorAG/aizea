@@ -18,6 +18,7 @@ model Course {
   id         String   @id @default(uuid())
   name       String
   llmContext String?
+  slideTarget Int?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -56,6 +57,7 @@ model Slide {
   order       Int         @default(0)
   figureRefs  String      @default("[]")
   htmlDesign  String?
+  kind        String      @default("concept")
   status      SlideStatus @default(PENDING)
   parentSlideId String?
   parentSlide   Slide?    @relation("SlideTree", fields: [parentSlideId], references: [id], onDelete: SetNull)
@@ -156,6 +158,8 @@ model TopicNode {
   isLeaf           Boolean     @default(false)
   version          Int         @default(1)
   sourceMaterialId String?
+  pageStart        Int?
+  pageEnd          Int?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 

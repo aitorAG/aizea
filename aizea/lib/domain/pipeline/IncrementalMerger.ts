@@ -160,6 +160,8 @@ export class IncrementalMerger {
       isLeaf: r.isLeaf,
       version: r.version,
       sourceMaterialId: r.sourceMaterialId,
+      pageStart: r.pageStart,
+      pageEnd: r.pageEnd,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
     }));
@@ -275,6 +277,8 @@ export class IncrementalMerger {
             isLeaf: row.isLeaf,
             version: row.version,
             sourceMaterialId: row.sourceMaterialId,
+            pageStart: row.pageStart,
+            pageEnd: row.pageEnd,
             createdAt: row.createdAt.toISOString(),
             updatedAt: row.updatedAt.toISOString(),
           });
@@ -401,6 +405,8 @@ export class IncrementalMerger {
       isLeaf: row.isLeaf,
       version: row.version,
       sourceMaterialId: row.sourceMaterialId,
+      pageStart: row.pageStart,
+      pageEnd: row.pageEnd,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

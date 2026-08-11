@@ -16,11 +16,33 @@ const mockExtractFigures = vi.hoisted(() =>
   )
 );
 
+// A real (non-placeholder) PNG byte header so we can assert the stored file is
+// the extracted image, not a 1×1 placeholder.
+const REAL_PNG = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.from("real-image-page-content-bytes"),
+]);
+
+const mockExtractImages = vi.hoisted(() =>
+  vi.fn(() =>
+    Promise.resolve([
+      { id: "img-1", pageNum: 1, data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]), width: 10, height: 10, format: "png" },
+      { id: "img-2", pageNum: 2, data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4, 5, 6]), width: 10, height: 10, format: "png" },
+    ])
+  )
+);
+
 vi.mock("@/lib/domain/pdf/PDFService", () => ({
   PDFService: class MockPDFService {
     extractFigures = mockExtractFigures;
-    extractImages = vi.fn().mockResolvedValue([]);
+    extractImages = mockExtractImages;
   },
+}));
+
+// compressToWebP passthrough so the stored bytes keep the PNG magic header
+// (otherwise sharp would re-encode and the magic-byte assertion would change).
+vi.mock("@/lib/domain/utils/image-compressor", () => ({
+  compressToWebP: (b: Buffer) => Promise.resolve(b),
 }));
 
 describe("FigureExtractor", () => {
@@ -83,7 +105,7 @@ describe("FigureExtractor", () => {
       }
     });
 
-    it("saves placeholder files in the figures directory", async () => {
+    it("saves the REAL extracted image bytes in the figures directory", async () => {
       const { course } = await makeFixture();
 
       const results = await extractor.extractAndSave(fakeBuffer, course.id);
@@ -92,11 +114,25 @@ describe("FigureExtractor", () => {
         createdFigureIds.push(result.id);
         const filePath = path.join(tempDir, result.filename);
         const content = await fs.readFile(filePath);
-        // Tiny 1x1 transparent PNG written as fallback when no real image matches
+        // v1.0: real image bytes are stored (PNG magic header), NOT a 1×1
+        // placeholder. Real images carry extra payload bytes beyond the header.
         expect(content.subarray(0, 8)).toEqual(
           Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         );
+        expect(content.length).toBeGreaterThan(8); // not a bare 1×1 stub
       }
+    });
+
+    it("skips figures with no matching real image (no placeholder)", async () => {
+      const { course } = await makeFixture();
+      // A caption on page 3, but images only exist on pages 1 & 2 → skipped.
+      mockExtractFigures.mockResolvedValueOnce([
+        { caption: "Figura 9: sin imagen", pageNum: 3 },
+      ]);
+
+      const results = await extractor.extractAndSave(fakeBuffer, course.id);
+
+      expect(results).toEqual([]);
     });
 
     it("returns empty array when no figures are found", async () => {
@@ -108,11 +144,16 @@ describe("FigureExtractor", () => {
       expect(results).toEqual([]);
     });
 
-    it("deduplicates figures based on caption", async () => {
+    it("matches distinct captions on a page to the images on that page", async () => {
       const { course } = await makeFixture();
+      // Two distinct captions on page 1; provide two images on page 1.
       mockExtractFigures.mockResolvedValueOnce([
-        { caption: "Figura 1: Test", pageNum: 1 },
-        { caption: "Figura 1: Test", pageNum: 1 },
+        { caption: "Figura 1: A", pageNum: 1 },
+        { caption: "Figura 2: B", pageNum: 1 },
+      ]);
+      mockExtractImages.mockResolvedValueOnce([
+        { id: "i1", pageNum: 1, data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]), width: 5, height: 5, format: "png" },
+        { id: "i2", pageNum: 1, data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 2]), width: 5, height: 5, format: "png" },
       ]);
 
       const results = await extractor.extractAndSave(fakeBuffer, course.id);
@@ -121,7 +162,7 @@ describe("FigureExtractor", () => {
       createdFigureIds.push(...results.map((r) => r.id));
     });
 
-    it("handles figures without page numbers", async () => {
+    it("skips figures without page numbers (no real image match possible)", async () => {
       const { course } = await makeFixture();
       mockExtractFigures.mockResolvedValueOnce([
         { caption: "Figura 3: Sin pagina", pageNum: null },
@@ -129,9 +170,8 @@ describe("FigureExtractor", () => {
 
       const results = await extractor.extractAndSave(fakeBuffer, course.id);
 
-      expect(results).toHaveLength(1);
-      expect(results[0].pageNum).toBeNull();
-      createdFigureIds.push(results[0].id);
+      // v1.0: null pageNum can't match an image on a page → skipped.
+      expect(results).toEqual([]);
     });
   });
 });

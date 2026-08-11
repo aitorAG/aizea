@@ -35,6 +35,8 @@ export interface MergeTopicNodeRow {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  pageStart: number | null;
+  pageEnd: number | null;
   createdAt: Date;
   updatedAt: Date;
 }

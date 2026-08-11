@@ -180,9 +180,48 @@ class PDFServiceJS implements IPdfBackend {
   async extractFigures(
     buffer: Buffer
   ): Promise<Array<{ caption: string; pageNum: number | null }>> {
-    const { text } = await this.extractText(buffer);
-    // Fuente única del patrón de figuras (lib/domain/figures/figure-references).
-    return extractFigureReferences(text);
+    // v1.0 — extract figure references PER PAGE so each caption carries the
+    // page it appears on. This makes figure↔image matching (by page) work on
+    // the JS/web path too, not only on the Tauri/Rust path. Previously we
+    // concatenated all pages and every caption got pageNum:null, so real
+    // images were never attached and figures fell back to 1×1 placeholders.
+    const pageTexts: string[] = [];
+    try {
+      await pdfParse(buffer, {
+        // pdf-parse calls this per page; we render text content ourselves so
+        // we can key captions to their page index.
+        pagerender: async (pageData: {
+          getTextContent: (opts: {
+            normalizeWhitespace: boolean;
+            disableCombineTextItems: boolean;
+          }) => Promise<{ items: Array<{ str: string }> }>;
+        }) => {
+          const content = await pageData.getTextContent({
+            normalizeWhitespace: true,
+            disableCombineTextItems: false,
+          });
+          const pageText = content.items.map((it) => it.str).join(" ");
+          pageTexts.push(pageText);
+          return pageText;
+        },
+      });
+    } catch {
+      // Fall back to the whole-document text (pageNum stays null) so figure
+      // extraction still degrades gracefully rather than throwing.
+      const { text } = await this.extractText(buffer);
+      return extractFigureReferences(text);
+    }
+
+    const results: Array<{ caption: string; pageNum: number | null }> = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < pageTexts.length; i++) {
+      for (const ref of extractFigureReferences(pageTexts[i])) {
+        if (seen.has(ref.caption)) continue;
+        seen.add(ref.caption);
+        results.push({ caption: ref.caption, pageNum: i + 1 });
+      }
+    }
+    return results;
   }
 }
 

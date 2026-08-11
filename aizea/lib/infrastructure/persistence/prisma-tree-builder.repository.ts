@@ -53,9 +53,14 @@ export class PrismaTreeBuilderRepository implements ITreeBuilderRepository {
     if (unitIds.length === 0) return [];
     const rows = await db.semanticUnit.findMany({
       where: { id: { in: unitIds } },
-      select: { id: true, sectionPath: true },
+      select: { id: true, sectionPath: true, pageStart: true, pageEnd: true },
     });
-    return rows.map((r) => ({ unitId: r.id, sectionPath: r.sectionPath }));
+    return rows.map((r) => ({
+      unitId: r.id,
+      sectionPath: r.sectionPath,
+      pageStart: r.pageStart,
+      pageEnd: r.pageEnd,
+    }));
   }
 
   async replaceCourseNodes(
@@ -87,6 +92,8 @@ export class PrismaTreeBuilderRepository implements ITreeBuilderRepository {
             isLeaf: n.isLeaf,
             version: n.version,
             sourceMaterialId: n.sourceMaterialId,
+            pageStart: n.pageStart ?? null,
+            pageEnd: n.pageEnd ?? null,
           },
         });
         refToId.set(n.tempRef, row.id);

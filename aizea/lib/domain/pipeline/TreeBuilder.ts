@@ -212,6 +212,8 @@ export class TreeBuilder {
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
+        pageStart: row.pageStart,
+        pageEnd: row.pageEnd,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       });
@@ -248,8 +250,10 @@ export class TreeBuilder {
       Array.from(allUnitIds)
     );
     const pathByUnit = new Map<string, string[]>();
+    const pageRangeByUnit = new Map<string, { start: number | null; end: number | null }>();
     for (const r of rows) {
       pathByUnit.set(r.unitId, this.parseStringArray(r.sectionPath));
+      pageRangeByUnit.set(r.unitId, { start: r.pageStart, end: r.pageEnd });
     }
 
     // 2. Build the skeleton from all non-empty section paths.
@@ -311,6 +315,17 @@ export class TreeBuilder {
         depth = 0;
       }
 
+      // v1.0 — page-range provenance from the group's source units, so
+      // "one slide per visual" can find figures on this leaf's pages.
+      let pageStart: number | null = null;
+      let pageEnd: number | null = null;
+      for (const unitId of g.sourceUnitIds) {
+        const r = pageRangeByUnit.get(unitId);
+        if (!r) continue;
+        if (r.start != null) pageStart = pageStart == null ? r.start : Math.min(pageStart, r.start);
+        if (r.end != null) pageEnd = pageEnd == null ? r.end : Math.max(pageEnd, r.end);
+      }
+
       batch.push({
         tempRef: groupPrefix + g.id,
         parentTempRef,
@@ -321,6 +336,8 @@ export class TreeBuilder {
         isLeaf: true, // groups are always leaves in this strategy
         version: nextVersion,
         sourceMaterialId: null,
+        pageStart,
+        pageEnd,
       });
     }
 
@@ -360,6 +377,8 @@ export class TreeBuilder {
       isLeaf: row.isLeaf,
       version: row.version,
       sourceMaterialId: row.sourceMaterialId,
+      pageStart: row.pageStart,
+      pageEnd: row.pageEnd,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }));

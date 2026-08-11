@@ -6,6 +6,8 @@ import { RAGEngine } from "@/lib/domain/rag/RAGEngine";
 import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { SlideBoxService } from "@/lib/application/SlideBoxService";
 import { SlideCrudService } from "@/lib/application/SlideCrudService";
+import type { IFigureStore } from "@/lib/application/ports/figure-store.port";
+import { FsFigureStore } from "@/lib/infrastructure/figures/figure-store";
 import {
   SlideGenerationService,
   type LLMClientInterface,
@@ -38,7 +40,10 @@ export class SlideService {
     llmClient: LLMClientInterface = { chatJSON },
     promptManager: PromptManager = new PromptManager(),
     ragEngine: RAGEngine = createRAGEngine(),
-    database: PrismaClient = db
+    database: PrismaClient = db,
+    // v1.0 — figure store for figure-slide generation. Defaults to the FS store
+    // (desktop/web); tests can inject a fake or omit it (concept-only slides).
+    figureStore: IFigureStore = new FsFigureStore()
   ) {
     // Todos los colaboradores comparten la misma conexión Prisma inyectada para
     // preservar el comportamiento en tests (BD de test compartida).
@@ -49,7 +54,8 @@ export class SlideService {
       promptManager,
       ragEngine,
       database,
-      this.boxService
+      this.boxService,
+      figureStore
     );
   }
 
