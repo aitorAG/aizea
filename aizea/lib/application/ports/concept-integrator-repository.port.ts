@@ -39,6 +39,10 @@ export interface IConceptIntegratorRepository {
   /** Ids de todas las SemanticUnit del curso (vía Material→Course). */
   findUnitIdsByCourse(courseId: string): Promise<string[]>;
 
+  /** v1.0 — slideTarget del curso (0-300) o null. Orienta la granularidad
+   *  del clustering (más alto → más temas/diapositivas). */
+  findSlideTargetByCourse(courseId: string): Promise<number | null>;
+
   /** UnitRepresentations de las unidades dadas (reducidas a unitId+concepts). */
   findRepresentationsByUnitIds(
     unitIds: string[]

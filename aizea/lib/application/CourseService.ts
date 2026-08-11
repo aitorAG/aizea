@@ -52,7 +52,7 @@ export class CourseService {
 
   async updateCourse(
     id: string,
-    data: { name?: string; llmContext?: string }
+    data: { name?: string; llmContext?: string; slideTarget?: number | null }
   ): Promise<Course> {
     return db.course.update({
       where: { id },

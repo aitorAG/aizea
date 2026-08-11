@@ -136,8 +136,14 @@ export class ConceptIntegrator {
     // 3. Embed every distinct concept name in a single batch.
     const embeddings = await embeddingProvider.embedBatch(uniqueNames);
 
-    // 4. Cluster by cosine similarity.
-    const clusters = this.clusterBySimilarity(uniqueNames, embeddings, this.similarityThreshold);
+    // v1.0 — the slideTarget (0-300) orients granularity: a higher target
+    // raises the clustering threshold so concepts split into MORE topics
+    // (⇒ more slides); a lower target merges them into fewer. It's a guide,
+    // not a hard cap — the threshold is clamped to a sane band around the
+    // 0.7 default.
+    const slideTarget = await repository.findSlideTargetByCourse(courseId);
+    const threshold = this.thresholdForTarget(slideTarget);
+    const clusters = this.clusterBySimilarity(uniqueNames, embeddings, threshold);
 
     // 5. Send to LLM for naming/description.
     const { system, user } = this.promptManager.buildIntegrateConceptsPrompt(
@@ -220,6 +226,21 @@ export class ConceptIntegrator {
             ? (c as { importance: number }).importance
             : 0.5,
       }));
+  }
+
+  /**
+   * v1.0 — map a slideTarget (0-300, or null) to a clustering threshold.
+   * null → the configured default (0.7). Otherwise linearly interpolate over
+   * a sane band [0.55, 0.85]: target 0 → 0.55 (coarse, fewer topics), target
+   * 300 → 0.85 (fine, more topics). This makes the slider ORIENT granularity
+   * without being a hard cap.
+   */
+  private thresholdForTarget(slideTarget: number | null): number {
+    if (slideTarget == null) return this.similarityThreshold;
+    const clamped = Math.max(0, Math.min(300, slideTarget));
+    const MIN = 0.55;
+    const MAX = 0.85;
+    return MIN + (MAX - MIN) * (clamped / 300);
   }
 
   private clusterBySimilarity(
