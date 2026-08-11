@@ -7,10 +7,9 @@
  *   complete, standalone HTML document that can be downloaded and opened
  *   in any browser.
  *
- * - `exportSlidesPdfAction`  — renders every slide of a course into a
- *   single multi-page A4 PDF. Each page shows the slide HTML in the
- *   top half (auto-scaled to the printable width) and a structured text
- *   section (Guion / Relevancia / Narrativa) in the bottom half.
+ * - `exportAllSlidesPdfAction`  — renders every slide of a course into a
+ *   multi-page A4 PDF. v1.0: TWO pages per slide — page 1 the slide in
+ *   A4 landscape, page 2 its narrative/exercises content in A4 portrait.
  *
  * The PDF generator uses Playwright (already a dev dep) launching the
  * locally-installed Chromium binary. This is the lightest approach
@@ -31,7 +30,6 @@ import {
 } from "@/lib/infrastructure/pdf/pdf-render.service";
 import {
   BOX_LABELS,
-  buildPdfHtml,
   buildStandaloneSlideHtml,
   KATEX_CDN_TAGS,
   sanitizeFilename,
@@ -81,54 +79,6 @@ export interface ExportSlidesPdfResult {
   html?: string; // full HTML document (fallback when no Playwright)
   filename: string;
   pageCount: number;
-}
-
-export async function exportSlidesPdfAction(
-  courseId: string
-): Promise<ExportSlidesPdfResult> {
-  const course = await db.course.findUnique({
-    where: { id: courseId },
-    select: { name: true },
-  });
-  if (!course) throw new Error("Curso no encontrado");
-
-  const slides = await db.slide.findMany({
-    where: { courseId },
-    orderBy: { order: "asc" },
-    include: { boxes: true },
-  });
-  if (slides.length === 0) {
-    throw new Error("El curso no tiene diapositivas para exportar.");
-  }
-
-  const slidesForPdf = slides.map((s) => {
-    const boxes: Record<string, string> = {};
-    for (const b of s.boxes) boxes[b.type] = b.content;
-    return {
-      title: s.title,
-      description: s.description,
-      htmlDesign: s.htmlDesign,
-      boxes,
-    };
-  });
-
-  const html = stripBom(
-    buildPdfHtml({
-      courseName: course.name,
-      slides: slidesForPdf,
-    })
-  );
-
-  // El render HTML→PDF (Playwright/Chromium) vive en PdfRenderService.
-  const pdfBuffer = await pdfRenderService.renderToPdf(html, {
-    format: "A4",
-    printBackground: true,
-    preferCSSPageSize: true,
-    margin: { top: "12mm", bottom: "14mm", left: "12mm", right: "12mm" },
-  });
-  const pdfBase64 = pdfBuffer.toString("base64");
-  const filename = `${sanitizeFilename(course.name)}_slides.pdf`;
-  return { pdf: pdfBase64, filename, pageCount: slides.length };
 }
 
 /**
@@ -195,13 +145,18 @@ export async function exportAllSlidesPdfAction(
   // min(794/1280, 561/720) = min(0.620, 0.779) = 0.620. We round to
   // 0.62 which is the same number as before — only the CSS mounting
   // changed.
-  const A4_WIDTH_PX = 794;     // 210mm at 96dpi
-  const A4_TOP_HEIGHT_PX = 561; // 297mm / 2 at 96dpi
-  const SLIDE_NATIVE_W = 1280;
-  const SLIDE_NATIVE_H = 720;
+  // v1.0 — TWO pages per slide:
+  //   Page 1 (A4 LANDSCAPE): the slide design, full-bleed. The slide is now
+  //     authored at 1123×794px = A4 landscape @96dpi, so it maps 1:1 to the
+  //     landscape page (scale ≈ 1.0, min-clamped so it never overflows).
+  //   Page 2 (A4 PORTRAIT): the narrative/exercises/explanation content.
+  const LANDSCAPE_W_PX = 1123; // 297mm at 96dpi
+  const LANDSCAPE_H_PX = 794;  // 210mm at 96dpi
+  const SLIDE_NATIVE_W = 1123;
+  const SLIDE_NATIVE_H = 794;
   const PDF_SCALE = Math.min(
-    A4_WIDTH_PX / SLIDE_NATIVE_W,
-    A4_TOP_HEIGHT_PX / SLIDE_NATIVE_H
+    LANDSCAPE_W_PX / SLIDE_NATIVE_W,
+    LANDSCAPE_H_PX / SLIDE_NATIVE_H
   );
   const SCALED_W = SLIDE_NATIVE_W * PDF_SCALE;
   const SCALED_H = SLIDE_NATIVE_H * PDF_SCALE;
@@ -213,27 +168,30 @@ export async function exportAllSlidesPdfAction(
       const guion = stripBom(boxes[BoxType.SCRIPT] ?? "");
       const relevancia = stripBom(boxes[BoxType.RELEVANCE] ?? "");
       const narrativa = stripBom(boxes[BoxType.NARRATIVE] ?? "");
+      const ejercicio1 = stripBom(boxes[BoxType.EXERCISE_1] ?? "");
+      const ejercicio2 = stripBom(boxes[BoxType.EXERCISE_2] ?? "");
       const safeDesign = s.htmlDesign ? stripBom(s.htmlDesign) : "";
 
-      const top = safeDesign
-        ? `<div class="slide-scaler"><div class="slide-frame">${safeDesign}</div></div>`
-        : `<div class="slide-empty">Sin diseño HTML generado</div>`;
+      // Page 1 — landscape slide.
+      const slidePage = safeDesign
+        ? `<section class="slide-landscape"><div class="slide-scaler"><div class="slide-frame">${safeDesign}</div></div></section>`
+        : `<section class="slide-landscape"><div class="slide-empty">Sin diseño HTML generado</div></section>`;
 
-      const bottom = `
-        <div class="text-block">
-          <h3>${escapeHtml(BOX_LABELS[BoxType.SCRIPT])}</h3>
-          <p>${renderTextBlock(guion)}</p>
-        </div>
-        <div class="text-block">
-          <h3>${escapeHtml(BOX_LABELS[BoxType.RELEVANCE])}</h3>
-          <p>${renderTextBlock(relevancia)}</p>
-        </div>
-        <div class="text-block">
-          <h3>${escapeHtml(BOX_LABELS[BoxType.NARRATIVE])}</h3>
-          <p>${renderTextBlock(narrativa)}</p>
-        </div>`;
+      // Page 2 — portrait content. Include exercises (previously omitted).
+      const block = (label: string, body: string): string =>
+        body.trim()
+          ? `<div class="text-block"><h3>${escapeHtml(label)}</h3><p>${renderTextBlock(body)}</p></div>`
+          : "";
+      const contentPage = `<section class="content-portrait">
+        <h2 class="content-title">${escapeHtml(s.title)}</h2>
+        ${block(BOX_LABELS[BoxType.NARRATIVE], narrativa)}
+        ${block(BOX_LABELS[BoxType.SCRIPT], guion)}
+        ${block(BOX_LABELS[BoxType.RELEVANCE], relevancia)}
+        ${block(BOX_LABELS[BoxType.EXERCISE_1], ejercicio1)}
+        ${block(BOX_LABELS[BoxType.EXERCISE_2], ejercicio2)}
+      </section>`;
 
-      return `<section class="slide-page">${top}<div class="slide-bottom">${bottom}</div></section>`;
+      return slidePage + "\n" + contentPage;
     })
     .join("\n");
 
@@ -244,65 +202,45 @@ export async function exportAllSlidesPdfAction(
 <title>${escapeHtml(course.name)} — Slides PDF</title>
 ${KATEX_CDN_TAGS}
 <style>
-@page { size: A4 portrait; margin: 0; }
+/* Named pages: the slide prints landscape, its content portrait.
+   preferCSSPageSize lets these per-section sizes drive each page. */
+@page landscape { size: A4 landscape; margin: 0; }
+@page portrait { size: A4 portrait; margin: 0; }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 0; background: #fff; }
-.slide-page {
-  width: 210mm; height: 297mm;
-  page-break-after: always;
-  break-after: page;
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-.slide-page:last-child { page-break-after: auto; break-after: auto; }
 
-/* Top half -- slide design. flex-centres the scaled wrapper so the
-   slide sits visually in the middle of the half-page when the
-   aspect ratios leave vertical headroom. The wrapper is sized to
-   the POST-scale footprint so the layout box matches the visual
-   box; previously the 1280px layout box overflowed the 794px
-   container and the flex centre clipped both sides.
-   v1.8.1 / Issue 6 -- max-height: 50% belt-and-suspenders the
-   height: 50% so the top half never grows beyond half the page
-   even if the flex container expands unexpectedly (e.g. very long
-   <section> content). overflow: hidden ensures any leakage
-   is clipped instead of bleeding into the text section below. */
-.slide-top {
-  height: 50%;
-  max-height: 50%;
-  overflow: hidden;
+.slide-landscape {
+  page: landscape;
+  width: 297mm; height: 210mm;
+  page-break-after: always; break-after: page;
   display: flex; align-items: center; justify-content: center;
-  background: #fff;
-  position: relative;
+  overflow: hidden; background: #fff;
 }
 .slide-scaler {
-  width: ${SCALED_W}px;
-  height: ${SCALED_H}px;
-  position: relative;
-  overflow: hidden;
-  flex: 0 0 auto;
+  width: ${SCALED_W}px; height: ${SCALED_H}px;
+  position: relative; overflow: hidden; flex: 0 0 auto;
 }
 .slide-frame {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: ${SLIDE_NATIVE_W}px;
-  height: ${SLIDE_NATIVE_H}px;
-  transform: scale(${PDF_SCALE});
-  transform-origin: top left;
+  position: absolute; top: 0; left: 0;
+  width: ${SLIDE_NATIVE_W}px; height: ${SLIDE_NATIVE_H}px;
+  transform: scale(${PDF_SCALE}); transform-origin: top left;
   background: #fff;
 }
-.slide-empty {
-  color: #999; font-size: 14pt; font-style: italic;
-}
-.slide-bottom {
-  height: 50%; padding: 10mm 15mm;
-  font-family: system-ui, sans-serif; font-size: 11pt;
+.slide-empty { color: #999; font-size: 14pt; font-style: italic; }
+
+.content-portrait {
+  page: portrait;
+  width: 210mm; height: 297mm;
+  page-break-after: always; break-after: page;
+  padding: 15mm 18mm;
+  font-family: system-ui, sans-serif;
   overflow: hidden;
 }
-.slide-bottom h3 { font-size: 13pt; margin: 6pt 0 3pt; color: #1e293b; }
-.slide-bottom p { font-size: 10pt; line-height: 1.4; margin: 0 0 4pt; color: #334155; }
-.text-block { margin-bottom: 6pt; }
+.content-portrait:last-child { page-break-after: auto; break-after: auto; }
+.content-title { font-size: 18pt; margin: 0 0 8pt; color: #0f172a; }
+.content-portrait h3 { font-size: 13pt; margin: 8pt 0 3pt; color: #1e293b; }
+.content-portrait p { font-size: 10.5pt; line-height: 1.45; margin: 0 0 4pt; color: #334155; }
+.text-block { margin-bottom: 8pt; }
 </style>
 </head>
 <body>${pages}</body>

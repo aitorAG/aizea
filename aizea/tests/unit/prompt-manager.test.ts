@@ -90,9 +90,9 @@ describe("PromptManager.buildBoxesPrompt", () => {
 describe("PromptManager.buildHtmlDesignPrompt", () => {
   const manager = new PromptManager();
 
-  it("includes the 1280x720 constraint in the system prompt", () => {
+  it("includes the A4-landscape (1123x794) constraint in the system prompt", () => {
     const { system } = manager.buildHtmlDesignPrompt("T", "D", "S", "R", "N", "I");
-    expect(system).toContain("1280x720px");
+    expect(system).toContain("1123x794px");
   });
 
   it("embeds all six input fields in the user prompt", () => {
@@ -154,7 +154,7 @@ describe("lib/prompts.ts wrapper (compatibility re-exports)", () => {
 
   it("re-exports buildHtmlDesignPrompt from PromptManager", () => {
     const { system, user } = buildHtmlDesignPrompt("T", "D", "S", "R", "N", "I");
-    expect(system).toContain("1280x720px");
+    expect(system).toContain("1123x794px");
     expect(user).toContain("T");
   });
 });

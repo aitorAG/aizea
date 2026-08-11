@@ -49,16 +49,16 @@ describe("buildStandaloneSlideHtml", () => {
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 
-  it("includes a fixed 1280x720 frame for the slide content", () => {
+  it("includes a fixed A4-landscape (1123x794) frame for the slide content", () => {
     const html = buildStandaloneSlideHtml({
       title: "X",
       htmlDesign: "<p>x</p>",
     });
-    // The CSS sets the slide frame to 1280x720 — this is the contract
+    // The CSS sets the slide frame to 1123x794 — this is the contract
     // the visual preview in slide-detail-client.tsx relies on, so it
     // must be preserved here for visual fidelity.
-    expect(html).toMatch(/width:\s*1280px/);
-    expect(html).toMatch(/height:\s*720px/);
+    expect(html).toMatch(/width:\s*1123px/);
+    expect(html).toMatch(/height:\s*794px/);
   });
 
   it("sets the charset so accented characters render correctly", () => {

@@ -191,7 +191,7 @@ function SlideDetailClient({
         // leaves a small visual margin (the slide is "pequeñito" inside
         // the frame rather than flush against the edges).
         const { width, height } = entry.contentRect;
-        const scale = Math.min(width / 1280, height / 720) * 0.95;
+        const scale = Math.min(width / 1123, height / 794) * 0.95;
         setter(scale);
       }
     };
@@ -476,7 +476,7 @@ function SlideDetailClient({
                   // element. `overflow-hidden` is required because the
                   // iframe is 1280×720 in the DOM and we clip it visually
                   // with the CSS transform.
-                  className="relative mx-auto aspect-video w-full max-w-[700px] cursor-pointer overflow-hidden rounded-md border border-border bg-white hover:ring-2 hover:ring-ring"
+                  className="relative mx-auto aspect-[1123/794] w-full max-w-[900px] cursor-pointer overflow-hidden rounded-md border border-border bg-white hover:ring-2 hover:ring-ring"
                   onClick={() => setPreviewFull(true)}
                   data-testid="slide-preview-container"
                 >
@@ -487,8 +487,8 @@ function SlideDetailClient({
                       position: "absolute",
                       top: 0,
                       left: 0,
-                      width: "1280px",
-                      height: "720px",
+                      width: "1123px",
+                      height: "794px",
                       transform: `scale(${previewScale})`,
                       transformOrigin: "top left",
                       border: "none",
@@ -500,7 +500,7 @@ function SlideDetailClient({
               ) : (
                 <div
                   data-testid="generar-slide-empty"
-                  className="flex aspect-video flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-muted/30 p-6"
+                  className="flex aspect-[1123/794] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-muted/30 p-6"
                 >
                   <Sparkles className="h-8 w-8 text-muted-foreground/60" />
                   <div className="text-center">
@@ -582,7 +582,7 @@ function SlideDetailClient({
                 // 16:9 frame and the same `min(W,H)*0.95` scale rule
                 // (applied in the ResizeObserver above) guarantees the
                 // 1280×720 slide never overflows the dialog.
-                className="relative mx-auto aspect-video w-full overflow-hidden rounded-md border border-border bg-white"
+                className="relative mx-auto aspect-[1123/794] w-full overflow-hidden rounded-md border border-border bg-white"
                 data-testid="slide-modal-container"
               >
                 <iframe
@@ -592,9 +592,9 @@ function SlideDetailClient({
                     position: "absolute",
                     top: 0,
                     left: 0,
-                    width: "1280px",
-                    height: "720px",
-                    transform: `scale(${modalScale})`,
+                      width: "1123px",
+                      height: "794px",
+                      transform: `scale(${modalScale})`,
                     transformOrigin: "top left",
                     border: "none",
                   }}
