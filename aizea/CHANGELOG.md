@@ -2,6 +2,46 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.6.0] — 2026-08-11
+
+Diapositivas alineadas con la estructura del curso, formato imprimible A4,
+visuales reales y un asistente conversacional para editar el árbol.
+
+### Added
+- **Orden descendente de las diapositivas (recorrido DFS del árbol).** El árbol
+  guarda ahora `orderIndex` por hermano (`TopicNode.orderIndex`) y las
+  diapositivas se generan siguiendo un recorrido en profundidad pre-orden
+  (padre antes que hijos, hermanos por `orderIndex`). Árbol, lista de
+  diapositivas y export comparten el mismo orden de arriba abajo. Nuevo helper
+  puro `lib/domain/pipeline/tree-order.ts` (`dfsPreorder`), con guardas
+  anti-ciclo y raíces huérfanas.
+- **Una diapositiva por elemento visual.** Cada figura real (imagen extraída del
+  material) genera su propia diapositiva, intercalada justo después del concepto
+  al que pertenece. Provenance de páginas en el nodo (`TopicNode.pageStart/
+  pageEnd`) para localizar las figuras del concepto; `Slide.kind`
+  (`concept`|`figure`). La imagen se embebe como data URI base64
+  (`lib/domain/slides/figure-slide.ts`), por lo que se ve en pantalla y en el
+  PDF sin infraestructura adicional. Las figuras sin imagen real se omiten (sin
+  placeholders).
+- **Slider de granularidad "diapositivas objetivo" (0-300).** Junto a "Generar
+  árbol"; orienta cuántos temas/diapositivas produce el pipeline
+  (`Course.slideTarget` → umbral de clustering del `ConceptIntegrator`). Es una
+  guía, no un límite rígido.
+- **Asistente conversacional del árbol.** Panel de chat en la vista del árbol:
+  el usuario pide cambios en lenguaje natural y el agente (`AgentService`) los
+  aplica en vivo (crear hoja, borrar, fusionar, renombrar, dividir) por el mismo
+  `TreeService` que la edición manual. El árbol se actualiza sin recargar la
+  página; las diapositivas huérfanas se podan al editar.
+
+### Changed
+- **Diapositivas en A4 apaisado** (1123×794px @96dpi) en lugar de 16:9
+  (1280×720): prompt de diseño, vista previa en pantalla y HTML exportado.
+- **PDF de dos páginas por diapositiva:** página 1 el visual en A4 horizontal,
+  página 2 la narrativa/relevancia/guion **y los ejercicios** en A4 vertical.
+- **Extracción de figuras por página** en el backend JS (`pdf-parse` pagerender)
+  para que la asociación figura↔página funcione también en la versión web, no
+  solo en el escritorio.
+
 ## [0.5.0] — 2026-07-27
 
 Robustez del instalador y de las actualizaciones del escritorio.
