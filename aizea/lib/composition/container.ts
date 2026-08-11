@@ -31,6 +31,7 @@ import {
 import { PDFService } from "@/lib/domain/pdf/PDFService";
 import { FigureExtractor } from "@/lib/domain/figures/FigureExtractor";
 import { FsFigureStore } from "@/lib/infrastructure/figures/figure-store";
+import { FigureRasterizer } from "@/lib/infrastructure/pdf/figure-rasterizer";
 import { LayoutParser } from "@/lib/domain/pdf/LayoutParser";
 import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { getDoclingBaseUrl } from "@/lib/config-service";
@@ -108,7 +109,7 @@ export function createContainer(overrides: ContainerOverrides = {}): Container {
   const pdfExtractor = overrides.pdfExtractor ?? new PDFService();
   const figureExtractor =
     overrides.figureExtractor ??
-    new FigureExtractor(undefined, new FsFigureStore());
+    new FigureExtractor(undefined, new FsFigureStore(), new FigureRasterizer());
   // Pass a lazy resolver so the Docling URL configured in /settings is always
   // used — avoiding the bug where LayoutParser was constructed with a hardcoded
   // URL and ignored the DB-stored value entirely.

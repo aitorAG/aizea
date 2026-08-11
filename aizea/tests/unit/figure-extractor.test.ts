@@ -123,7 +123,7 @@ describe("FigureExtractor", () => {
       }
     });
 
-    it("skips figures with no matching real image (no placeholder)", async () => {
+    it("skips figures with no matching real image (no placeholder) when no rasterizer", async () => {
       const { course } = await makeFixture();
       // A caption on page 3, but images only exist on pages 1 & 2 → skipped.
       mockExtractFigures.mockResolvedValueOnce([
@@ -133,6 +133,56 @@ describe("FigureExtractor", () => {
       const results = await extractor.extractAndSave(fakeBuffer, course.id);
 
       expect(results).toEqual([]);
+    });
+
+    it("v1.0 (Opción B): rasterises figures with a caption but NO embedded image", async () => {
+      const { course } = await makeFixture();
+      // Caption on page 3 with no embedded raster; a rasterizer produces a crop.
+      mockExtractFigures.mockResolvedValueOnce([
+        { caption: "Figura 9: diagrama vectorial", pageNum: 3 },
+      ]);
+      const rasterPng = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from("rasterised-vector-figure-crop"),
+      ]);
+      const rasterizer = {
+        rasterizeFigure: vi.fn(async () => ({ png: rasterPng, width: 300, height: 200 })),
+      };
+      const extractorWithRaster = new FigureExtractor(
+        new PDFService(),
+        new FsFigureStore(tempDir),
+        rasterizer
+      );
+
+      const results = await extractorWithRaster.extractAndSave(fakeBuffer, course.id);
+
+      expect(results).toHaveLength(1);
+      expect(rasterizer.rasterizeFigure).toHaveBeenCalledWith(fakeBuffer, 3);
+      createdFigureIds.push(results[0].id);
+      // The stored file is the rasterised crop (PNG magic header).
+      const content = await fs.readFile(path.join(tempDir, results[0].filename));
+      expect(content.subarray(0, 8)).toEqual(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      );
+      expect(content.length).toBeGreaterThan(8);
+    });
+
+    it("v1.0 (Opción B): still skips when the rasterizer returns null", async () => {
+      const { course } = await makeFixture();
+      mockExtractFigures.mockResolvedValueOnce([
+        { caption: "Figura 9: sin geometria", pageNum: 3 },
+      ]);
+      const rasterizer = { rasterizeFigure: vi.fn(async () => null) };
+      const extractorWithRaster = new FigureExtractor(
+        new PDFService(),
+        new FsFigureStore(tempDir),
+        rasterizer
+      );
+
+      const results = await extractorWithRaster.extractAndSave(fakeBuffer, course.id);
+
+      expect(results).toEqual([]);
+      expect(rasterizer.rasterizeFigure).toHaveBeenCalledWith(fakeBuffer, 3);
     });
 
     it("returns empty array when no figures are found", async () => {

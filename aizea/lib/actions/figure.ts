@@ -4,10 +4,15 @@ import { container } from "@/lib/composition/container";
 import { extractFigureReferences } from "@/lib/domain/figures/figure-references";
 import { FigureExtractor } from "@/lib/domain/figures/FigureExtractor";
 import { FsFigureStore } from "@/lib/infrastructure/figures/figure-store";
+import { FigureRasterizer } from "@/lib/infrastructure/pdf/figure-rasterizer";
 import { revalidatePath } from "next/cache";
 import { ValidationError } from "@/lib/actions/_action-error";
 
-const figureExtractor = new FigureExtractor(undefined, new FsFigureStore());
+const figureExtractor = new FigureExtractor(
+  undefined,
+  new FsFigureStore(),
+  new FigureRasterizer()
+);
 
 export async function extractFigureRefs(
   courseId: string

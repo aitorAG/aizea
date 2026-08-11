@@ -103,7 +103,7 @@ const nextConfig: NextConfig = {
     },
     optimizePackageImports: ["lucide-react"],
   },
-  serverExternalPackages: ["@lancedb/lancedb", "sharp", "react-markdown", "mdast-util-to-hast", "unified", "remark-parse", "remark-math", "rehype-katex", "rehype-raw"],
+    serverExternalPackages: ["@lancedb/lancedb", "sharp", "@hyzyla/pdfium", "pngjs", "react-markdown", "mdast-util-to-hast", "unified", "remark-parse", "remark-math", "rehype-katex", "rehype-raw"],
 };
 
 export default withPWA(nextConfig);
