@@ -2,6 +2,27 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.8.0] — 2026-08-12
+
+Separación de varias figuras en una misma página y verificación del instalador
+(.exe/MSI) con el motor de rasterizado empaquetado.
+
+### Added
+- **Separación de varias figuras en una misma página.** Cuando una página tiene
+  ≥2 captions "Figura N" sin imagen embebida, la geometría de dibujo se agrupa
+  en **clústeres espaciales** (una figura = un clúster) mediante *union-find* por
+  proximidad, con filtrado de ruido (reglas/bordes de página), fusión
+  aglomerativa hasta el nº de captions y ordenación en orden de lectura
+  (arriba→abajo, izquierda→derecha). Cada clúster se recorta como una figura
+  independiente; con un único caption se usa la unión de toda la geometría
+  (robusto ante figuras fragmentadas). La página se **renderiza una sola vez**
+  y se recortan todas sus figuras (`rasterizeAndCropMany`).
+
+### Verified
+- Instalador **MSI y NSIS `.exe` construidos** (`AIzea_0.8.0_x64_es-ES.msi`,
+  `AIzea_0.8.0_x64-setup.exe`) con `pdfium.wasm` (~3.9 MB) empaquetado en el
+  *resource standalone*; render verificado desde el bundle exacto del release.
+
 ## [0.7.0] — 2026-08-12
 
 Captura de figuras vectoriales/compuestas mediante recorte fino, in-process
@@ -28,15 +49,6 @@ Captura de figuras vectoriales/compuestas mediante recorte fino, in-process
   - Motor de rasterizado y `pngjs` declarados en `serverExternalPackages` para
     que el build *standalone* del `.exe` los trace correctamente (incluido
     `pdfium.wasm`, ~3.9 MB).
-- **Separación de varias figuras en una misma página.** Cuando una página tiene
-  ≥2 captions "Figura N" sin imagen embebida, la geometría de dibujo se agrupa
-  en **clústeres espaciales** (una figura = un clúster) mediante *union-find* por
-  proximidad, con filtrado de ruido (reglas/bordes de página), fusión
-  aglomerativa hasta el nº de captions y ordenación en orden de lectura
-  (arriba→abajo, izquierda→derecha). Cada clúster se recorta como una figura
-  independiente; con un único caption se usa la unión de toda la geometría
-  (robusto ante figuras fragmentadas). La página se **renderiza una sola vez**
-  y se recortan todas sus figuras (`rasterizeAndCropMany`).
 
 ## [0.6.0] — 2026-08-11
 
