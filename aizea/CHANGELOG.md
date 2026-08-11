@@ -2,6 +2,33 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.7.0] — 2026-08-12
+
+Captura de figuras vectoriales/compuestas mediante recorte fino, in-process
+(sin docling, sin Docker, sin binario nativo) — listo para el .exe.
+
+### Added
+- **Recorte fino de figuras sin imagen embebida.** Antes, una figura con
+  caption ("Figura N: …") pero sin imagen rasterizada embebida (diagramas
+  vectoriales, composiciones) se descartaba. Ahora se **rasteriza la región de
+  la figura** desde el PDF y se persiste como imagen real, alimentando "una
+  diapositiva por elemento visual".
+  - `lib/domain/pdf/figure-geometry.ts` — mini-intérprete puro del content-stream
+    del PDF que calcula el *bounding box* de la geometría de dibujo (paths
+    `m/l/c/v/y/re` y XObjects imagen/form vía `Do`, componiendo la CTM con
+    `q/Q/cm`), **excluyendo el texto de cuerpo** (`BT…ET`). Determinista y sin
+    dependencias.
+  - `lib/infrastructure/pdf/page-rasterizer.ts` — renderiza la página con
+    `@hyzyla/pdfium` (WASM, licencia BSD) y recorta al bbox (con volteo del eje
+    Y), codificando el PNG con `pngjs` (JS puro). Sin `sharp`, sin binario
+    nativo → funciona en el Node embebido del `.exe`.
+  - `IFigureRasterizer` (puerto) + `FigureRasterizer` (infra) inyectados en
+    `FigureExtractor`; degrada con seguridad (se salta la figura) si no hay
+    geometría utilizable o el recorte es degenerado.
+  - Motor de rasterizado y `pngjs` declarados en `serverExternalPackages` para
+    que el build *standalone* del `.exe` los trace correctamente (incluido
+    `pdfium.wasm`, ~3.9 MB).
+
 ## [0.6.0] — 2026-08-11
 
 Diapositivas alineadas con la estructura del curso, formato imprimible A4,

@@ -1,6 +1,7 @@
 import { PDFService, PDFImage } from "@/lib/domain/pdf/PDFService";
 import { compressToWebP } from "@/lib/domain/utils/image-compressor";
 import type { IFigureStore } from "@/lib/application/ports/figure-store.port";
+import type { IFigureRasterizer } from "@/lib/application/ports/figure-rasterizer.port";
 
 export interface ExtractedFigure {
   id: string;
@@ -12,13 +13,22 @@ export interface ExtractedFigure {
 export class FigureExtractor {
   private pdfService: PDFService;
   private readonly store: IFigureStore | undefined;
+  private readonly rasterizer: IFigureRasterizer | undefined;
 
-  constructor(pdfService?: PDFService, store?: IFigureStore) {
+  constructor(
+    pdfService?: PDFService,
+    store?: IFigureStore,
+    // v1.0 (Opción B) — rasterizador opcional para figuras con caption pero sin
+    // imagen embebida (diagramas vectoriales). El composition root lo inyecta;
+    // en tests se pasa un fake o se omite (comportamiento: se saltan).
+    rasterizer?: IFigureRasterizer
+  ) {
     this.pdfService = pdfService ?? new PDFService();
     // El almacén (FS + persistencia) se inyecta por el composition root; en
     // tests se pasa un store apuntando a un tempDir. Sustituye el antiguo
     // acoplamiento directo a `node:fs` + `@/lib/db`.
     this.store = store;
+    this.rasterizer = rasterizer;
   }
 
   async extractAndSave(
@@ -61,17 +71,33 @@ export class FigureExtractor {
         ? imagesByPage.get(figure.pageNum) ?? []
         : [];
 
-      // v1.0 — only persist figures backed by a REAL extracted image. A caption
-      // with no matching image on its page is skipped (no 1×1 placeholder), so
+      const filename = this.generateFilename(courseId, i, figure.caption);
+      let imageData: Buffer | null = null;
+
+      if (pageImages.length > 0) {
+        // Preferred: a real embedded raster image on the caption's page.
+        imageData = pageImages[0].data;
+        pageImages.shift();
+      } else if (this.rasterizer && figure.pageNum != null) {
+        // v1.0 (Opción B) — no embedded raster (vector diagram / composite).
+        // Rasterise the figure region from the PDF and crop it, instead of
+        // dropping the figure. Fully in-process (no docling). Degrades to
+        // "skip" when the rasterizer can't produce a usable crop.
+        const raster = await this.rasterizer
+          .rasterizeFigure(buffer, figure.pageNum)
+          .catch(() => null);
+        if (raster) {
+          imageData = await compressToWebP(raster.png);
+        }
+      }
+
+      // No real image and no rasterised crop → skip (no 1×1 placeholder), so
       // downstream "one slide per visual" never emits empty placeholder slides.
-      if (pageImages.length === 0) {
+      if (!imageData) {
         continue;
       }
 
-      const filename = this.generateFilename(courseId, i, figure.caption);
-      const imageData = pageImages[0].data;
       await store.writeImage(filename, imageData);
-      pageImages.shift();
 
       const dbFigure = await store.createFigure({
         courseId,
