@@ -16,6 +16,7 @@ import {
 } from "pdf-lib";
 import {
   computeDrawingBbox,
+  computeDrawingElements,
   type Bbox,
   type Matrix,
   type XObjectInfo,
@@ -28,6 +29,8 @@ export interface PageGeometry {
   height: number;
   /** Drawing bbox in user space (origin bottom-left), or null if text-only. */
   drawingBbox: Bbox | null;
+  /** Individual drawing elements (per subpath/rect/xobject) for clustering. */
+  drawingElements: Bbox[];
 }
 
 function streamToString(stream: PDFRawStream): string {
@@ -79,7 +82,7 @@ export function computePageGeometry(
     }
     content = parts.join("\n");
   }
-  if (!content) return { width, height, drawingBbox: null };
+  if (!content) return { width, height, drawingBbox: null, drawingElements: [] };
 
   // 2. Gather XObject metadata from the page Resources.
   const xobjects: Record<string, XObjectInfo> = {};
@@ -126,6 +129,7 @@ export function computePageGeometry(
     }
   }
 
+  const drawingElements = computeDrawingElements(content, xobjects);
   const drawingBbox = computeDrawingBbox(content, xobjects);
-  return { width, height, drawingBbox };
+  return { width, height, drawingBbox, drawingElements };
 }

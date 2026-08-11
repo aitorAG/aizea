@@ -4,6 +4,8 @@ import {
   multiply,
   apply,
   computeDrawingBbox,
+  computeDrawingElements,
+  clusterBboxes,
   type Matrix,
 } from "@/lib/domain/pdf/figure-geometry";
 
@@ -108,5 +110,87 @@ describe("figure-geometry — computeDrawingBbox", () => {
   it("ignores unknown/absent XObject references safely", () => {
     const box = computeDrawingBbox("/Missing Do 10 10 5 5 re f", {});
     expect(box).toEqual({ x0: 10, y0: 10, x1: 15, y1: 15 });
+  });
+});
+
+describe("figure-geometry — computeDrawingElements", () => {
+  it("emits one element per subpath (split on `m`)", () => {
+    const els = computeDrawingElements("10 10 m 20 20 l 100 100 m 120 130 l");
+    expect(els).toHaveLength(2);
+    expect(els[0]).toEqual({ x0: 10, y0: 10, x1: 20, y1: 20 });
+    expect(els[1]).toEqual({ x0: 100, y0: 100, x1: 120, y1: 130 });
+  });
+
+  it("emits one element per rectangle", () => {
+    const els = computeDrawingElements("0 0 5 5 re 50 50 10 20 re");
+    expect(els).toHaveLength(2);
+    expect(els[1]).toEqual({ x0: 50, y0: 50, x1: 60, y1: 70 });
+  });
+
+  it("excludes text and returns [] for text-only content", () => {
+    expect(computeDrawingElements("BT 100 700 Td (t) Tj ET")).toEqual([]);
+  });
+});
+
+describe("figure-geometry — clusterBboxes", () => {
+  it("groups nearby elements into one cluster", () => {
+    const els = [
+      { x0: 0, y0: 0, x1: 10, y1: 10 },
+      { x0: 12, y0: 0, x1: 22, y1: 10 }, // 2pt gap → same cluster
+    ];
+    const clusters = clusterBboxes(els, { gap: 18 });
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toEqual({ x0: 0, y0: 0, x1: 22, y1: 10 });
+  });
+
+  it("separates far-apart elements into distinct clusters (reading order)", () => {
+    const els = [
+      { x0: 0, y0: 0, x1: 50, y1: 50 }, // bottom
+      { x0: 0, y0: 400, x1: 50, y1: 450 }, // top
+    ];
+    const clusters = clusterBboxes(els, { gap: 18 });
+    expect(clusters).toHaveLength(2);
+    // Reading order: top (higher y1) first.
+    expect(clusters[0].y1).toBe(450);
+    expect(clusters[1].y1).toBe(50);
+  });
+
+  it("filters horizontal page rules and full-page borders", () => {
+    const els = [
+      { x0: 0, y0: 800, x1: 595, y1: 801 }, // full-width rule (noise)
+      { x0: 100, y0: 100, x1: 300, y1: 250 }, // a real figure
+    ];
+    const clusters = clusterBboxes(els, {
+      gap: 18,
+      pageWidth: 595,
+      pageHeight: 842,
+    });
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toEqual({ x0: 100, y0: 100, x1: 300, y1: 250 });
+  });
+
+  it("merges down to maxClusters (agglomerative)", () => {
+    const els = [
+      { x0: 0, y0: 0, x1: 10, y1: 10 },
+      { x0: 0, y0: 100, x1: 10, y1: 110 },
+      { x0: 0, y0: 300, x1: 10, y1: 310 },
+    ];
+    // 3 separate clusters, but cap at 2 → the two closest merge.
+    const clusters = clusterBboxes(els, { gap: 18, maxClusters: 2 });
+    expect(clusters).toHaveLength(2);
+  });
+
+  it("drops sub-minArea specks but never everything", () => {
+    const els = [
+      { x0: 0, y0: 0, x1: 2, y1: 2 }, // speck (area 4)
+      { x0: 50, y0: 50, x1: 150, y1: 150 }, // real (area 10000)
+    ];
+    const clusters = clusterBboxes(els, { gap: 5, minArea: 100 });
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toEqual({ x0: 50, y0: 50, x1: 150, y1: 150 });
+  });
+
+  it("returns [] for no elements", () => {
+    expect(clusterBboxes([])).toEqual([]);
   });
 });
