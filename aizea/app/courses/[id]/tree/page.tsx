@@ -23,7 +23,7 @@ export default async function TreePage({ params }: TreePageProps) {
 
   const course = await db.course.findUnique({
     where: { id: courseId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, slideTarget: true },
   });
 
   if (!course) {
@@ -70,6 +70,7 @@ export default async function TreePage({ params }: TreePageProps) {
       courseId={courseId}
       courseName={course.name}
       initialNodes={initialNodes}
+      initialSlideTarget={course.slideTarget ?? null}
       activeJobId={activeJob?.id ?? null}
       activeJobPhase={(activeJob?.type as PipelinePhase) ?? null}
     />

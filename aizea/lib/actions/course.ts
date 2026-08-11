@@ -105,3 +105,18 @@ export async function updateCourse(
   revalidatePath(`/courses/${id}`);
   return course;
 }
+
+/**
+ * v1.0 — persist the "target slide count" slider (0-300). It's an orientative
+ * granularity hint (not a hard cap): higher → more topics/slides. Consumed by
+ * ConceptIntegrator (clustering threshold) and the tree agent.
+ */
+export async function updateSlideTarget(
+  id: string,
+  slideTarget: number | null
+): Promise<void> {
+  const clamped =
+    slideTarget == null ? null : Math.max(0, Math.min(300, Math.round(slideTarget)));
+  await courseService.updateCourse(id, { slideTarget: clamped });
+  revalidatePath(`/courses/${id}/tree`);
+}

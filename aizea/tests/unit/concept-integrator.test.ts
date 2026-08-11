@@ -57,6 +57,8 @@ function createFakeRepo() {
       vi.fn<(unitIds: string[]) => Promise<ConceptRepresentationRow[]>>(),
     createTopicGroup:
       vi.fn<(data: CreateTopicGroupInput) => Promise<CreatedTopicGroupRow>>(),
+    findSlideTargetByCourse:
+      vi.fn<(courseId: string) => Promise<number | null>>(async () => null),
   } satisfies IConceptIntegratorRepository;
 }
 
@@ -140,6 +142,54 @@ describe("ConceptIntegrator", () => {
       expect(result).toEqual([]);
       // No LLM call needed
       expect(mockChatJSON).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("v1.0 — slideTarget orients clustering granularity", () => {
+    // Two concepts with a controlled cosine similarity of 0.7. A low target
+    // (threshold ~0.55) merges them into ONE cluster; a high target
+    // (threshold ~0.85) splits them into TWO. We read the cluster count from
+    // the prompt payload sent to the (mocked) LLM.
+    function setupTwoConceptsWithSimilarity07() {
+      repo.findUnitIdsByCourse.mockResolvedValue(["u-1"]);
+      repo.findRepresentationsByUnitIds.mockResolvedValue([
+        makeRepresentation("u-1", [{ name: "a" }, { name: "b" }]),
+      ]);
+      // cos([1,0], [0.7, sqrt(1-0.49)]) = 0.7
+      mockEmbedBatch.mockImplementation(async (texts: string[]) =>
+        texts.map((t) => (t === "a" ? [1, 0] : [0.7, Math.sqrt(1 - 0.49)]))
+      );
+      mockChatJSON.mockResolvedValue({ groups: [] });
+    }
+
+    function clusterCount(): number {
+      // buildIntegrateConceptsPrompt is mocked in this suite, so read the
+      // cluster list straight from the args the integrator passed to it.
+      const arg = mockBuildIntegrateConceptsPrompt.mock.calls.at(-1)?.[0] as
+        | Array<{ concepts: string[] }>
+        | undefined;
+      return arg?.length ?? 0;
+    }
+
+    it("consults the course slideTarget", async () => {
+      setupTwoConceptsWithSimilarity07();
+      repo.findSlideTargetByCourse.mockResolvedValue(150);
+      await integrator.integrate("c-1");
+      expect(repo.findSlideTargetByCourse).toHaveBeenCalledWith("c-1");
+    });
+
+    it("merges similar concepts into fewer clusters for a LOW target", async () => {
+      setupTwoConceptsWithSimilarity07();
+      repo.findSlideTargetByCourse.mockResolvedValue(0); // threshold 0.55
+      await integrator.integrate("c-1");
+      expect(clusterCount()).toBe(1);
+    });
+
+    it("splits concepts into more clusters for a HIGH target", async () => {
+      setupTwoConceptsWithSimilarity07();
+      repo.findSlideTargetByCourse.mockResolvedValue(300); // threshold 0.85
+      await integrator.integrate("c-1");
+      expect(clusterCount()).toBe(2);
     });
   });
 

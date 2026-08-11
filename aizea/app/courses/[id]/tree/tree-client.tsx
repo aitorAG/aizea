@@ -48,6 +48,7 @@ import { useToast } from "@/components/toast";
 import { useTreeAdapter } from "@/lib/adapters/useTreeAdapter";
 import { usePipelineStore } from "@/lib/stores/usePipelineStore";
 import { startPipelineAction } from "@/lib/actions/pipeline";
+import { updateSlideTarget } from "@/lib/actions/course";
 import { createMinimalSlides } from "@/lib/actions/slide";
 import { createSlide } from "@/lib/actions/slide";
 import { regenerateHtmlDesign } from "@/lib/actions/generate";
@@ -63,6 +64,8 @@ interface TreePageClientProps {
   courseId: string;
   courseName: string;
   initialNodes: TopicNode[];
+  /** v1.0 — target slide count (0-300) or null. Orients tree granularity. */
+  initialSlideTarget?: number | null;
   activeJobId?: string | null;
   activeJobPhase?: PipelinePhase | null;
 }
@@ -83,12 +86,16 @@ export function TreePageClient({
   courseId,
   courseName,
   initialNodes,
+  initialSlideTarget = null,
   activeJobId = null,
   activeJobPhase = null,
 }: TreePageClientProps) {
   const [nodes, setNodes] = useState<TopicNode[]>(initialNodes);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
+  // v1.0 — target slide count slider (0-300). Default 50 when unset (the
+  // middle orientation). Persisted on change so the pipeline/agent can read it.
+  const [slideTarget, setSlideTarget] = useState<number>(initialSlideTarget ?? 50);
   // v1.9 / Issue 3+4 — dedicated flag for the "Generar diapositivas"
   // toolbar action. The previous design re-used `generating` here,
   // but `generating` also gates the per-selection "Generar N
@@ -840,27 +847,58 @@ export function TreePageClient({
             title="El árbol está vacío"
             description="Sube un material y ejecuta el pipeline para generar el árbol automáticamente, o crea una primera caja raíz manualmente."
             action={
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <Button
-                  onClick={handleStartPipeline}
-                  loading={startingPipeline}
-                  size="lg"
-                  data-testid="generate-tree-button"
-                >
-                  <FilePlus2 className="h-4 w-4" />
-                  Generar árbol
-                </Button>
-                <Button
-                  onClick={() => handleAddRequest("root")}
-                  disabled={addingNode}
-                  variant="outline"
-                  size="lg"
-                  data-testid="empty-state-add-root"
-                  aria-label="Añadir raíz"
-                >
-                  <Plus className="h-4 w-4" />
-                  Añadir raíz
-                </Button>
+              <div className="flex flex-col items-center gap-4">
+                {/* v1.0 — granularity slider (0-300 target slides). Orients
+                    how finely the pipeline splits topics; persisted on release
+                    so the pipeline and the tree agent can read it. */}
+                <div className="w-full max-w-sm" data-testid="slide-target-control">
+                  <div className="mb-1 flex items-center justify-between text-sm">
+                    <label htmlFor="slide-target" className="font-medium text-foreground">
+                      Diapositivas objetivo
+                    </label>
+                    <span className="tabular-nums text-muted-foreground" data-testid="slide-target-value">
+                      {slideTarget}
+                    </span>
+                  </div>
+                  <input
+                    id="slide-target"
+                    type="range"
+                    min={0}
+                    max={300}
+                    step={5}
+                    value={slideTarget}
+                    onChange={(e) => setSlideTarget(Number(e.target.value))}
+                    onPointerUp={() => void updateSlideTarget(courseId, slideTarget)}
+                    onKeyUp={() => void updateSlideTarget(courseId, slideTarget)}
+                    className="w-full accent-primary"
+                    data-testid="slide-target-slider"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Orientativo: más alto = más temas y diapositivas. No es un límite rígido.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    onClick={handleStartPipeline}
+                    loading={startingPipeline}
+                    size="lg"
+                    data-testid="generate-tree-button"
+                  >
+                    <FilePlus2 className="h-4 w-4" />
+                    Generar árbol
+                  </Button>
+                  <Button
+                    onClick={() => handleAddRequest("root")}
+                    disabled={addingNode}
+                    variant="outline"
+                    size="lg"
+                    data-testid="empty-state-add-root"
+                    aria-label="Añadir raíz"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Añadir raíz
+                  </Button>
+                </div>
               </div>
             }
           />

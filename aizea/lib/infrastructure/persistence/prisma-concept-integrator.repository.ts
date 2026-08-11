@@ -24,6 +24,14 @@ export class PrismaConceptIntegratorRepository
     return units.map((u) => u.id);
   }
 
+  async findSlideTargetByCourse(courseId: string): Promise<number | null> {
+    const course = await db.course.findUnique({
+      where: { id: courseId },
+      select: { slideTarget: true },
+    });
+    return course?.slideTarget ?? null;
+  }
+
   async findRepresentationsByUnitIds(
     unitIds: string[]
   ): Promise<ConceptRepresentationRow[]> {
