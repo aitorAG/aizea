@@ -16,6 +16,8 @@ export interface MergeCreateNodeInput {
   name: string;
   summary: string | null;
   depth: number;
+  /** v1.0 — orden entre hermanos (menor = antes). */
+  orderIndex: number;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
@@ -29,6 +31,7 @@ export interface MergeTopicNodeRow {
   name: string;
   summary: string | null;
   depth: number;
+  orderIndex: number;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;

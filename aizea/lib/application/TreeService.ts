@@ -48,6 +48,7 @@ function toTopicNode(row: {
   name: string;
   summary: string | null;
   depth: number;
+  orderIndex: number;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
@@ -61,6 +62,7 @@ function toTopicNode(row: {
     name: row.name,
     summary: row.summary,
     depth: row.depth,
+    orderIndex: row.orderIndex,
     isLeaf: row.isLeaf,
     version: row.version,
     sourceMaterialId: row.sourceMaterialId,

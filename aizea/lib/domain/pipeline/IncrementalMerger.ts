@@ -156,6 +156,7 @@ export class IncrementalMerger {
       name: r.name,
       summary: r.summary,
       depth: r.depth,
+      orderIndex: r.orderIndex,
       isLeaf: r.isLeaf,
       version: r.version,
       sourceMaterialId: r.sourceMaterialId,
@@ -218,6 +219,18 @@ export class IncrementalMerger {
     const newVersion = (previousVersion ?? 0) + 1;
 
     const persisted: TopicNode[] = [...existing];
+    // v1.0 — per-parent sibling counter, seeded from existing children so
+    // appended nodes get orderIndex after their current siblings.
+    const siblingCount = new Map<string, number>();
+    for (const n of existing) {
+      const key = n.parentId ?? "__root__";
+      siblingCount.set(key, Math.max(siblingCount.get(key) ?? 0, n.orderIndex + 1));
+    }
+    const nextOrderIndex = (parentKey: string): number => {
+      const idx = siblingCount.get(parentKey) ?? 0;
+      siblingCount.set(parentKey, idx + 1);
+      return idx;
+    };
     for (const d of validated) {
       if (d.kind === "same") {
         // Enrich the existing node (no row-level change; presence in the
@@ -235,7 +248,8 @@ export class IncrementalMerger {
             courseId,
             d.concept,
             newVersion,
-            newMaterialId
+            newMaterialId,
+            nextOrderIndex("__root__")
           );
           persisted.push(row);
         } else {
@@ -245,6 +259,7 @@ export class IncrementalMerger {
             name: d.concept,
             summary: null,
             depth: parent.depth + 1,
+            orderIndex: nextOrderIndex(parent.id),
             isLeaf: true,
             version: newVersion,
             sourceMaterialId: newMaterialId,
@@ -256,6 +271,7 @@ export class IncrementalMerger {
             name: row.name,
             summary: row.summary,
             depth: row.depth,
+            orderIndex: row.orderIndex,
             isLeaf: row.isLeaf,
             version: row.version,
             sourceMaterialId: row.sourceMaterialId,
@@ -270,7 +286,8 @@ export class IncrementalMerger {
           courseId,
           d.concept,
           newVersion,
-          newMaterialId
+          newMaterialId,
+          nextOrderIndex("__root__")
         );
         persisted.push(row);
       }
@@ -358,7 +375,8 @@ export class IncrementalMerger {
     courseId: string,
     name: string,
     version: number,
-    sourceMaterialId: string
+    sourceMaterialId: string,
+    orderIndex: number
   ): Promise<TopicNode> {
     const row: MergeTopicNodeRow = await repository.createNode({
       id: randomUUID(),
@@ -367,6 +385,7 @@ export class IncrementalMerger {
       name,
       summary: null,
       depth: 0,
+      orderIndex,
       isLeaf: true,
       version,
       sourceMaterialId,
@@ -378,6 +397,7 @@ export class IncrementalMerger {
       name: row.name,
       summary: row.summary,
       depth: row.depth,
+      orderIndex: row.orderIndex,
       isLeaf: row.isLeaf,
       version: row.version,
       sourceMaterialId: row.sourceMaterialId,

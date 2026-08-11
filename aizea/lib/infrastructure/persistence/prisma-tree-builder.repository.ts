@@ -83,6 +83,7 @@ export class PrismaTreeBuilderRepository implements ITreeBuilderRepository {
             name: n.name,
             summary: n.summary,
             depth: n.depth,
+            orderIndex: n.orderIndex,
             isLeaf: n.isLeaf,
             version: n.version,
             sourceMaterialId: n.sourceMaterialId,

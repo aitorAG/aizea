@@ -148,6 +148,8 @@ export interface TopicNode {
   summary: string | null;
   /** 0-based depth from the root. Roots have depth 0. */
   depth: number;
+  /** v1.0 — sibling order (lower first). Basis for DFS pre-order traversal. */
+  orderIndex: number;
   isLeaf: boolean;
   /** Increments on every tree rebuild / merge (rollback support). */
   version: number;

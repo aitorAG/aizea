@@ -24,6 +24,8 @@ export interface CreateTopicNodeInput {
   name: string;
   summary: string;
   depth: number;
+  /** v1.0 — orden entre hermanos (menor = antes). Base del recorrido DFS. */
+  orderIndex: number;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
@@ -37,6 +39,7 @@ export interface CreatedTopicNodeRow {
   name: string;
   summary: string | null;
   depth: number;
+  orderIndex: number;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
@@ -54,13 +57,15 @@ export interface UnitSectionPathRow {
 /** PR3 — nodo para inserción en lote transaccional. Usa refs locales que el
  *  adaptador resuelve a ids reales al insertar (padres antes que hijos). */
 export interface BatchTopicNodeInput {
-  /** Ref local estable (único en el lote). */
+  /** Ref local estable (�nico en el lote). */
   tempRef: string;
-  /** Ref local del padre, o null si es raíz. */
+  /** Ref local del padre, o null si es ra�z. */
   parentTempRef: string | null;
   name: string;
   summary: string;
   depth: number;
+  /** v1.0 — orden entre hermanos (menor = antes). Base del recorrido DFS. */
+  orderIndex: number;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
