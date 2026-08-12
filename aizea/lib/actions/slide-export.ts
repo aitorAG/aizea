@@ -186,13 +186,17 @@ ${SLIDE_FRAME_CSS}
 
 .content-portrait {
   page: portrait;
-  width: 210mm; height: 297mm;
+  width: 210mm; min-height: 297mm;
   page-break-after: always; break-after: page;
   padding: 15mm 18mm;
   font-family: system-ui, sans-serif;
-  overflow: hidden;
+  /* NO overflow:hidden + NO fixed height: long narrative/exercises must FLOW
+     onto additional portrait pages instead of being silently clipped (the
+     same clipping bug fixed on the landscape slide). */
 }
 .content-portrait:last-child { page-break-after: auto; break-after: auto; }
+/* Keep each text block intact across page breaks where possible. */
+.text-block { break-inside: avoid; }
 .content-title { font-size: 18pt; margin: 0 0 8pt; color: #0f172a; }
 .content-portrait h3 { font-size: 13pt; margin: 8pt 0 3pt; color: #1e293b; }
 .content-portrait p { font-size: 10.5pt; line-height: 1.45; margin: 0 0 4pt; color: #334155; }
@@ -208,11 +212,19 @@ ${SLIDE_FIT_SCRIPT}
   // Playwright is not bundled — we fall back to returning the HTML
   // so the Tauri WebView / browser can print to PDF natively (Ctrl+P).
   try {
-    const pdfBuffer = await pdfRenderService.renderToPdf(html, {
-      format: "A4",
-      printBackground: true,
-      preferCSSPageSize: true,
-    });
+    // Fit work is O(N slides) (KaTeX + image decode + measure per slide). Scale
+    // the wait window with the slide count so a large course isn't captured
+    // before every slide has been scaled: base 6s + 400ms/slide, capped at 45s.
+    const fitTimeoutMs = Math.min(45_000, 6_000 + slides.length * 400);
+    const pdfBuffer = await pdfRenderService.renderToPdf(
+      html,
+      {
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: true,
+      },
+      { fitTimeoutMs }
+    );
     const pdfBase64 = pdfBuffer.toString("base64");
     const filename = `${sanitizeFilename(course.name)}_slides.pdf`;
     return { pdf: pdfBase64, filename, pageCount: slides.length };

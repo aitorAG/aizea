@@ -101,12 +101,17 @@ export class PdfRenderService {
    * Renderiza un documento HTML completo a PDF. Lanza `PlaywrightUnavailableError`
    * cuando Playwright no está disponible (el llamante decide el fallback).
    *
-   * @param html documento HTML completo (con CSS @page, KaTeX CDN, etc.)
+   * @param html documento HTML completo (con CSS @page, KaTeX inline, etc.)
    * @param pdfOptions opciones pasadas a `page.pdf()` (formato, márgenes...)
+   * @param opts.fitTimeoutMs ventana máxima de espera del auto-fit. El trabajo
+   *   de fit es O(N diapositivas) (KaTeX + imágenes + medición por slide), así
+   *   que el llamante lo escala con el nº de diapositivas para que un export
+   *   grande no se capture antes de tiempo.
    */
   async renderToPdf(
     html: string,
-    pdfOptions: Record<string, unknown>
+    pdfOptions: Record<string, unknown>,
+    opts: { fitTimeoutMs?: number } = {}
   ): Promise<Buffer> {
     const chromium = await loadChromium();
     const browser = await chromium.launch({
@@ -125,10 +130,11 @@ export class PdfRenderService {
       // KaTeX is inlined (no network), so `load` is sufficient and avoids
       // `networkidle` hanging on data-URI fonts.
       await page.setContent(html, { waitUntil: "load" });
-      // Wait for the shared auto-fit script to finish (KaTeX rendered + fonts
-      // ready + transform applied). Short timeout so a document WITHOUT the
-      // script (or a KaTeX hang) never wedges the export.
-      await waitForSlideFit(page);
+      // Wait for the shared auto-fit script to finish (KaTeX rendered + images
+      // decoded + fonts ready + transform applied). The timeout scales with the
+      // slide count (caller-provided) so large exports aren't captured early;
+      // a document WITHOUT the script (or a hang) still resolves at the cap.
+      await waitForSlideFit(page, opts.fitTimeoutMs ?? 6000);
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
     } finally {

@@ -101,6 +101,9 @@ export const SLIDE_FIT_SCRIPT = `<script>
     var c = f.querySelector(".slide-content");
     if (!c) return;
     f.style.transform = "none";
+    // Measure the natural content size. The design root is forced to height:auto
+    // (see CSS) so scrollHeight/Width reflect the TRUE content extent even when
+    // the design authored a fixed 794px box or used flex centering.
     var w = c.scrollWidth, h = c.scrollHeight;
     var s = Math.min(1, ${SLIDE_W} / w, ${SLIDE_H} / h);
     var tx = (${SLIDE_W} - w * s) / 2;
@@ -112,6 +115,25 @@ export const SLIDE_FIT_SCRIPT = `<script>
     for (var i = 0; i < fits.length; i++) fitOne(fits[i]);
     window.__slideFitDone = true;
   }
+  // Wait for EVERY image to finish decoding before measuring. Figure slides
+  // embed base64 <img> (data URIs); without this the fit would measure them at
+  // height 0 and mis-scale / clip. Resolves on load AND error (a broken image
+  // must not wedge the fit) with a hard per-image cap.
+  function waitForImages(root) {
+    var imgs = Array.prototype.slice.call(root.querySelectorAll("img"));
+    var pending = imgs.filter(function (im) { return !im.complete || im.naturalWidth === 0; });
+    if (pending.length === 0) return Promise.resolve();
+    return Promise.all(pending.map(function (im) {
+      return new Promise(function (resolve) {
+        var done = false;
+        var finish = function () { if (!done) { done = true; resolve(); } };
+        im.addEventListener("load", finish, { once: true });
+        im.addEventListener("error", finish, { once: true });
+        if (im.decode) { im.decode().then(finish).catch(finish); }
+        setTimeout(finish, 4000);
+      });
+    }));
+  }
   function run() {
     // Render math in every content block (auto-render walks descendants).
     var blocks = document.querySelectorAll(".slide-content");
@@ -120,9 +142,11 @@ export const SLIDE_FIT_SCRIPT = `<script>
         for (var i = 0; i < blocks.length; i++) renderMathInElement(blocks[i], OPTS);
       }
     } catch (e) {}
-    var ready = document.fonts && document.fonts.ready
+    var fontsReady = document.fonts && document.fonts.ready
       ? document.fonts.ready : Promise.resolve();
-    ready.then(function () {
+    // Both fonts AND images must settle before measuring, else the layout is
+    // still shifting when we compute the scale.
+    Promise.all([fontsReady, waitForImages(document)]).then(function () {
       requestAnimationFrame(function () { requestAnimationFrame(fit); });
     }).catch(function () { window.__slideFitDone = true; });
   }
@@ -154,8 +178,15 @@ export const SLIDE_FRAME_CSS = `
   }
   .slide-fit { transform-origin: top left; width: ${SLIDE_W}px; }
   /* Neutralise the design's own fixed box + any inner scroll containers so the
-     content can be measured at natural height and never clips after scaling. */
-  .slide-content > * { max-height: none !important; }
+     content can be measured at natural height and never clips after scaling.
+     The design root is forced to height:auto (grows with content, so
+     scrollHeight is EXACT even if it authored height:794px or used flex
+     centering) while min-height keeps short content filling the frame. */
+  .slide-content > * {
+    height: auto !important;
+    max-height: none !important;
+    min-height: ${SLIDE_H}px;
+  }
   .slide-content, .slide-content * { overflow: visible !important; }
 `;
 

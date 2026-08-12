@@ -107,6 +107,50 @@ describe("slide document — real browser auto-fit + offline KaTeX", () => {
     await ctx.close();
   }, 30000);
 
+  it("waits for embedded images: a figure slide is measured AFTER the image decodes", async () => {
+    const b = await getBrowser();
+    if (!b) {
+      expect(available).toBe(false);
+      return;
+    }
+    // A 2×2 red PNG as a base64 data URI, blown up to fill the frame — exactly
+    // how a figure slide embeds its visual. If the fit measured BEFORE decode,
+    // the image would be height 0 and the scale would be wrong (≈1, no fit).
+    const redPng2x2 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP8z8Dwn4EIwDiqEAAxMwMFTbNjbQAAAABJRU5ErkJggg==";
+    const figureDesign = `<div style="width:1123px;height:794px;overflow:hidden;box-sizing:border-box;background:#fff;padding:40px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+      <img src="data:image/png;base64,${redPng2x2}" style="width:900px;height:1400px;object-fit:contain;" />
+      <div style="margin-top:20px;font-size:20px;">Figura 1: prueba</div>
+    </div>`;
+    const html = buildSlideDocument({ htmlDesign: figureDesign });
+    const ctx = await b.newContext({ viewport: { width: SLIDE_W, height: SLIDE_H } });
+    const page = await ctx.newPage();
+    await page.setContent(html, { waitUntil: "load" });
+    await page.waitForFunction("window.__slideFitDone === true", null, {
+      timeout: 8000,
+    });
+    const result = await page.evaluate(() => {
+      const fit = document.querySelector(".slide-fit") as HTMLElement;
+      const img = document.querySelector(".slide-content img") as HTMLImageElement;
+      return {
+        transform: fit?.style.transform ?? "",
+        imgComplete: img?.complete ?? false,
+        imgNaturalW: img?.naturalWidth ?? 0,
+        docScrollH: document.documentElement.scrollHeight,
+        docClientH: document.documentElement.clientHeight,
+      };
+    });
+    // Image decoded before measuring.
+    expect(result.imgComplete).toBe(true);
+    expect(result.imgNaturalW).toBeGreaterThan(0);
+    // The tall image (1400px) forced a scale-down so the slide fits (no clip).
+    const scale = parseFloat(result.transform.match(/scale\(([\d.]+)\)/)?.[1] ?? "1");
+    expect(scale).toBeLessThan(1);
+    // No document scroll → nothing clipped/scrolled.
+    expect(result.docScrollH).toBeLessThanOrEqual(result.docClientH + 1);
+    await ctx.close();
+  }, 30000);
+
   it("produces a PDF with no clipping (single A4 landscape page)", async () => {
     const b = await getBrowser();
     if (!b) {
