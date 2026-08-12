@@ -2,6 +2,35 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.9.1] — 2026-08-12
+
+Endurecimiento del diseño de render/export de diapositivas: cierra cuatro
+fallas de diseño detectadas en la auditoría del auto-fit.
+
+### Fixed
+- **El ajuste automático medía antes de que las imágenes cargaran.** Las
+  diapositivas de figura incrustan `<img>` base64; el script medía `scrollHeight`
+  tras las fuentes pero NO tras decodificar las imágenes → medía con la imagen a
+  altura ~0 → escala incorrecta o recorte. Ahora el fit espera a que TODAS las
+  imágenes decodifiquen (`load`/`error`/`img.decode()`, con tope por imagen)
+  antes de medir.
+- **Página 2 del PDF (contenido en retrato) se recortaba.** `.content-portrait`
+  tenía `height:297mm` + `overflow:hidden`, así que narrativa/ejercicios largos
+  se cortaban en silencio (el mismo bug que ya se arregló en la diapositiva
+  apaisada). Ahora usa `min-height` y SIN `overflow:hidden`: el contenido fluye
+  a páginas retrato adicionales en vez de recortarse (`break-inside: avoid` en
+  los bloques para no partirlos).
+- **El auto-fit medía mal con cajas de altura fija o centrado flex.** La raíz
+  del diseño se fuerza ahora a `height:auto !important` (con `min-height` para
+  llenar el marco), de modo que `scrollHeight` refleja la altura REAL del
+  contenido aunque el diseño declare `height:794px` o use
+  `justify-content:center` (que desbordaría por arriba, invisible a
+  `scrollHeight`).
+- **Timeout de ajuste fijo en exports multi-diapositiva.** El trabajo de fit es
+  O(N) (KaTeX + imágenes + medición por diapositiva); con muchas diapositivas el
+  PDF podía capturarse antes de terminar. Ahora la ventana escala con el nº de
+  diapositivas (6s base + 400ms/slide, tope 45s).
+
 ## [0.9.0] — 2026-08-12
 
 Ajuste automático de diapositivas (fin del desbordamiento/scroll), fórmulas
