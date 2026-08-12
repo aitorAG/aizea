@@ -2,6 +2,37 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.9.0] — 2026-08-12
+
+Ajuste automático de diapositivas (fin del desbordamiento/scroll), fórmulas
+KaTeX 100% offline, y fallo claro al generar sin clave de API.
+
+### Fixed
+- **Desbordamiento y scroll de las diapositivas (pantalla y PDF).** El HTML
+  generado por IA a menudo excedía los 794px de alto: en pantalla aparecía un
+  scroll sin sentido y en el PDF se "imprimía" una barra de scroll inservible o
+  se recortaba el contenido. Ahora un **ajuste automático determinista** mide la
+  altura real del contenido (tras renderizar KaTeX y cargar fuentes) y aplica un
+  único `transform: scale()` para que SIEMPRE quepa en 1123×794 sin recorte ni
+  scroll. Se aplica de forma **idéntica** en las tres superficies (preview,
+  export HTML y PDF) porque todas usan un único constructor de documento
+  (`buildSlideDocument`) con el mismo script de ajuste (`__slideFitDone`, que
+  Playwright espera antes de capturar el PDF).
+- **Fórmulas que no se renderizaban.** KaTeX se cargaba desde un CDN, que no
+  funciona sin internet — inaceptable en la app de escritorio. Ahora KaTeX va
+  **embebido inline** (CSS + 20 fuentes woff2 en base64 + JS), generado en
+  `prebuild` (`scripts/build-katex-inline.cjs` → `katex-inline.generated.ts`).
+  Las fórmulas se renderizan **100% offline** en preview, HTML y PDF. El prompt
+  de diseño ahora pide `\\(..\\)` / `\\[..\\]` (evita colisiones con `$`).
+- **"Generar todo" parecía morir sin clave de API.** Sin clave configurada, el
+  fallback (`test-api-key`) provocaba 401 en cada llamada y agotaba reintentos
+  en silencio. Ahora hay un **preflight**: si no hay clave, se muestra un error
+  claro ("Configura tu clave de OpenRouter en Ajustes") y no se lanza el lote.
+
+### Changed
+- El prompt de diseño elimina la instrucción contradictoria de "scroll interno
+  max-height 400px" y prohíbe explícitamente `overflow:auto/scroll`.
+
 ## [0.8.0] — 2026-08-12
 
 Separación de varias figuras en una misma página y verificación del instalador

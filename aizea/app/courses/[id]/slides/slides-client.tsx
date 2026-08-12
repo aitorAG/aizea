@@ -40,6 +40,7 @@ import { useToast } from "@/components/toast";
 import { revalidateSlides } from "@/lib/actions/revalidate";
 import { useSlideAdapter } from "@/lib/adapters/useSlideAdapter";
 import { exportAllSlidesPdfAction } from "@/lib/actions/slide-export";
+import { getSettingsAction } from "@/lib/actions/settings";
 import {
   useSlideGenerationStore,
   type SlideGenerationStatus,
@@ -339,10 +340,37 @@ function SlidesClient({
    * wall-clock for a 20-slide course drops from ~5 minutes to
    * ~2 minutes.
    */
+  /**
+   * Preflight before any batch: fail FAST and LOUD if no OpenRouter API key is
+   * configured. Without this, the queue would fire N×2 LLM calls that each 401
+   * and burn through 3 retries before failing silently — the batch "feels
+   * dead". Returns true when it's safe to proceed.
+   */
+  const ensureApiKey = useCallback(async (): Promise<boolean> => {
+    try {
+      const settings = await getSettingsAction();
+      if (!settings.apiKeyPresent) {
+        toast({
+          title: "Falta la clave de API",
+          description:
+            "Configura tu clave de OpenRouter en Ajustes antes de generar. Sin ella, la generación falla.",
+          variant: "error",
+        });
+        return false;
+      }
+      return true;
+    } catch {
+      // If the settings check itself fails, don't block — let the batch run and
+      // surface any real error through the normal path.
+      return true;
+    }
+  }, [toast]);
+
   const handleGenerateAll = useCallback(async () => {
     if (!queueRef.current) return;
     const allIds = slides.map((s) => s.id);
     if (allIds.length === 0) return;
+    if (!(await ensureApiKey())) return;
     toast({
       title: `Generando contenido de ${allIds.length} diapositiva${allIds.length !== 1 ? "s" : ""}…`,
       description:
@@ -360,7 +388,7 @@ function SlidesClient({
         variant: "error",
       });
     }
-  }, [slides, toast]);
+  }, [slides, toast, ensureApiKey]);
 
   /**
    * v1.5 / Task 4.2 — "Generar todo" button (content + HTML).
@@ -374,6 +402,7 @@ function SlidesClient({
     if (!queueRef.current) return;
     const allIds = slides.map((s) => s.id);
     if (allIds.length === 0) return;
+    if (!(await ensureApiKey())) return;
     toast({
       title: `Generando ${allIds.length} diapositiva${allIds.length !== 1 ? "s" : ""}…`,
       description:
@@ -393,7 +422,7 @@ function SlidesClient({
         variant: "error",
       });
     }
-  }, [slides, toast]);
+  }, [slides, toast, ensureApiKey]);
 
   /**
    * v1.10 / Wave 2 — Cancel button. Flips the queue's

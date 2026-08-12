@@ -14,16 +14,16 @@ REGLAS ABSOLUTAS — si las rompes el diseño se ve mal:
    <div style="width:1123px;height:794px;overflow:hidden;box-sizing:border-box;font-family:system-ui,sans-serif;background:#fff;padding:60px 80px;display:flex;flex-direction:column;">
 3. NO incluyas etiquetas <html>, <head>, <body>, <!DOCTYPE>.
 4. Solo CSS inline o en una etiqueta <style> dentro del div raíz. NO archivos externos.
-5. NO scrollbars. NO desbordamiento. Si el contenido es mucho, reduce fuentes o padding.
+5. PROHIBIDO scroll: NUNCA uses overflow:auto, overflow:scroll ni max-height con scroll. Si el contenido es mucho, RESUME y reduce fuentes/padding para que quepa. Un sistema de ajuste automático reescala el contenido, pero tú debes entregar algo que ya quepa holgadamente.
 6. NO uses vw, vh, %, rem respecto al viewport — todo en px o % respecto al contenedor.
 7. Fuentes grandes para proyección: título 32-40px, subtítulos 22-26px, cuerpo 18-20px, notas 14-16px.
-8. Fórmulas LaTeX: escríbelas como texto ($$...$$ o $...$), se renderizarán luego.
+8. Fórmulas matemáticas: escríbelas en LaTeX con \\( ... \\) para fórmulas en línea y \\[ ... \\] para fórmulas en bloque. Se renderizan automáticamente con KaTeX. NO uses el símbolo $ para dinero junto a fórmulas. Ejemplo: <p>La energía es \\( E = mc^2 \\).</p>
 9. Colores: fondo blanco, texto #1a1a1a, acento azul #1a56db, gris suave #6b7280.
 10. Prioriza CLARIDAD y LEGIBILIDAD sobre decoración. Menos es más.
 
 ESTRUCTURA RECOMENDADA:
 - Título arriba (grande, centrado o alineado izquierda)
-- Cuerpo central con el contenido principal (scroll interno si es necesario, max-height 400px)
+- Cuerpo central con el contenido principal (SIN scroll: si sobra contenido, resume)
 - Pie opcional con fuente/fórmula clave
 
 Responde ÚNICAMENTE: {"html": "<div style=\"...\">...</div>"}`;

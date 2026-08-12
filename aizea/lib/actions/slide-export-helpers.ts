@@ -8,6 +8,14 @@
  */
 
 import { BoxType } from "@/lib/types";
+import {
+  KATEX_INLINE_CSS,
+  KATEX_INLINE_JS,
+} from "@/lib/domain/slides/katex-inline.generated";
+
+/** Native slide authoring size: A4 landscape @96dpi. */
+export const SLIDE_W = 1123;
+export const SLIDE_H = 794;
 
 const BOX_LABELS: Record<string, string> = {
   [BoxType.SCRIPT]: "Guion",
@@ -50,36 +58,106 @@ export function stripBom(input: string): string {
 }
 
 /**
- * KaTeX CDN tags that we inject into any HTML document that hosts a
- * slide. The `auto-render` extension scans the body for `$..$` and
- * `$$..$$` (and `\(..\)`, `\[..\]`) delimiters and replaces them with
- * rendered math — exactly what the AI sometimes emits in `htmlDesign`
- * (e.g. `$E = mc^2$`, `$$\\int_0^1 x^2 dx$$`).
- *
- * Pinned to KaTeX 0.16.9 because the auto-render API has been stable
- * across this minor and we want reproducible builds. `defer` ensures
- * the scripts run after parsing, and we trigger rendering on
- * `DOMContentLoaded` so any `htmlDesign` injected by `doc.write` is
- * already in the DOM by the time the renderer walks it.
+ * KaTeX inlined (CSS with base64 woff2 fonts + JS) for 100% OFFLINE rendering.
+ * Replaces the old CDN `<link>`/`<script>` tags: the desktop `.exe` has no
+ * internet guarantee, and `srcdoc` / `file://` / Playwright `setContent` don't
+ * resolve relative asset paths reliably — inlining is the only approach that
+ * renders identically in all three surfaces with zero network.
  */
-export const KATEX_CDN_TAGS = `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
-    if (typeof renderMathInElement === 'function') {
-      renderMathInElement(document.body, {
-        delimiters: [
-          { left: '$$', right: '$$', display: true },
-          { left: '$', right: '$', display: false },
-          { left: '\\\\(', right: '\\\\)', display: false },
-          { left: '\\\\[', right: '\\\\]', display: true }
-        ],
-        throwOnError: false
-      });
-    }
-  });
+export const KATEX_INLINE_HEAD = `<style>${KATEX_INLINE_CSS}</style>
+<script>${KATEX_INLINE_JS}</script>`;
+
+/**
+ * Deterministic auto-fit + KaTeX render script, shared by ALL slide surfaces
+ * (preview iframe, standalone HTML, Playwright PDF). Emitted inline so every
+ * surface runs the IDENTICAL code:
+ *
+ *   1. Render LaTeX (`renderMathInElement`) inside `.slide-content`.
+ *   2. Wait for fonts (`document.fonts.ready`) so KaTeX metrics are final.
+ *   3. Measure the natural `scrollWidth/Height` of the content (with its fixed
+ *      box neutralised by CSS) and apply ONE `transform: scale(min(1, …))` so
+ *      it always fits 1123×794 with zero clipping and zero scrollbars.
+ *   4. Set `window.__slideFitDone = true` — Playwright waits on this flag
+ *      before `page.pdf()`.
+ *
+ * Delimiters: `$$`/`\[..\]` (display) are matched BEFORE `$`/`\(..\)` (inline)
+ * so display math wins greedily; `$` is kept as a legacy safety net (the prompt
+ * now prefers `\(..\)`/`\[..\]`). `strict:false`, `throwOnError:false` and
+ * `ignoredTags` keep it resilient.
+ */
+export const SLIDE_FIT_SCRIPT = `<script>
+(function () {
+  var OPTS = {
+    delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "\\\\[", right: "\\\\]", display: true },
+      { left: "\\\\(", right: "\\\\)", display: false },
+      { left: "$", right: "$", display: false }
+    ],
+    throwOnError: false, strict: false,
+    ignoredTags: ["script","noscript","style","textarea","pre","code"]
+  };
+  function fitOne(f) {
+    var c = f.querySelector(".slide-content");
+    if (!c) return;
+    f.style.transform = "none";
+    var w = c.scrollWidth, h = c.scrollHeight;
+    var s = Math.min(1, ${SLIDE_W} / w, ${SLIDE_H} / h);
+    var tx = (${SLIDE_W} - w * s) / 2;
+    f.style.transform = "translateX(" + (tx > 0 ? tx : 0) + "px) scale(" + s + ")";
+  }
+  function fit() {
+    // Fit EVERY frame (1 in the preview/standalone; N in the multi-slide PDF).
+    var fits = document.querySelectorAll(".slide-fit");
+    for (var i = 0; i < fits.length; i++) fitOne(fits[i]);
+    window.__slideFitDone = true;
+  }
+  function run() {
+    // Render math in every content block (auto-render walks descendants).
+    var blocks = document.querySelectorAll(".slide-content");
+    try {
+      if (window.renderMathInElement) {
+        for (var i = 0; i < blocks.length; i++) renderMathInElement(blocks[i], OPTS);
+      }
+    } catch (e) {}
+    var ready = document.fonts && document.fonts.ready
+      ? document.fonts.ready : Promise.resolve();
+    ready.then(function () {
+      requestAnimationFrame(function () { requestAnimationFrame(fit); });
+    }).catch(function () { window.__slideFitDone = true; });
+  }
+  if (document.readyState !== "loading") run();
+  else document.addEventListener("DOMContentLoaded", run);
+})();
 </script>`;
+
+/**
+ * Shared CSS for the slide frame across all surfaces. The structure is:
+ *   `.slide-frame` (fixed 1123×794, overflow:hidden — the printable box)
+ *     └ `.slide-fit` (the transform target — auto-fit scales THIS)
+ *         └ `.slide-content` (the LLM `htmlDesign`)
+ *
+ * The design's own root div is authored as a fixed 1123×794 `overflow:hidden`
+ * box — that is the REAL clip source, so we neutralise its height/overflow (and
+ * any inner scroll container) so the true content height is measurable and the
+ * painted box isn't pre-clipped before scaling. Width stays 1123px for
+ * deterministic line breaks.
+ */
+export const SLIDE_FRAME_CSS = `
+  html, body { margin: 0; padding: 0; background: #ffffff; overflow: hidden; }
+  .slide-frame {
+    position: relative;
+    width: ${SLIDE_W}px;
+    height: ${SLIDE_H}px;
+    overflow: hidden;
+    background: #ffffff;
+  }
+  .slide-fit { transform-origin: top left; width: ${SLIDE_W}px; }
+  /* Neutralise the design's own fixed box + any inner scroll containers so the
+     content can be measured at natural height and never clips after scaling. */
+  .slide-content > * { max-height: none !important; }
+  .slide-content, .slide-content * { overflow: visible !important; }
+`;
 
 /**
  * Build a complete, standalone HTML document around the slide's
@@ -113,93 +191,67 @@ function escapeHtml(input: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export function buildStandaloneSlideHtml(params: {
-  title: string;
+/**
+ * THE single source of truth for "what HTML does a slide render in".
+ *
+ * Builds a complete, standalone, OFFLINE HTML document around a slide's
+ * `htmlDesign`, used identically by the preview iframe, the standalone HTML
+ * export, and the Playwright PDF path. Every surface therefore runs the SAME
+ * inline KaTeX and the SAME deterministic auto-fit script (`SLIDE_FIT_SCRIPT`),
+ * guaranteeing byte-identical rendering.
+ *
+ * Structure: `.slide-frame` (fixed 1123×794, overflow:hidden) → `.slide-fit`
+ * (transform target) → `.slide-content` (the LLM design). The fit script
+ * measures the natural content size after KaTeX + fonts and applies one
+ * `transform: scale()` so content ALWAYS fits with zero clipping/scroll, then
+ * sets `window.__slideFitDone`.
+ *
+ * Encoding: UTF-8, `<meta charset>` first; any leading BOM in `htmlDesign` is
+ * stripped (LLM output occasionally contains one).
+ */
+export function buildSlideDocument(params: {
   htmlDesign: string;
+  title?: string;
 }): string {
-  const { title, htmlDesign } = params;
-  const safeTitle = escapeHtml(stripBom(title));
-  const safeDesign = stripBom(htmlDesign);
+  const safeDesign = stripBom(params.htmlDesign);
+  const titleTag =
+    params.title != null
+      ? `<title>${escapeHtml(stripBom(params.title))}</title>`
+      : "";
   return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>${safeTitle}</title>
-<meta name="viewport" content="width=1123, initial-scale=1" />
-${KATEX_CDN_TAGS}
-<style>
-  html, body { margin: 0; padding: 0; background: #ffffff; }
-  body {
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    min-height: 100vh;
-  }
-  .slide-frame {
-    position: relative;
-    width: 1123px;
-    height: 794px;
-    transform-origin: top left;
-    overflow: hidden;
-    background: #ffffff;
-  }
-  @media (max-width: 1123px) {
-    .slide-frame { transform: scale(calc(100vw / 1123)); }
-  }
-</style>
+${titleTag}
+<meta name="viewport" content="width=${SLIDE_W}, initial-scale=1" />
+${KATEX_INLINE_HEAD}
+<style>${SLIDE_FRAME_CSS}</style>
 </head>
 <body>
-  <div class="slide-frame">${safeDesign}</div>
+  <div class="slide-frame"><div class="slide-fit"><div class="slide-content">${safeDesign}</div></div></div>
+${SLIDE_FIT_SCRIPT}
 </body>
 </html>`;
 }
 
 /**
- * Wrap a slide's `htmlDesign` in the minimum HTML document needed to
- * render it inside an iframe (`srcdoc` or `doc.write`).
- *
- * Used by the slide detail preview so the iframe inherits the SAME
- * UTF-8 contract as the standalone export — this is the single
- * source of truth for "what HTML does a slide render in". The
- * container CSS matches the export's `.slide-frame` so visual
- * fidelity between preview and downloaded file is identical.
- *
- * KaTeX is also loaded so LaTeX formulas in `htmlDesign` (e.g.
- * `$x^2$`, `$$\\sum_{i=1}^n i$$`) render in the preview exactly as
- * they will in the downloaded file. The parent component is
- * responsible for scaling the iframe to fit its container — we only
- * need to ensure the document is well-formed and the math renders.
+ * Standalone slide HTML for the "Exportar HTML" download. Thin wrapper over
+ * {@link buildSlideDocument} (kept for a stable, named export the actions use).
  */
-export function buildIframeSlideHtml(params: {
+export function buildStandaloneSlideHtml(params: {
+  title: string;
   htmlDesign: string;
 }): string {
-  const safeDesign = stripBom(params.htmlDesign);
-  return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=1123, initial-scale=1" />
-${KATEX_CDN_TAGS}
-<style>
-  html, body { margin: 0; padding: 0; background: #ffffff; }
-  body {
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    min-height: 100vh;
-  }
-  .slide-frame {
-    position: relative;
-    width: 1123px;
-    height: 794px;
-    transform-origin: top left;
-    overflow: hidden;
-    background: #ffffff;
-  }
-</style>
-</head>
-<body>
-  <div class="slide-frame">${safeDesign}</div>
-</body>
-</html>`;
+  return buildSlideDocument({
+    htmlDesign: params.htmlDesign,
+    title: params.title,
+  });
+}
+
+/**
+ * Slide HTML for the detail-page preview iframe (`srcdoc`). Thin wrapper over
+ * {@link buildSlideDocument} so preview and export are byte-identical.
+ */
+export function buildIframeSlideHtml(params: { htmlDesign: string }): string {
+  return buildSlideDocument({ htmlDesign: params.htmlDesign });
 }

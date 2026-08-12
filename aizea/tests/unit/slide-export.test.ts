@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildIframeSlideHtml,
   buildStandaloneSlideHtml,
-  KATEX_CDN_TAGS,
+  buildSlideDocument,
   stripBom,
 } from "@/lib/actions/slide-export-helpers";
 
@@ -143,38 +143,53 @@ describe("buildStandaloneSlideHtml", () => {
     expect(html).toContain(payload);
   });
 
-  it("includes KaTeX so LaTeX formulas in the slide render in the browser", () => {
-    // F1.4 (v1.5 plan): the standalone export must include KaTeX so
-    // when the user opens the downloaded file, `$x^2$` and
-    // `$$\\int_0^1 x^2 dx$$` render properly instead of showing
-    // as raw text.
+  it("bundles KaTeX INLINE (offline) — no CDN references", () => {
+    // v2.0: KaTeX must render OFFLINE in the desktop .exe. We inline the
+    // CSS (with base64 woff2 fonts) and JS — there must be NO CDN <link>/
+    // <script src> to jsdelivr et al., and the fonts must be embedded.
     const html = buildStandaloneSlideHtml({
       title: "Tema con fórmulas",
       htmlDesign: "<p>$x^2$</p>",
     });
-    expect(html).toContain(KATEX_CDN_TAGS);
-    expect(html).toContain("katex@0.16.9/dist/katex.min.css");
-    expect(html).toContain("katex@0.16.9/dist/katex.min.js");
-    expect(html).toContain("katex@0.16.9/dist/contrib/auto-render.min.js");
-    // The auto-render script must be told to walk the body once the
-    // DOM is ready — that's what actually replaces the LaTeX with
-    // rendered math.
-    expect(html).toMatch(/renderMathInElement\s*\(\s*document\.body/);
-    expect(html).toMatch(/addEventListener\(\s*['"]DOMContentLoaded['"]/);
+    expect(html).not.toContain("cdn.jsdelivr.net");
+    expect(html).not.toContain("https://");
+    // Inline KaTeX CSS + base64 woff2 fonts present.
+    expect(html).toContain("data:font/woff2;base64,");
+    // auto-render API is present (inlined) and invoked via renderMathInElement.
+    expect(html).toContain("renderMathInElement");
+  });
+
+  it("uses the frame→fit→content structure and the auto-fit script", () => {
+    const html = buildStandaloneSlideHtml({
+      title: "X",
+      htmlDesign: "<p>x</p>",
+    });
+    expect(html).toContain('class="slide-frame"');
+    expect(html).toContain('class="slide-fit"');
+    expect(html).toContain('class="slide-content"');
+    // The deterministic fit signals completion via this flag.
+    expect(html).toContain("__slideFitDone");
   });
 });
 
 describe("buildIframeSlideHtml", () => {
-  it("returns a complete HTML document with charset and KaTeX", () => {
-    // The iframe preview is what the user sees while editing the
-    // slide; it must be byte-equivalent to the standalone export
-    // modulo the @media scaling rule, so formulas render in BOTH
-    // places identically.
+  it("returns a complete HTML document with charset and INLINE KaTeX", () => {
+    // The iframe preview must be byte-identical to the standalone export
+    // (same shared builder), so formulas render in BOTH places identically,
+    // fully offline.
     const html = buildIframeSlideHtml({ htmlDesign: "<p>hi</p>" });
     expect(html).toMatch(/^<!doctype html>/i);
     expect(html).toMatch(/charset="?utf-8"?/i);
-    expect(html).toContain(KATEX_CDN_TAGS);
-    expect(html).toContain("katex@0.16.9/dist/katex.min.css");
+    expect(html).not.toContain("cdn.jsdelivr.net");
+    expect(html).toContain("data:font/woff2;base64,");
+    expect(html).toContain("__slideFitDone");
+  });
+
+  it("is byte-identical to buildSlideDocument with no title", () => {
+    const design = "<p>hi</p>";
+    expect(buildIframeSlideHtml({ htmlDesign: design })).toBe(
+      buildSlideDocument({ htmlDesign: design })
+    );
   });
 
   it("embeds the htmlDesign inside the body", () => {

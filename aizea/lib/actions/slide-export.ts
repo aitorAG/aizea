@@ -31,7 +31,9 @@ import {
 import {
   BOX_LABELS,
   buildStandaloneSlideHtml,
-  KATEX_CDN_TAGS,
+  KATEX_INLINE_HEAD,
+  SLIDE_FIT_SCRIPT,
+  SLIDE_FRAME_CSS,
   sanitizeFilename,
   stripBom,
 } from "@/lib/actions/slide-export-helpers";
@@ -112,54 +114,12 @@ export async function exportAllSlidesPdfAction(
     throw new Error("El curso no tiene diapositivas para exportar.");
   }
 
-  // v1.7 / Issue 4.1 + v1.8 / Issue 4.1 — A4 portrait, one slide
-  // per page, split 50/50:
-  //   .slide-top    → the slide's `htmlDesign` rendered in a 1280x720
-  //                    frame, CSS-scaled to fit the A4 width.
-  //   .slide-bottom → structured text (Guion / Relevancia / Narrativa)
-  //                    rendered as <h3> + <p> blocks, with overflow
-  //                    hidden so a long box never bleeds onto the
-  //                    following page.
-  //
-  // v1.8 fix — the previous version centred a 1280x720 element with
-  // `transform: scale(0.62)`. The problem: `transform: scale()` does
-  // not change the element's LAYOUT box, only its visual rendering.
-  // With `display: flex; align-items: center; justify-content: center`
-  // the layout box was still 1280px wide, so flex centred its *layout
-  // centre* (at 640px) in the 794px container, clipping 243px of
-  // slide off the LEFT and 243px off the RIGHT — the user only ever
-  // saw the middle ~62% of every slide.
-  //
-  // The fix is a SCALED WRAPPER (.slide-scaler) sized to the
-  // post-scale footprint (1280 * 0.62 ≈ 793.6px × 720 * 0.62 ≈
-  // 446.4px). The native 1280x720 frame is positioned absolutely at
-  // top-left inside the wrapper and transformed from that anchor, so
-  // the visual fill matches the layout fill exactly — no clipping.
-  // The wrapper is then centred inside .slide-top so we keep the
-  // visual nice-ness of a centred slide when the aspect ratios
-  // leave vertical headroom.
-  //
-  // Scale is min(a4Width/1280, a4TopHeight/720) — we use the smaller
-  // of the two so the slide never overflows either axis. a4Width
-  // is 210mm = ~794px at 96dpi, a4TopHeight is half of 297mm = ~561px.
-  // min(794/1280, 561/720) = min(0.620, 0.779) = 0.620. We round to
-  // 0.62 which is the same number as before — only the CSS mounting
-  // changed.
-  // v1.0 — TWO pages per slide:
-  //   Page 1 (A4 LANDSCAPE): the slide design, full-bleed. The slide is now
-  //     authored at 1123×794px = A4 landscape @96dpi, so it maps 1:1 to the
-  //     landscape page (scale ≈ 1.0, min-clamped so it never overflows).
+  // v2.0 — TWO pages per slide:
+  //   Page 1 (A4 LANDSCAPE): the slide design in the SHARED frame→fit→content
+  //     structure. Authored at 1123×794 = A4 landscape @96dpi (1:1), and the
+  //     shared auto-fit script scales any overflowing content down to fit —
+  //     identical to the in-app preview. No clipping, no printed scrollbar.
   //   Page 2 (A4 PORTRAIT): the narrative/exercises/explanation content.
-  const LANDSCAPE_W_PX = 1123; // 297mm at 96dpi
-  const LANDSCAPE_H_PX = 794;  // 210mm at 96dpi
-  const SLIDE_NATIVE_W = 1123;
-  const SLIDE_NATIVE_H = 794;
-  const PDF_SCALE = Math.min(
-    LANDSCAPE_W_PX / SLIDE_NATIVE_W,
-    LANDSCAPE_H_PX / SLIDE_NATIVE_H
-  );
-  const SCALED_W = SLIDE_NATIVE_W * PDF_SCALE;
-  const SCALED_H = SLIDE_NATIVE_H * PDF_SCALE;
 
   const pages = slides
     .map((s) => {
@@ -172,9 +132,11 @@ export async function exportAllSlidesPdfAction(
       const ejercicio2 = stripBom(boxes[BoxType.EXERCISE_2] ?? "");
       const safeDesign = s.htmlDesign ? stripBom(s.htmlDesign) : "";
 
-      // Page 1 — landscape slide.
+      // Page 1 — landscape slide. Uses the SHARED frame→fit→content structure
+      // so the auto-fit script (SLIDE_FIT_SCRIPT) scales each slide to fit
+      // 1123×794 exactly like the preview — no clipping, no printed scrollbar.
       const slidePage = safeDesign
-        ? `<section class="slide-landscape"><div class="slide-scaler"><div class="slide-frame">${safeDesign}</div></div></section>`
+        ? `<section class="slide-landscape"><div class="slide-frame"><div class="slide-fit"><div class="slide-content">${safeDesign}</div></div></div></section>`
         : `<section class="slide-landscape"><div class="slide-empty">Sin diseño HTML generado</div></section>`;
 
       // Page 2 — portrait content. Include exercises (previously omitted).
@@ -200,7 +162,7 @@ export async function exportAllSlidesPdfAction(
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(course.name)} — Slides PDF</title>
-${KATEX_CDN_TAGS}
+${KATEX_INLINE_HEAD}
 <style>
 /* Named pages: the slide prints landscape, its content portrait.
    preferCSSPageSize lets these per-section sizes drive each page. */
@@ -209,22 +171,16 @@ ${KATEX_CDN_TAGS}
 * { box-sizing: border-box; }
 body { margin: 0; padding: 0; background: #fff; }
 
+/* Shared slide-frame structure (frame→fit→content). The fit script scales
+   each .slide-fit so its content fills 1123×794 = A4 landscape @96dpi 1:1. */
+${SLIDE_FRAME_CSS}
+
 .slide-landscape {
   page: landscape;
   width: 297mm; height: 210mm;
   page-break-after: always; break-after: page;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; background: #fff;
-}
-.slide-scaler {
-  width: ${SCALED_W}px; height: ${SCALED_H}px;
-  position: relative; overflow: hidden; flex: 0 0 auto;
-}
-.slide-frame {
-  position: absolute; top: 0; left: 0;
-  width: ${SLIDE_NATIVE_W}px; height: ${SLIDE_NATIVE_H}px;
-  transform: scale(${PDF_SCALE}); transform-origin: top left;
-  background: #fff;
 }
 .slide-empty { color: #999; font-size: 14pt; font-style: italic; }
 
@@ -243,7 +199,9 @@ body { margin: 0; padding: 0; background: #fff; }
 .text-block { margin-bottom: 8pt; }
 </style>
 </head>
-<body>${pages}</body>
+<body>${pages}
+${SLIDE_FIT_SCRIPT}
+</body>
 </html>`;
 
   // Try Playwright first (web deployment). In the desktop build

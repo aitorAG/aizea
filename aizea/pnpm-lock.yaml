@@ -48,7 +48,7 @@ importers:
         specifier: ^0.8.5
         version: 0.8.5
       katex:
-        specifier: ^0.16.11
+        specifier: ^0.16.47
         version: 0.16.47
       lucide-react:
         specifier: ^0.400.0

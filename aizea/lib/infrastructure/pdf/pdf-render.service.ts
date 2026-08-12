@@ -62,43 +62,34 @@ async function loadChromium(): Promise<PwChromium> {
 }
 
 /**
- * v1.9 / Issue 6 — espera a que KaTeX termine de renderizar dentro de la página
- * Chromium antes de capturar el PDF. KaTeX se carga con `defer` y la extensión
- * auto-render corre en `DOMContentLoaded`. Si llamamos a `page.pdf()` antes de
- * que termine, la página impresa muestra el LaTeX en crudo (`$E = mc^2$`).
+ * v2.0 — espera a que el script de auto-fit compartido (`SLIDE_FIT_SCRIPT`)
+ * termine: renderiza KaTeX (inline, offline), espera `document.fonts.ready`,
+ * mide y aplica el `transform: scale()`, y marca `window.__slideFitDone = true`.
  *
- * Estrategia: sondear hasta `maxMs` buscando elementos `.katex`. Si la página
- * no tiene LaTeX, resolvemos rápido con `rendered: -1` ("nada que renderizar").
+ * Capturar el PDF antes de esa señal produciría (a) LaTeX en crudo y/o (b) una
+ * diapositiva sin escalar (recortada). Sondeamos el flag hasta `maxMs`; si el
+ * documento no incluye el script (p. ej. la página de contenido en retrato),
+ * el flag nunca aparece y devolvemos `false` sin bloquear el render — por eso
+ * el llamante usa un timeout corto y sigue.
  */
-async function waitForKatexRender(
+async function waitForSlideFit(
   page: PwPage,
-  maxMs: number = 5000
-): Promise<{ rendered: number; hadLatex: boolean }> {
+  maxMs: number = 6000
+): Promise<boolean> {
   return page.evaluate((maxMsArg: number) => {
-    return new Promise<{ rendered: number; hadLatex: boolean }>((resolve) => {
+    return new Promise<boolean>((resolve) => {
       const start = Date.now();
-      const body = document.body?.innerHTML ?? "";
-      const hadLatex = /\$[^$]+\$|\\\(|\\\[/.test(body);
-      if (!hadLatex) {
-        setTimeout(
-          () => resolve({ rendered: -1, hadLatex: false }),
-          Math.min(200, maxMsArg)
-        );
-        return;
-      }
+      const w = window as unknown as { __slideFitDone?: boolean };
       const tick = () => {
-        const rendered = document.querySelectorAll(".katex").length;
-        if (rendered > 0) {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => resolve({ rendered, hadLatex: true }));
-          });
+        if (w.__slideFitDone === true) {
+          resolve(true);
           return;
         }
         if (Date.now() - start >= maxMsArg) {
-          resolve({ rendered: 0, hadLatex: true });
+          resolve(false);
           return;
         }
-        setTimeout(tick, 50);
+        setTimeout(tick, 40);
       };
       tick();
     });
@@ -131,16 +122,13 @@ export class PdfRenderService {
       // el viewport solo evita que el layout apaisado se constriña antes de
       // paginar (v1.0: 2 páginas/diapositiva, mezcla de orientaciones).
       await page.setViewportSize({ width: 1123, height: 1123 });
-      await page.setContent(html, { waitUntil: "networkidle" });
-      const katex = await waitForKatexRender(page);
-      if (katex.hadLatex && katex.rendered === 0) {
-        // Había fórmulas pero no se renderizaron: fallar en vez de producir un
-        // PDF con `$x^2$` en crudo.
-        throw new Error(
-          "KaTeX no terminó de renderizar las fórmulas (timeout). " +
-            "El PDF se generaría con el LaTeX en crudo."
-        );
-      }
+      // KaTeX is inlined (no network), so `load` is sufficient and avoids
+      // `networkidle` hanging on data-URI fonts.
+      await page.setContent(html, { waitUntil: "load" });
+      // Wait for the shared auto-fit script to finish (KaTeX rendered + fonts
+      // ready + transform applied). Short timeout so a document WITHOUT the
+      // script (or a KaTeX hang) never wedges the export.
+      await waitForSlideFit(page);
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
     } finally {
