@@ -3,9 +3,9 @@ import '../styles/global.css';
 
 const stages = [
   { number: '01', title: 'Ingesta', text: 'El PDF entra en el escritorio. Docling preserva layout y figuras; el fallback de texto mantiene el flujo cuando hace falta.', tag: 'PDF → texto estructurado' },
-  { number: '02', title: 'Comprensión', text: 'Segmentación, unidades semánticas e integración convierten páginas en relaciones que se pueden revisar.', tag: 'Unidades semánticas' },
-  { number: '03', title: 'Estructura', text: 'El material toma forma de árbol conceptual navegable, con edición conversacional para ajustar el criterio.', tag: 'Árbol conceptual' },
-  { number: '04', title: 'Enseñanza', text: 'La estructura alimenta diapositivas editables, con contenido, guion y exportación a PDF o HTML.', tag: 'Slides → exportación' },
+  { number: '02', title: 'Identificación', text: 'AIZEA detecta automáticamente los temas y subtemas, agrupa ideas relacionadas y convierte las páginas en relaciones revisables.', tag: 'Temas · subtemas · relaciones' },
+  { number: '03', title: 'Edición', text: 'Revisa el árbol de contenidos, mueve o renombra nodos, completa huecos y ajusta la estructura a tu intención docente.', tag: 'Árbol de contenidos editable' },
+  { number: '04', title: 'Enseñanza y exportación', text: 'Genera diapositivas de explicación y ejercicios a partir del árbol revisado. Edita el material y expórtalo a PPT, HTML o PDF.', tag: 'Explicaciones · ejercicios · PPT / HTML / PDF' },
 ];
 ---
 <!doctype html>
@@ -13,9 +13,9 @@ const stages = [
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
-    <meta name="description" content="AIZEA convierte PDFs en conocimiento estructurado: árbol conceptual, búsqueda semántica y diapositivas editables." />
-    <meta property="og:title" content="AIZEA — Del documento a la comprensión" />
-    <meta property="og:description" content="Una herramienta local-first para transformar material didáctico en estructura que se puede enseñar." />
+    <meta name="description" content="AIZEA identifica temas y subtemas en PDFs, organiza un árbol de contenidos editable y genera diapositivas de explicación y ejercicios exportables a PPT, HTML y PDF." />
+    <meta property="og:title" content="AIZEA — Del material fuente a una estructura que se puede enseñar" />
+    <meta property="og:description" content="Inspecciona y edita la estructura extraída de un documento, genera explicaciones y ejercicios, y exporta el material." />
     <meta property="og:type" content="website" />
     <link rel="icon" href={`${import.meta.env.BASE_URL}favicon.svg`} />
     <title>AIZEA — Del documento a la comprensión</title>
@@ -23,32 +23,32 @@ const stages = [
   <body>
     <header class="site-header">
       <a class="brand" href="#top" aria-label="AIZEA, inicio"><span class="brand-mark">A</span><span>AIZEA</span></a>
-      <nav aria-label="Navegación principal"><a href="#flujo">Flujo</a><a href="#arquitectura">Arquitectura</a><a href="#limite">Privacidad</a></nav>
-      <a class="header-link" href="#evidencia">Ver el producto <span aria-hidden="true">↗</span></a>
+      <nav aria-label="Navegación principal"><a href="#flujo">Flujo</a><a href="#evidencia">Árbol y diapositivas</a><a href="#arquitectura">Arquitectura</a><a href="#limite">Privacidad</a></nav>
+      <div class="header-actions"><a class="header-link" href="#evidencia">Ver el flujo <span aria-hidden="true">↗</span></a><a class="header-link header-link-repo" href="https://github.com/aitorAG/aizea" target="_blank" rel="noreferrer">Repositorio <span aria-hidden="true">↗</span></a></div>
     </header>
 
     <main id="top">
       <section class="hero section-wrap" aria-labelledby="hero-title">
         <div class="hero-copy">
           <p class="eyebrow"><span class="status-dot"></span> Escritorio · local-first · Tauri</p>
-          <h1 id="hero-title">Del documento<br /><em>a la comprensión.</em></h1>
-          <p class="hero-lede">AIZEA convierte un PDF denso en una estructura visible: primero un árbol conceptual, después las diapositivas que necesitas para enseñarlo.</p>
-          <div class="hero-actions"><a class="button button-dark" href="#flujo">Explorar el flujo <span aria-hidden="true">↓</span></a><a class="text-link" href="#limite">Entender el límite de datos <span aria-hidden="true">↗</span></a></div>
+          <h1 id="hero-title">Del material fuente<br /><em>a una estructura que se puede enseñar.</em></h1>
+          <p class="hero-lede">AIZEA identifica automáticamente los temas y subtemas de un PDF, construye un árbol de contenidos editable y genera diapositivas de explicación y ejercicios listas para revisar y exportar.</p>
+          <div class="hero-actions"><a class="button button-dark" href="#flujo">Explorar el flujo <span aria-hidden="true">↓</span></a><a class="text-link" href="#evidencia">Ver el árbol editable <span aria-hidden="true">↗</span></a></div>
         </div>
-        <div class="hero-art" aria-label="Diagrama conceptual de la transformación de un PDF a un árbol y a diapositivas">
+        <div class="hero-art" aria-label="PDF, temas y subtemas identificados, árbol de contenidos editable, diapositivas de explicación y ejercicios, exportación a PPT, HTML y PDF">
           <div class="paper-stack"><div class="paper"><span class="paper-label">MATERIAL · 01</span><strong>La célula</strong><i></i><i></i><i></i><small>PDF / documento fuente</small></div><div class="paper paper-back"></div></div>
-          <div class="flow-line"><span>procesar</span></div>
-          <div class="tree-sketch"><div class="tree-root">LA CÉLULA</div><div class="tree-branches"><span>Membrana</span><span>Núcleo</span><span>Energía</span></div><div class="tree-stem"></div><small>árbol conceptual</small></div>
-          <div class="flow-line"><span>enseñar</span></div>
-          <div class="slide-sketch"><div class="slide-top">BIOLOGÍA / 01</div><strong>La célula<br />como sistema</strong><div class="slide-bars"><i></i><i></i><i></i></div><small>diapositiva editable</small></div>
+          <div class="flow-line"><span>identificar</span></div>
+          <div class="tree-sketch"><div class="tree-root">TEMAS · SUBTEMAS</div><div class="tree-branches"><span>Membrana</span><span>Núcleo</span><span>Energía</span></div><div class="tree-stem"></div><small>árbol editable</small></div>
+          <div class="flow-line"><span>generar</span></div>
+          <div class="slide-sketch"><div class="slide-top">EXPLICACIÓN + EJERCICIO</div><strong>La célula<br />como sistema</strong><div class="slide-bars"><i></i><i></i><i></i></div><small>editable · PPT · HTML · PDF</small></div>
         </div>
       </section>
 
-      <section class="statement band" aria-labelledby="statement-title"><div class="section-wrap statement-grid"><p class="section-index">01 / POR QUÉ AIZEA</p><h2 id="statement-title">El problema no es tener información.<br /><em>Es poder ver cómo encaja.</em></h2><p>Entre el PDF original y una clase clara hay un trabajo invisible: ordenar, conectar, comprobar y volver a contar. AIZEA hace visible ese trabajo.</p></div></section>
+      <section class="statement band" aria-labelledby="statement-title"><div class="section-wrap statement-grid"><p class="section-index">01 / POR QUÉ AIZEA</p><h2 id="statement-title">Lo difícil no es tener información.<br /><em>Es convertirla en una estructura que puedas enseñar.</em></h2><p>AIZEA identifica los temas y subtemas de un documento, hace visibles sus relaciones y deja el árbol de contenidos editable. Después crea diapositivas de explicación y ejercicios que puedes revisar, adaptar y exportar.</p></div></section>
 
-      <section id="flujo" class="section-wrap workflow" aria-labelledby="flow-title"><div class="section-heading"><p class="section-index">02 / EL FLUJO</p><h2 id="flow-title">Una cadena de transformación<br /><em>que puedes inspeccionar.</em></h2><p>El pipeline persiste su estado y retoma el trabajo. Cada etapa deja una salida que puedes revisar antes de seguir.</p></div><ol class="stage-list">{stages.map((stage) => <li><span class="stage-number">{stage.number}</span><div><h3>{stage.title}</h3><p>{stage.text}</p><span class="stage-tag">{stage.tag}</span></div></li>)}</ol></section>
+      <section id="flujo" class="section-wrap workflow" aria-labelledby="flow-title"><div class="section-heading"><p class="section-index">02 / EL FLUJO</p><h2 id="flow-title">Una cadena de transformación<br /><em>que puedes inspeccionar.</em></h2><p>Un documento se convierte en una secuencia revisable: identificar la estructura, editar el árbol, generar material docente y exportar el resultado. Cada etapa deja una salida que puedes revisar antes de continuar.</p></div><ol class="stage-list">{stages.map((stage) => <li><span class="stage-number">{stage.number}</span><div><h3>{stage.title}</h3><p>{stage.text}</p><span class="stage-tag">{stage.tag}</span></div></li>)}</ol></section>
 
-      <section id="evidencia" class="evidence band" aria-labelledby="evidence-title"><div class="section-wrap"><div class="section-heading evidence-heading"><p class="section-index">03 / EN EL PRODUCTO</p><h2 id="evidence-title">Una idea, tres superficies<br /><em>para trabajarla.</em></h2><p>Las siguientes vistas son representaciones conceptuales del producto, creadas para explicar el recorrido. No son capturas de una versión actual.</p></div><div class="product-views"><article class="product-view tree-view"><div class="view-chrome"><span>AIzea / Árbol conceptual</span><span>○ ○ ○</span></div><div class="view-body"><div class="view-side"><b>Curso: Biología</b><span>01 La célula</span><span>02 Genética</span><span>03 Evolución</span></div><div class="mini-tree"><b>La célula</b><span>├─ Membrana celular</span><span>├─ Núcleo</span><span>└─ Metabolismo</span><i>+ conversar con el árbol</i></div></div><h3>Árbol conceptual</h3><p>Una vista navegable para detectar huecos, mover ideas y editar el modelo.</p></article><article class="product-view slide-view"><div class="view-chrome"><span>AIzea / Presentación</span><span>1 / 12</span></div><div class="slide-large"><small>BIOLOGÍA · CONCEPTOS CLAVE</small><strong>La célula<br />como sistema</strong><div></div><span>editable · exportable</span></div><h3>Diapositivas</h3><p>Del esquema a una narrativa que todavía puedes hacer tuya.</p></article></div></div></section>
+      <section id="evidencia" class="evidence band" aria-labelledby="evidence-title"><div class="section-wrap"><div class="section-heading evidence-heading"><p class="section-index">03 / EN EL PRODUCTO</p><h2 id="evidence-title">Una idea, tres superficies<br /><em>para construir una clase.</em></h2><p>Las siguientes vistas son representaciones conceptuales del flujo del producto. No son capturas de una versión actual.</p></div><div class="product-views"><article class="product-view tree-view"><div class="view-chrome"><span>AIZEA / Árbol de contenidos</span><span>○ ○ ○</span></div><div class="view-body"><div class="view-side"><b>Curso: Biología</b><span>01 La célula</span><span>02 Genética</span><span>03 Evolución</span></div><div class="mini-tree"><b>La célula</b><span>├─ Membrana celular</span><span>├─ Núcleo</span><span>└─ Metabolismo</span><i>+ conversar con el árbol</i></div></div><h3>Temas y subtemas identificados</h3><p>El material se organiza automáticamente en un árbol navegable que puedes mover, renombrar y editar.</p></article><article class="product-view slide-view"><div class="view-chrome"><span>AIZEA / Explicación</span><span>1 / 12</span></div><div class="slide-large"><small>BIOLOGÍA · EXPLICACIÓN</small><strong>La célula<br />como sistema</strong><div></div><span>generada · editable</span></div><h3>Diapositivas de explicación</h3><p>Construye una explicación clara desde el árbol y revisa su redacción y secuencia.</p></article><article class="product-view slide-view exercise-view"><div class="view-chrome"><span>AIZEA / Ejercicio</span><span>2 / 12</span></div><div class="slide-large"><small>BIOLOGÍA · EJERCICIO</small><strong>Comprueba<br />lo aprendido</strong><div></div><span>editable · guía de respuesta</span></div><h3>Diapositivas de ejercicios</h3><p>Añade práctica junto a la explicación para activar el aprendizaje.</p></article></div><div class="export-strip"><p class="section-index">04 / EL RESULTADO</p><h3>Tu estructura sigue siendo editable <em>hasta el formato que necesitas.</em></h3><p>Revisa el árbol y las diapositivas, adapta el material y expórtalo como presentación o documento.</p><div class="export-formats"><span>PPT</span><span>HTML</span><span>PDF</span></div></div></div></section>
 
       <section id="limite" class="section-wrap boundary" aria-labelledby="boundary-title"><div class="boundary-copy"><p class="section-index">04 / EL LÍMITE</p><h2 id="boundary-title">Tus documentos se quedan<br /><em>en tu máquina.</em></h2><p>La base de datos, los archivos y el índice vectorial viven localmente. La única frontera externa es la llamada al modelo, a través de OpenRouter y con tu propia clave.</p></div><div class="boundary-diagram" role="img" aria-label="Diagrama textual: datos locales dentro del escritorio y OpenRouter como única frontera externa"><div class="local-box"><b>EN TU ESCRITORIO</b><span>PDFs y figuras</span><span>SQLite · LanceDB</span><span>Pipeline persistente</span><span>Shell Tauri</span></div><div class="boundary-arrow"><span>solo generación</span> →</div><div class="external-box"><b>FRONTERA EXTERNA</b><span>OpenRouter</span><small>modelo de lenguaje</small></div></div></section>
 
