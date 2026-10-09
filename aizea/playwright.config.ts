@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Contrato E2E del flujo crítico de AIzea (Fase 0.2 del plan de reescritura
- * selectiva — docs/plans/opcion-3-reescritura-selectiva.md).
+ * selectiva — .omo/plans/opcion-3-reescritura-selectiva.md).
  *
  * Este contrato es la RED DE SEGURIDAD que garantiza paridad de comportamiento
  * durante toda la migración (backend saneado → sidecar supervisado → SPA Vite).

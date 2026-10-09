@@ -27,7 +27,7 @@
 //   - Open Course A's /tree page in Playwright.
 //   - Assert: only the recent running job is in the banner stack
 //     (count == 1, status == "active").
-//   - Take screenshot to .test-artifacts/evidence/v1.5/wave-2/2.3-only-current-jobs.png
+//   - Take screenshot to .omo/evidence/v1.5/wave-2/2.3-only-current-jobs.png
 //   - Navigate to Course B's /tree page.
 //   - Assert: only Course B's recent running job is in the banner
 //     stack (count == 1, data-course-id != Course A's id).
@@ -42,7 +42,7 @@ import { PrismaClient } from "@prisma/client";
 const EVIDENCE_DIR = resolve(
   process.cwd(),
   "..",
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "v1.5",
   "wave-2"

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Edit, BookOpen, Layers, FileText } from "lucide-react";
+import { Plus, Trash2, Edit, BookOpen, Layers, FileText, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -45,6 +45,15 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<CourseListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // UX — client-side search. With more than a handful of courses the
+  // flat list becomes hard to scan; filter by name as the user types.
+  const [query, setQuery] = useState("");
+  const filteredCourses = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length === 0) return courses;
+    return courses.filter((c) => c.name.toLowerCase().includes(q));
+  }, [courses, query]);
 
   const handleCreate = useCallback(async () => {
     if (!newName.trim()) return;
@@ -148,8 +157,23 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
   return (
     <>
       {/* Action bar */}
-      <div className="flex items-center justify-end">
-        <Button onClick={() => setCreateOpen(true)}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {courses.length > 0 && (
+          <div className="relative w-full max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="course-search"
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar cursos…"
+              aria-label="Buscar cursos"
+              className="pl-9"
+              data-testid="course-search"
+            />
+          </div>
+        )}
+        <Button onClick={() => setCreateOpen(true)} className={courses.length === 0 ? "ml-auto" : ""}>
           <Plus className="h-4 w-4" />
           Nuevo Curso
         </Button>
@@ -168,9 +192,15 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
             </Button>
           }
         />
+      ) : filteredCourses.length === 0 ? (
+        <EmptyState
+          icon={<Search className="h-8 w-8" />}
+          title="Sin resultados"
+          description={`Ningún curso coincide con "${query.trim()}".`}
+        />
       ) : (
         <div className="space-y-3">
-          {courses.map((course) => (
+          {filteredCourses.map((course) => (
             <Card
               key={course.id}
               className="group transition-shadow hover:shadow-md"

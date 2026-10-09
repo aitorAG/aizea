@@ -30,7 +30,7 @@ import { db } from "@/lib/db";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const EVIDENCE_DIR = join(process.cwd(), ".test-artifacts", "evidence", "upload-decoupling");
+const EVIDENCE_DIR = join(process.cwd(), ".omo", "evidence", "upload-decoupling");
 if (!existsSync(EVIDENCE_DIR)) mkdirSync(EVIDENCE_DIR, { recursive: true });
 const EVIDENCE_FILE = join(EVIDENCE_DIR, "01-after-fix.txt");
 

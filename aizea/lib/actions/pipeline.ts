@@ -270,6 +270,14 @@ export type CancelPipelineResult =
 // a couple of minutes ago.
 const FINISHED_JOB_WINDOW_MS = 5 * 60 * 1000;
 
+// UX — failed jobs deserve a much longer retention window than
+// completed ones. A pipeline can fail while the user is away (bad API
+// key, rate limit, provider outage); if the failure vanished from the
+// panel after 5 minutes the user would come back to NO trace of what
+// happened. Failures stay visible for a full day so they can always be
+// reviewed and retried from the "Finalizados" tab.
+const FAILED_JOB_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export type RetryPipelineResult =
   | StartPipelineResult
   | { ok: false; error: string };
@@ -308,10 +316,14 @@ export type ListFinishedJobsResult =
 
 /**
  * v1.11 / Jobs panel — list jobs that are no longer in-flight
- * (completed / failed / cancelled) AND were updated within the last
- * 5 minutes. This is the "Finalizados" tab. Returns rows hydrated
- * with the course name so the UI can group by course without a
- * follow-up round-trip.
+ * (completed / failed / cancelled). This is the "Finalizados" tab.
+ * Returns rows hydrated with the course name so the UI can group by
+ * course without a follow-up round-trip.
+ *
+ * UX retention windows differ by outcome:
+ *   - completed / cancelled → 5 minutes (transient confirmations).
+ *   - failed → 24 hours (see FAILED_JOB_WINDOW_MS — failures must not
+ *     evaporate before the user has seen them).
  *
  * Optionally scoped to a single course via `options.courseId` so the
  * hover tooltip on the Jobs nav button can show finished jobs for
@@ -322,29 +334,40 @@ export async function listFinishedJobsAction(
   options: ListActiveJobsOptions = {}
 ): Promise<ListFinishedJobsResult> {
   try {
-    // `statusFilter` mode = only the given terminal statuses, each
-    // constrained to the window (the port applies the `updatedAt`
-    // cutoff). No pending/running here — this is the "Finalizados" tab.
-    const rows = await container.processingJobs.findRecentWithCourseNames({
-      windowMs: FINISHED_JOB_WINDOW_MS,
-      courseId: options.courseId,
-      statusFilter: ["completed", "failed", "cancelled"],
+    const toJob = (row: Awaited<
+      ReturnType<typeof container.processingJobs.findRecentWithCourseNames>
+    >[number]): ActiveJob => ({
+      jobId: row.id,
+      courseId: row.courseId,
+      courseName: row.courseName,
+      phase: row.type,
+      status: row.status,
+      progress: row.progress,
+      currentStep: row.currentStep,
+      error: row.error,
+      startedAt: row.createdAt.getTime(),
+      updatedAt: row.updatedAt.getTime(),
     });
-    return {
-      ok: true,
-      jobs: rows.map((row) => ({
-        jobId: row.id,
-        courseId: row.courseId,
-        courseName: row.courseName,
-        phase: row.type,
-        status: row.status,
-        progress: row.progress,
-        currentStep: row.currentStep,
-        error: row.error,
-        startedAt: row.createdAt.getTime(),
-        updatedAt: row.updatedAt.getTime(),
-      })),
-    };
+
+    // Two disjoint queries (the port applies ONE window per call), then
+    // merge newest-first. Filters never overlap so no dedupe needed.
+    const [recent, recentFailures] = await Promise.all([
+      container.processingJobs.findRecentWithCourseNames({
+        windowMs: FINISHED_JOB_WINDOW_MS,
+        courseId: options.courseId,
+        statusFilter: ["completed", "cancelled"],
+      }),
+      container.processingJobs.findRecentWithCourseNames({
+        windowMs: FAILED_JOB_WINDOW_MS,
+        courseId: options.courseId,
+        statusFilter: ["failed"],
+      }),
+    ]);
+
+    const jobs = [...recent, ...recentFailures]
+      .map(toJob)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    return { ok: true, jobs };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
     return { ok: false, error: message };

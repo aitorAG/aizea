@@ -11,10 +11,18 @@ import {
   Loader2,
   BookOpen,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { MaterialFileCard } from "@/components/material-file-card";
 import { useToast } from "@/components/toast";
 import { updateCourseContext } from "@/lib/actions/course";
@@ -57,6 +65,15 @@ function MaterialsClient({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // UX — visible transition state. After a successful save we render an
+  // inline "saved" confirmation (instead of relying on an ephemeral toast)
+  // for a beat before router.push fires, so the user SEES where the app
+  // is taking them.
+  const [navigating, setNavigating] = useState(false);
+  // UX — destructive actions need a confirmation step. The material card
+  // delete button opens this dialog; the actual deletion only happens
+  // after explicit user confirmation.
+  const [deleteTarget, setDeleteTarget] = useState<MaterialItem | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const materialAdapter = useMaterialAdapter(courseId);
@@ -202,29 +219,29 @@ function MaterialsClient({
     }
   }
 
-  const handleDelete = useCallback(
-    async (materialId: string) => {
-      setDeletingId(materialId);
-      try {
-        await materialAdapter.deleteMaterial(materialId);
-        setMaterials((prev) => prev.filter((m) => m.id !== materialId));
-        toast({
-          title: "Material eliminado",
-          variant: "success",
-        });
-        await revalidateMaterials(courseId);
-      } catch (err) {
-        toast({
-          title: "Error al eliminar",
-          description: err instanceof Error ? err.message : "No se pudo eliminar el material.",
-          variant: "error",
-        });
-      } finally {
-        setDeletingId(null);
-      }
-    },
-    [toast, courseId, materialAdapter]
-  );
+  const confirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeletingId(target.id);
+    try {
+      await materialAdapter.deleteMaterial(target.id);
+      setMaterials((prev) => prev.filter((m) => m.id !== target.id));
+      toast({
+        title: "Material eliminado",
+        variant: "success",
+      });
+      setDeleteTarget(null);
+      await revalidateMaterials(courseId);
+    } catch (err) {
+      toast({
+        title: "Error al eliminar",
+        description: err instanceof Error ? err.message : "No se pudo eliminar el material.",
+        variant: "error",
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  }, [toast, courseId, materialAdapter, deleteTarget]);
 
   const handlePreview = useCallback((filename: string) => {
     // encodeURIComponent handles spaces, accents, and other characters
@@ -238,13 +255,15 @@ function MaterialsClient({
       await updateCourseContext(courseId, context);
       toast({
         title: "Contexto guardado",
-        // F3: the next phase is the conceptual tree (phase 2), NOT
-        // the slides (phase 3). The user must land on /tree to either
-        // see the existing tree or the empty-state CTA "Generar árbol".
         description: "Continuando al árbol conceptual...",
         variant: "success",
       });
-      router.push(`/courses/${courseId}/tree`);
+      // UX — show the inline transition state before navigating so the
+      // user sees WHERE the app is going instead of a sudden page swap.
+      setNavigating(true);
+      setTimeout(() => {
+        router.push(`/courses/${courseId}/tree`);
+      }, 600);
     } catch (err) {
       toast({
         title: "Error al guardar",
@@ -382,7 +401,7 @@ function MaterialsClient({
                 filename={material.filename}
                 fileSize={material.fileSize}
                 fileType={material.fileType}
-                onDelete={() => handleDelete(material.id)}
+                onDelete={() => setDeleteTarget(material)}
                 onPreview={() => handlePreview(material.filename)}
                 deleting={deletingId === material.id}
               />
@@ -414,14 +433,24 @@ function MaterialsClient({
       {/* Bottom actions */}
       <div className="space-y-3 border-t border-border pt-6">
         {/* F3: explicit hint so the user knows what "continuar" means —
-            the next phase is the conceptual tree, not the slides. */}
+            the next step is the conceptual tree, not the slides. */}
         <p
           id="save-and-continue-hint"
           className="text-xs text-muted-foreground"
         >
-          Al guardar, continuarás a la <strong>fase 2: árbol conceptual</strong>.
+          Al guardar, continuarás al <strong>árbol conceptual</strong>.
           Si ya existe un árbol, lo verás. Si no, podrás generarlo.
         </p>
+        {navigating && (
+          <div
+            className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground"
+            data-testid="save-and-continue-transition"
+            role="status"
+          >
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            Contexto guardado. Abriendo el árbol conceptual…
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <Link
             href="/"
@@ -440,6 +469,38 @@ function MaterialsClient({
           </Button>
         </div>
       </div>
+
+      {/* Delete Material Confirmation — destructive actions must never be
+          one-click. Mirrors the course-delete dialog on the dashboard. */}
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => {
+          if (deletingId === null) setDeleteTarget(null);
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Eliminar material</DialogTitle>
+          <DialogDescription>
+            ¿Estás seguro de que quieres eliminar &quot;
+            {deleteTarget?.filename.replace(/^\d+_(.*)$/, "$1")}&quot;? El archivo y
+            todo su contenido procesado se borrarán. Esta acción no se puede
+            deshacer.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setDeleteTarget(null)}
+            disabled={deletingId !== null}
+          >
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={confirmDelete} loading={deletingId !== null}>
+            <Trash2 className="h-4 w-4" />
+            Eliminar
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }

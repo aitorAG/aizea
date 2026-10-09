@@ -72,5 +72,5 @@ describe("image-compressor: compressToWebP", () => {
   });
 });
 
-// Force reference to keep the import alive for the test.
+// Force reference to keep the import alive for the IDE.
 void sharp;

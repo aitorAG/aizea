@@ -21,8 +21,8 @@ export default async function SettingsPage() {
         </Link>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Configuración</h1>
         <p className="mt-1 text-muted-foreground">
-          Ajusta la API key de OpenRouter y los modelos utilizados para generar
-          y analizar el contenido.
+          Conecta tu clave de OpenRouter para que la IA pueda generar árboles y
+          diapositivas. Los ajustes técnicos viven en la sección avanzada.
         </p>
       </div>
 
@@ -77,7 +77,7 @@ export default async function SettingsPage() {
             <div>
               <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Brain className="h-3.5 w-3.5" />
-                Chat model
+                Modelo de chat
               </dt>
               <dd className="mt-1 text-sm" data-testid="current-chat-model">
                 {current.chatModel}
@@ -86,7 +86,7 @@ export default async function SettingsPage() {
             <div>
               <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Hash className="h-3.5 w-3.5" />
-                Embed model
+                Modelo de embeddings
               </dt>
               <dd className="mt-1 text-sm" data-testid="current-embed-model">
                 {current.embedModel}
@@ -95,7 +95,7 @@ export default async function SettingsPage() {
             <div>
               <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Check className="h-3.5 w-3.5" />
-                API key
+                Clave de API
               </dt>
               <dd className="mt-1 text-sm" data-testid="current-apikey-status">
                 {current.apiKeyPresent ? "configurada" : "no configurada"}

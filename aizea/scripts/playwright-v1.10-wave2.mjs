@@ -27,7 +27,7 @@ import path from "node:path";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVIDENCE_DIR = path.resolve(
   __dirname,
-  "../.test-artifacts/evidence/v1.10/wave2"
+  "../.omo/evidence/v1.10/wave2"
 );
 
 const COURSE_ID = "a00bad58-ab38-4119-8ab3-effc00f0bb3c";

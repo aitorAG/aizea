@@ -7,7 +7,7 @@
 //      iframe preview shows up.
 //   3. Loading state shows a spinner while the request is in flight.
 //
-// Captures BEFORE/AFTER screenshots into .test-artifacts/evidence/generar-slide/.
+// Captures BEFORE/AFTER screenshots into .omo/evidence/generar-slide/.
 //
 // Usage: node scripts/playwright-generar-slide-e2e.mjs
 
@@ -20,7 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const evidenceDir = resolve(
   __dirname,
   "..",
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "generar-slide"
 );

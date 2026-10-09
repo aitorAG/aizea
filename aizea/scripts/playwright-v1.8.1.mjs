@@ -16,7 +16,7 @@ import { PrismaClient } from "@prisma/client";
 
 const EVIDENCE_DIR = join(
   process.cwd(),
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "v1.8.1"
 );

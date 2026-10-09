@@ -13,7 +13,7 @@ import { mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "@prisma/client";
 
-const EVIDENCE_DIR = join(process.cwd(), ".test-artifacts", "evidence", "banner-multi-stuck");
+const EVIDENCE_DIR = join(process.cwd(), ".omo", "evidence", "banner-multi-stuck");
 if (!existsSync(EVIDENCE_DIR)) mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 function step(label) {

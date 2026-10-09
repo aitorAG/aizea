@@ -12,7 +12,7 @@
 //      unchanged for other tests).
 //   5. The first/last slides disable the corresponding nav button.
 //
-// Output: PNGs and a JSON summary to .test-artifacts/evidence/slide-editor/.
+// Output: PNGs and a JSON summary to .omo/evidence/slide-editor/.
 //
 // Usage: node scripts/playwright-slide-editor-e2e.mjs
 
@@ -24,13 +24,13 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const snapshotPath =
   process.argv[2] ?? "scripts/.course-snapshot.json";
-// scripts/ lives inside aizea/, so .test-artifacts/ is one level up from the
-// script. resolve(__dirname, "..", ".test-artifacts", "evidence", "slide-editor")
-// → aizea/.test-artifacts/evidence/slide-editor.
+// scripts/ lives inside aizea/, so .omo/ is one level up from the
+// script. resolve(__dirname, "..", ".omo", "evidence", "slide-editor")
+// → aizea/.omo/evidence/slide-editor.
 const evidenceDir = resolve(
   __dirname,
   "..",
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "slide-editor"
 );
