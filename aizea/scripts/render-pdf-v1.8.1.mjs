@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const EVIDENCE_DIR = join(process.cwd(), ".test-artifacts", "evidence", "v1.8.1");
+const EVIDENCE_DIR = join(process.cwd(), ".omo", "evidence", "v1.8.1");
 if (!existsSync(EVIDENCE_DIR)) mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 async function main() {

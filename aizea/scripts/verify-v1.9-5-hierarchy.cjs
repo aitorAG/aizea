@@ -8,14 +8,14 @@
  * row by SlidesHierarchy.tsx and the CSS draws a vertical rail on
  * non-root rows.
  *
- * Output: .test-artifacts/evidence/v1.9/5-hierarchy.png
+ * Output: .omo/evidence/v1.9/5-hierarchy.png
  */
 const { chromium } = require("playwright");
 const { PrismaClient } = require("@prisma/client");
 const fs = require("fs");
 const path = require("path");
 
-const EVIDENCE = path.resolve(__dirname, "..", ".test-artifacts", "evidence", "v1.9");
+const EVIDENCE = path.resolve(__dirname, "..", ".omo", "evidence", "v1.9");
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const SCREENSHOT_HIERARCHY = path.join(EVIDENCE, "5-hierarchy.png");

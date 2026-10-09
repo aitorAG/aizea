@@ -3,7 +3,7 @@
 // SlideNavigator — pure presentational component that lets the user jump
 // between slides WITHOUT going back to the index.
 //
-// F5.2 design contract (from docs/drafts/product-design/flujo-usuario.md):
+// F5.2 design contract (from .omo/drafts/product-design/flujo-usuario.md):
 //   - Dropdown showing all slides of the course
 //   - "Anterior" / "Siguiente" buttons
 //   - On change → invokes onNavigate(newSlideId) (parent does router.push)

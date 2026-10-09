@@ -13,7 +13,7 @@ const BASE_URL = "http://localhost:3100";
 const COURSE_ID = "ff340bd3-a4d6-457d-95a4-44845989f27d";
 const EVIDENCE_DIR = path.join(
   "C:\\Users\\PC\\Proyectos\\AIzea\\aizea",
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "v1.5",
   "batch1"

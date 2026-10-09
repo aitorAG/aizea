@@ -7,9 +7,9 @@
 //   node scripts/verify-formula-render.cjs
 //
 // Outputs:
-//   .test-artifacts/evidence/v1.5/wave-1/1.4-formulas.png    — full page
-//   .test-artifacts/evidence/v1.5/wave-1/1.4-preview.png     — tight crop on iframe
-//   .test-artifacts/evidence/v1.5/wave-1/1.4-verification.json — pass/fail summary
+//   .omo/evidence/v1.5/wave-1/1.4-formulas.png    — full page
+//   .omo/evidence/v1.5/wave-1/1.4-preview.png     — tight crop on iframe
+//   .omo/evidence/v1.5/wave-1/1.4-verification.json — pass/fail summary
 //
 // The original `htmlDesign` is restored on the way out (or the test
 // slide is deleted if we created one from scratch) so this script is
@@ -20,7 +20,7 @@ const { PrismaClient } = require("@prisma/client");
 const fs = require("fs");
 const path = require("path");
 
-const EVIDENCE = path.resolve(__dirname, "..", ".test-artifacts", "evidence", "v1.5", "wave-1");
+const EVIDENCE = path.resolve(__dirname, "..", ".omo", "evidence", "v1.5", "wave-1");
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const SCREENSHOT_FULL = path.join(EVIDENCE, "1.4-formulas.png");

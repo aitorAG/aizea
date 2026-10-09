@@ -12,7 +12,7 @@
 //
 // Usage: node scripts/full-flow-e2e.mjs
 //
-// Evidence (.test-artifacts/evidence/full-flow/) per feature:
+// Evidence (.omo/evidence/full-flow/) per feature:
 //   f1-dashboard/        — dashboard icons (green/red + click nav)
 //   f2-checkpoint/       — CheckpointBar on all 4 phases
 //   f3-save-continue/    — Save & continue (materials → tree)
@@ -34,7 +34,7 @@ const COURSE_ID = "eb18c671-5184-4461-b01e-c0cf800cccb6";
 const FIRST_SLIDE_ID = "ef331899-b3b1-46ef-bcd9-0852f5f8fc21";
 const SECOND_SLIDE_ID = "f6e8997c-aee8-412a-9cfc-8941f2da0c62";
 
-const EVIDENCE = resolve(__dirname, "..", ".test-artifacts", "evidence", "full-flow");
+const EVIDENCE = resolve(__dirname, "..", ".omo", "evidence", "full-flow");
 for (const sub of [
   "f1-dashboard",
   "f2-checkpoint",

@@ -1,6 +1,6 @@
 // Capture Playwright screenshots of the CheckpointBar on each of the
 // four course pages, plus a "narrow viewport" mobile variant. Writes
-// PNGs to .test-artifacts/evidence/checkpoint-bar/ and asserts the bar's data
+// PNGs to .omo/evidence/checkpoint-bar/ and asserts the bar's data
 // attributes so a regression that breaks the phase detection fails
 // the test rather than silently shipping a broken screenshot.
 //
@@ -21,7 +21,7 @@ const evidenceDir = resolve(
   __dirname,
   "..",
   "..",
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "checkpoint-bar"
 );

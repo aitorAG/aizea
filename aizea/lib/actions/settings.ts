@@ -6,7 +6,7 @@
 // the new values without waiting for the 30s TTL.
 
 import { container } from "@/lib/composition/container";
-import { invalidateConfigCache } from "@/lib/config-service";
+import { invalidateConfigCache, getSettings } from "@/lib/config-service";
 import { revalidatePath } from "next/cache";
 
 export interface SettingsView {
@@ -114,4 +114,86 @@ export async function updateSettingsAction(
   revalidatePath("/");
 
   return { ok: true, persisted: true };
+}
+
+export type TestConnectionResult =
+  | {
+      ok: true;
+      /** The label OpenRouter reports for this key, when available. */
+      label?: string;
+    }
+  | { ok: false; error: string };
+
+/**
+ * UX — "Probar conexión": validate the OpenRouter credentials BEFORE the
+ * user kicks off an expensive pipeline and discovers the failure minutes
+ * later. Uses OpenRouter's lightweight `/api/v1/key` endpoint (no LLM
+ * tokens are spent).
+ *
+ * Pass `apiKey` to test a value the user has typed but not yet saved;
+ * omit it (or pass empty) to test the currently persisted configuration.
+ */
+export async function testConnectionAction(
+  apiKey?: string
+): Promise<TestConnectionResult> {
+  let key = apiKey?.trim() ?? "";
+  if (key.length === 0) {
+    try {
+      const s = await getSettings();
+      key = s.apiKey;
+    } catch {
+      return { ok: false, error: "No se pudo leer la configuración actual." };
+    }
+  }
+  if (key.length === 0 || key === "test-api-key") {
+    return {
+      ok: false,
+      error: "No hay ninguna API key configurada. Introduce tu clave de OpenRouter primero.",
+    };
+  }
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/key", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.ok) {
+      let label: string | undefined;
+      try {
+        const body = (await res.json()) as {
+          data?: { label?: string };
+        };
+        label = body.data?.label ?? undefined;
+      } catch {
+        // Body parsing is best-effort — the key itself validated.
+      }
+      return { ok: true, label };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return {
+        ok: false,
+        error:
+          "La API key no es válida o fue revocada. Revisa que copies la clave completa (empieza por 'sk-or-v1-').",
+      };
+    }
+    if (res.status === 429) {
+      return {
+        ok: false,
+        error: "Has superado el límite de peticiones de OpenRouter. Espera unos segundos e inténtalo de nuevo.",
+      };
+    }
+    return {
+      ok: false,
+      error: `OpenRouter respondió con un error inesperado (HTTP ${res.status}). Inténtalo de nuevo más tarde.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? `No se pudo conectar con OpenRouter: ${err.message}`
+          : "No se pudo conectar con OpenRouter. Comprueba tu conexión a internet.",
+    };
+  }
 }

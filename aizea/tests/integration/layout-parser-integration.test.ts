@@ -136,7 +136,7 @@ describe("LayoutParser — integration with docling-serve", () => {
 
       const result = await parser.parse(buffer, "structured-doc.pdf");
 
-      const evidenceDir = resolve(process.cwd(), "..", ".test-artifacts", "evidence");
+      const evidenceDir = resolve(process.cwd(), "..", ".omo", "evidence");
       const out = resolve(evidenceDir, "task-8-real-pdf.json");
       mkdirSync(evidenceDir, { recursive: true });
       writeFileSync(

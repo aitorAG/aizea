@@ -24,7 +24,7 @@ import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EVIDENCE_DIR = path.resolve(__dirname, "../.test-artifacts/evidence/v1.11");
+const EVIDENCE_DIR = path.resolve(__dirname, "../.omo/evidence/v1.11");
 const SERVER = process.env.AIZEA_SERVER ?? "http://localhost:3100";
 
 const COURSE_A = {

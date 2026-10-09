@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Link from "next/link";
 import "./globals.css";
 import { Toaster } from "@/components/toast";
 import { GlobalPipelineBanner } from "@/components/PipelineProgress/GlobalPipelineBanner";
@@ -53,33 +54,33 @@ export default function RootLayout({
           style={{ top: "var(--pipeline-banner-h, 0px)" }}
         >
           <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-            <a
+            <Link
               href="/"
               className="flex items-center gap-2 font-semibold text-lg tracking-tight"
             >
               <span className="text-primary">AI</span>
               <span>zea</span>
-            </a>
+            </Link>
             <nav className="flex items-center gap-4 text-sm text-muted-foreground">
-              <a
+              <Link
                 href="/"
                 className="flex items-center gap-1.5 hover:text-foreground transition-colors"
               >
                 <Home className="h-4 w-4" />
                 <span className="hidden sm:inline">Inicio</span>
-              </a>
+              </Link>
               {/* v1.11 — Jobs nav button. Client component; opens
                   the right-side drawer on click and shows a hover
                   preview of active jobs for the current course. */}
               <NavJobsButton />
-              <a
+              <Link
                 href="/settings"
                 className="flex items-center gap-1.5 hover:text-foreground transition-colors"
                 data-testid="nav-settings"
               >
                 <Settings className="h-4 w-4" />
                 <span className="hidden sm:inline">Configuración</span>
-              </a>
+              </Link>
             </nav>
           </div>
         </header>

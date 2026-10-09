@@ -11,7 +11,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const EVIDENCE = resolve(__dirname, "..", ".test-artifacts", "evidence", "v1.5", "verify");
+const EVIDENCE = resolve(__dirname, "..", ".omo", "evidence", "v1.5", "verify");
 mkdirSync(EVIDENCE, { recursive: true });
 const db = new PrismaClient();
 

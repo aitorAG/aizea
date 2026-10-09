@@ -19,7 +19,7 @@ import { PrismaClient } from "@prisma/client";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const EVIDENCE_DIR = join(process.cwd(), ".test-artifacts", "evidence", "upload-decoupling");
+const EVIDENCE_DIR = join(process.cwd(), ".omo", "evidence", "upload-decoupling");
 if (!existsSync(EVIDENCE_DIR)) mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 const FIXTURE_PDF = join(process.cwd(), "tests", "fixtures", "sample.pdf");

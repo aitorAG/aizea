@@ -32,7 +32,7 @@ import { PrismaClient } from "@prisma/client";
 
 const EVIDENCE_DIR = resolve(
   process.cwd(),
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "v1.5",
   "wave-3"
