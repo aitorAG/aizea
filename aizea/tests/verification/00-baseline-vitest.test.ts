@@ -16,7 +16,7 @@
 //   - nodes.length === 0
 //
 // The original "before" measurement is preserved in
-// `.test-artifacts/evidence/upload-decoupling/00-baseline.txt`.
+// `.omo/evidence/upload-decoupling/00-baseline.txt`.
 
 import { describe, it } from "vitest";
 
@@ -26,7 +26,7 @@ describe("Baseline (BEFORE v1.5 finding 1.7 fix) — HISTORICAL, SKIPPED", () =>
     () => {
       // Original implementation removed. See git history for the
       // pre-fix version of this test. The historical evidence is
-      // in `.test-artifacts/evidence/upload-decoupling/00-baseline.txt`.
+      // in `.omo/evidence/upload-decoupling/00-baseline.txt`.
     }
   );
 });

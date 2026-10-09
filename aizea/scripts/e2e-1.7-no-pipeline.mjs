@@ -28,7 +28,7 @@ import { PrismaClient } from '@prisma/client';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
-const OUT_DIR = join(process.cwd(), '.test-artifacts', 'evidence', 'v1.5', 'wave-1');
+const OUT_DIR = join(process.cwd(), '.omo', 'evidence', 'v1.5', 'wave-1');
 if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
 
 const SCREENSHOT_PATH = join(OUT_DIR, '1.7-no-pipeline.png');

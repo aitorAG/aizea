@@ -2,7 +2,7 @@
 //
 // SlideTitleField — editable title/description for a slide.
 //
-// F5.2 design contract (from docs/drafts/product-design/flujo-usuario.md):
+// F5.2 design contract (from .omo/drafts/product-design/flujo-usuario.md):
 //   - "Otras propiedades editables (título, contenido de las cajas/boxes)"
 //   - The current implementation only renders the title as a heading;
 //     it is NOT editable. This test pins down the contract for the

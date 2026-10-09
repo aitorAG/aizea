@@ -10,7 +10,7 @@ const treeText = (await p.evaluate(() => document.body.innerText.substring(0, 40
 console.log("TREE PAGE TEXT:", treeText);
 
 // Take screenshot
-await p.screenshot({ path: "C:/Users/PC/Proyectos/AIzea/aizea/.test-artifacts/evidence/v1.7/verify-tree.png" });
+await p.screenshot({ path: "C:/Users/PC/Proyectos/AIzea/aizea/.omo/evidence/v1.7/verify-tree.png" });
 
 // Check all buttons
 const allBtns = await p.evaluate(() => {

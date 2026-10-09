@@ -208,7 +208,7 @@ describe("Pipeline end-to-end (integration)", () => {
     }
   });
 
-  it("captures an evidence summary to .test-artifacts/evidence/task-28-e2e.json", async () => {
+  it("captures an evidence summary to .omo/evidence/task-28-e2e.json", async () => {
     const course = await testDb.course.create({ data: { name: "E2E evidence" } });
     const root = await testDb.topicNode.create({
       data: { courseId: course.id, name: "X", depth: 0, isLeaf: true, version: 1, summary: "S" },
@@ -225,7 +225,7 @@ describe("Pipeline end-to-end (integration)", () => {
       nodes: [{ id: root.id, name: root.name, depth: root.depth }],
       slides: slides.map((s: any) => ({ id: s.id, title: s.title, order: s.order })),
     };
-    const evidenceDir = join(process.cwd(), ".test-artifacts", "evidence");
+    const evidenceDir = join(process.cwd(), ".omo", "evidence");
     mkdirSync(evidenceDir, { recursive: true });
     writeFileSync(
       join(evidenceDir, "task-28-e2e.json"),

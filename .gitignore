@@ -4,9 +4,9 @@ node_modules/
 # next.js
 .next/
 
-# local test artifacts
-.test-artifacts/
-.playwright-cache/
+# opencode internal workspace
+.omo/
+.playwright-mcp/
 
 # logs and debug output
 *.log

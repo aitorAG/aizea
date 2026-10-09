@@ -14,7 +14,7 @@
 //   5. Clicking the preview opens the fullscreen dialog, and the
 //      dialog's iframe is also fully contained (no body scroll).
 //
-// Output: PNGs to .test-artifacts/evidence/v1.5/wave-1/1.3-rescale-preview*.png
+// Output: PNGs to .omo/evidence/v1.5/wave-1/1.3-rescale-preview*.png
 //
 // Usage: node scripts/playwright-preview-rescale-e2e.mjs
 
@@ -27,7 +27,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const evidenceDir = resolve(
   __dirname,
   "..",
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "v1.5",
   "wave-1"

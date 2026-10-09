@@ -20,7 +20,7 @@
 //      the completed segmentation banner visible.
 //
 // Evidence (screenshots + final summary) is written to
-// `.test-artifacts/evidence/banner-permanent-completed/`.
+// `.omo/evidence/banner-permanent-completed/`.
 
 import { chromium } from "playwright";
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
@@ -29,7 +29,7 @@ import { PrismaClient } from "@prisma/client";
 
 const EVIDENCE_DIR = join(
   process.cwd(),
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "banner-permanent-completed"
 );

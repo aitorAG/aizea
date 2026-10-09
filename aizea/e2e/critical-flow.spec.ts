@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 /**
  * CONTRATO E2E DEL FLUJO CRÍTICO — AIzea
- * Fase 0.2 · Plan: docs/plans/opcion-3-reescritura-selectiva.md
+ * Fase 0.2 · Plan: .omo/plans/opcion-3-reescritura-selectiva.md
  *
  * Este es el contrato de comportamiento que debe seguir verde en CADA gate de
  * fase durante la migración (backend saneado → sidecar → SPA Vite). Prueba el

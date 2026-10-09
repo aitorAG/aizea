@@ -452,7 +452,7 @@ export function JobsPanelContent({
             description={
               tab === "active"
                 ? "Cuando inicies un trabajo aparecerá aquí."
-                : "Los trabajos completados o fallidos recientes aparecerán aquí."
+                : "Los trabajos completados o cancelados recientes aparecerán aquí. Los errores permanecen visibles durante 24 h."
             }
             variant={variant}
           />
@@ -600,6 +600,10 @@ function JobRow({
   const isSidebar = variant === "sidebar";
   const progress = Math.min(100, Math.max(0, row.progress));
   const elapsedMs = Math.max(0, row.updatedAt - row.startedAt);
+  // UX — failed jobs often carry long provider errors (rate limits,
+  // invalid API key, network failures). One truncated line is useless
+  // for diagnosing; let the user expand the full message inline.
+  const [errorExpanded, setErrorExpanded] = useState(false);
 
   return (
     <li
@@ -689,15 +693,27 @@ function JobRow({
             )}
           </div>
 
-          {/* Error message when failed */}
+          {/* Error message when failed — click to expand the full text */}
           {row.status === "failed" && row.error && (
-            <p
-              className="mt-1 line-clamp-1 text-[10px] text-red-700"
-              title={row.error}
+            <button
+              type="button"
+              onClick={() => setErrorExpanded((v) => !v)}
+              aria-expanded={errorExpanded}
+              title={errorExpanded ? "Contraer" : "Ver el error completo"}
               data-testid="job-error"
+              className={cn(
+                "mt-1 block w-full text-left text-[10px] text-red-700",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-sm",
+                !errorExpanded && "line-clamp-1"
+              )}
             >
               {row.error}
-            </p>
+              {!errorExpanded && (
+                <span className="ml-1 font-medium underline decoration-dotted">
+                  (más)
+                </span>
+              )}
+            </button>
           )}
 
           {/* Actions */}

@@ -1,7 +1,7 @@
 // Tests for the slide export helpers (HTML wrapper + PDF HTML builder).
 // We only test the pure functions — the database-bound server actions
 // and the Playwright-driven PDF generation are exercised manually via
-// the verification scripts under .test-artifacts/evidence/export-slides/.
+// the verification scripts under .omo/evidence/export-slides/.
 
 import { describe, it, expect } from "vitest";
 import {
