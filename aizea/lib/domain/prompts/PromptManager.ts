@@ -54,18 +54,31 @@ export class PromptManager {
     );
   }
 
-  buildExtractUnitPrompt(unit: SemanticUnit): { system: string; user: string } {
-    return buildExtractUnitTemplate(unit);
+  buildExtractUnitPrompt(
+    unit: SemanticUnit,
+    llmContext?: string | null
+  ): { system: string; user: string } {
+    return llmContext === undefined
+      ? buildExtractUnitTemplate(unit)
+      : buildExtractUnitTemplate(unit, llmContext);
   }
 
   buildIntegrateConceptsPrompt(
-    concepts: Concept[] | ConceptGroup[]
+    concepts: Concept[] | ConceptGroup[],
+    llmContext?: string | null
   ): { system: string; user: string } {
-    return buildIntegrateConceptsTemplate(concepts);
+    return llmContext === undefined
+      ? buildIntegrateConceptsTemplate(concepts)
+      : buildIntegrateConceptsTemplate(concepts, llmContext);
   }
 
-  buildBuildTreePrompt(groups: TopicGroup[]): { system: string; user: string } {
-    return buildBuildTreeTemplate(groups);
+  buildBuildTreePrompt(
+    groups: TopicGroup[],
+    llmContext?: string | null
+  ): { system: string; user: string } {
+    return llmContext === undefined
+      ? buildBuildTreeTemplate(groups)
+      : buildBuildTreeTemplate(groups, llmContext);
   }
 
   /**
@@ -81,14 +94,17 @@ export class PromptManager {
   }
 
   /**
-   * PR4 — prompt used by IncrementalMerger to validate/adjust the local
+   * PR4 - prompt used by IncrementalMerger to validate/adjust the local
    * cosine merge decisions for newly extracted concepts against the existing
    * tree. Returns { decisions: [{ concept, action, parentRef?, ... }] }.
    */
   buildMergeDecisionsPrompt(
     decisions: MergeDecisionInput[],
-    existing: MergeExistingNode[]
+    existing: MergeExistingNode[],
+    llmContext?: string | null
   ): { system: string; user: string } {
-    return buildMergeDecisionsTemplate(decisions, existing);
+    return llmContext === undefined
+      ? buildMergeDecisionsTemplate(decisions, existing)
+      : buildMergeDecisionsTemplate(decisions, existing, llmContext);
   }
 }

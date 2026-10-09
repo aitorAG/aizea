@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface DialogProps {
   open: boolean;
@@ -12,6 +13,7 @@ interface DialogProps {
 }
 
 function Dialog({ open, onClose, children, className }: DialogProps) {
+  const t = useTranslations();
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const handleKeyDown = useCallback(
@@ -55,7 +57,7 @@ function Dialog({ open, onClose, children, className }: DialogProps) {
         <button
           onClick={onClose}
           className="absolute right-4 top-4 rounded-sm p-1 text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          aria-label="Cerrar"
+          aria-label={t("close")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -113,6 +115,7 @@ function DialogClose({
   onClick,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  const t = useTranslations();
   return (
     <button
       onClick={onClick}
@@ -120,7 +123,7 @@ function DialogClose({
         "rounded-sm p-1 text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
         className
       )}
-      aria-label="Cerrar"
+      aria-label={t("close")}
       {...props}
     >
       <X className="h-4 w-4" />

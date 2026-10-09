@@ -2,9 +2,10 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { screen, cleanup, fireEvent } from "@testing-library/react";
 import React from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary/ErrorBoundary";
+import { render } from "../helpers/render-with-locale";
 
 afterEach(cleanup);
 
@@ -33,8 +34,12 @@ describe("ErrorBoundary (Fase 4)", () => {
       </ErrorBoundary>
     );
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByText("kaboom")).toBeInTheDocument();
+    expect(screen.getByText("Error desconocido")).toBeInTheDocument();
     expect(screen.getByText("Reintentar")).toBeInTheDocument();
+    expect(spy).toHaveBeenCalledWith(
+      "[ErrorBoundary] caught:",
+      expect.objectContaining({ message: "kaboom" })
+    );
     spy.mockRestore();
   });
 

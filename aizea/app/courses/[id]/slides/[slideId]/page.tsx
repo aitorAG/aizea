@@ -27,7 +27,7 @@ export default async function SlideDetailPage({ params }: SlideDetailPageProps) 
     db.slide.findMany({
       where: { courseId },
       orderBy: { order: "asc" },
-      select: { id: true, title: true, order: true },
+      select: { id: true, title: true, order: true, numericPath: true },
     }),
   ]);
 
@@ -57,6 +57,7 @@ export default async function SlideDetailPage({ params }: SlideDetailPageProps) 
       slideTitle={slide.title}
       slideDescription={slide.description}
       slideOrder={slide.order}
+      slideHierarchicalNumber={slide.numericPath}
       htmlDesign={slide.htmlDesign}
       boxIds={boxIds}
       boxContents={boxContents}

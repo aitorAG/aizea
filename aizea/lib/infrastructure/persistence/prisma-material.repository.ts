@@ -14,7 +14,7 @@
 // reach into the filesystem on its own, which is the symptom-patch
 // path this refactor explicitly removes.
 
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { db } from "@/lib/db";
 import {
@@ -119,6 +119,12 @@ export class PrismaMaterialRepository implements IMaterialRepository {
   }
 
   async delete(id: string): Promise<void> {
+    // Necesitamos el filename ANTES del borrado para limpiar el fichero físico.
+    const row = await db.material.findUnique({
+      where: { id },
+      select: { filename: true },
+    });
+
     // Atomic: clear dependent chunks then the material row. Mirrors the
     // previous `deleteMaterial` action transaction so the row is never
     // left with orphaned TextChunks between the two operations. (The DB
@@ -128,5 +134,25 @@ export class PrismaMaterialRepository implements IMaterialRepository {
       db.textChunk.deleteMany({ where: { materialId: id } }),
       db.material.delete({ where: { id } }),
     ]);
+
+    // Best-effort: remove the uploaded PDF from disk so deleting a material
+    // doesn't leak files. The DB row is the source of truth — a failed unlink
+    // (permissions, EBUSY…) is logged, never surfaced to the caller.
+    if (row) {
+      try {
+        await unlink(join(this.uploadsDir, row.filename));
+      } catch (err) {
+        const code =
+          typeof err === "object" && err !== null && "code" in err
+            ? (err as { code?: unknown }).code
+            : undefined;
+        if (code !== "ENOENT") {
+          console.warn(
+            `[PrismaMaterialRepository] Failed to remove file ${row.filename}:`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+    }
   }
 }

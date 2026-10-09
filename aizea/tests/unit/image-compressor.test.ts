@@ -1,26 +1,32 @@
-import { describe, it, expect } from "vitest";
-import sharp from "sharp";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
-// Pre-generate a tiny valid PNG (1x1 transparent) so any path that
-// actually invokes real sharp completes quickly.
-const TINY_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-  "base64"
-);
+const { mockSharp } = vi.hoisted(() => ({
+  mockSharp: vi.fn(),
+}));
+
+// Sharp is an optional native dependency. Its binary is unavailable in the
+// Tauri test environment, so these unit tests mock its API explicitly and
+// keep the native failure path covered separately.
+vi.mock("sharp", () => ({ default: mockSharp }));
 
 import { compressToWebP } from "@/lib/domain/utils/image-compressor";
 
 const TWO_HUNDRED_KB = 200 * 1024;
 
-// Build a buffer large enough to trigger compression by repeating the
-// tiny PNG payload. Using a real valid image so the call to sharp
-// is fast.
 function largeBuffer(): Buffer {
-  // 5000 × 70 bytes = ~350 KB > 200 KB threshold
-  return Buffer.concat(Array(5000).fill(TINY_PNG));
+  return Buffer.alloc(350 * 1024, 0xff);
 }
 
 describe("image-compressor: compressToWebP", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockSharp.mockReturnValue({
+      webp: vi.fn().mockReturnValue({
+        toBuffer: vi.fn().mockResolvedValue(Buffer.from("webp")),
+      }),
+    });
+  });
+
   it("returns the original buffer unchanged when under 200KB", async () => {
     const original = Buffer.alloc(100 * 1024, 0xff);
     const result = await compressToWebP(original);
@@ -36,9 +42,7 @@ describe("image-compressor: compressToWebP", () => {
   });
 
   it("accepts a custom threshold option", async () => {
-    // Use a real PNG repeated to exceed the low 10KB threshold.
-    // Raw 0xff bytes are not a valid image and sharp rejects them.
-    const buf = Buffer.concat(Array(200).fill(TINY_PNG)); // ~14KB > 10KB
+    const buf = Buffer.alloc(14 * 1024, 0xff);
     const result = await compressToWebP(buf, { thresholdBytes: 10 * 1024 });
     expect(result).not.toBe(buf);
   });
@@ -70,7 +74,15 @@ describe("image-compressor: compressToWebP", () => {
     const result2 = await compressToWebP(over);
     expect(result2).not.toBe(over);
   });
-});
 
-// Force reference to keep the import alive for the test.
-void sharp;
+  it("returns the original buffer when Sharp fails", async () => {
+    mockSharp.mockImplementation(() => {
+      throw new Error("A boolean was expected");
+    });
+
+    const original = largeBuffer();
+    const result = await compressToWebP(original);
+
+    expect(result).toBe(original);
+  });
+});

@@ -67,6 +67,14 @@ vi.mock("@/lib/composition/container", () => ({
       findById: vi.fn().mockResolvedValue(null),
       delete: vi.fn().mockResolvedValue(undefined),
     },
+    // v0.14.0 — course.ts deleteCourse routes through the container's
+    // course-deletion orchestrator (BD cascade + physical artifact cleanup).
+    artifactCleaner: {
+      deleteMaterialVectors: vi.fn().mockResolvedValue(undefined),
+      deleteUploadFile: vi.fn().mockResolvedValue(undefined),
+      deleteFigureFile: vi.fn().mockResolvedValue(undefined),
+    },
+    deleteCourse: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -237,7 +245,7 @@ describe("Server Actions delegate to Application Services", () => {
     it("createCourse delegates to CourseService.createCourse", async () => {
       const result = await createCourse("Test Course");
       const service = courseServiceInstances[0];
-      expect(service.createCourse).toHaveBeenCalledWith("Test Course");
+      expect(service.createCourse).toHaveBeenCalledWith("Test Course", undefined);
       expect(result).toEqual({ id: "course-1" });
       expect(revalidatePath).toHaveBeenCalledWith("/");
     });
@@ -264,10 +272,12 @@ describe("Server Actions delegate to Application Services", () => {
       expect(revalidatePath).toHaveBeenCalledWith("/courses/course-1");
     });
 
-    it("deleteCourse delegates to CourseService.deleteCourse", async () => {
+    it("deleteCourse delegates to the container's course-deletion orchestrator", async () => {
       await deleteCourse("course-1");
-      const service = courseServiceInstances[0];
-      expect(service.deleteCourse).toHaveBeenCalledWith("course-1");
+      // v0.14.0 — el borrado ya no pasa por CourseService: usa
+      // container.deleteCourse (orquestador BD + artefactos físicos).
+      const { container } = await import("@/lib/composition/container");
+      expect(container.deleteCourse).toHaveBeenCalledWith("course-1");
       expect(revalidatePath).toHaveBeenCalledWith("/");
     });
 

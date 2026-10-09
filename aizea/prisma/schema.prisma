@@ -7,68 +7,62 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum SlideStatus {
-  PENDING
-  GENERATING
-  COMPLETED
-  FAILED
-}
-
 model Course {
-  id         String   @id @default(uuid())
-  name       String
-  llmContext String?
-  slideTarget Int?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  materials      Material[]
-  slides         Slide[]
-  figures        Figure[]
-  topicNodes     TopicNode[]
-  topicGroups    TopicGroup[]
-  processingJobs ProcessingJob[]
+  id                     String          @id @default(uuid())
+  name                   String
+  llmContext             String?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  slideTarget            Int?
+  generationInstructions String?
+  figures                Figure[]
+  materials              Material[]
+  processingJobs         ProcessingJob[]
+  slides                 Slide[]
+  topicGroups            TopicGroup[]
+  topicNodes             TopicNode[]
 }
 
 model Material {
-  id        String   @id @default(uuid())
-  courseId  String
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  filename  String
+  id            String         @id @default(uuid())
+  courseId      String
+  filename      String
   /// @deprecated Use TextChunk for chunked access
-  content   String
-  pageCount Int      @default(0)
-  fileSize  Int?
-  fileType  String?
-  createdAt DateTime @default(now())
-
-  chunks        TextChunk[]
+  content       String
+  pageCount     Int            @default(0)
+  fileSize      Int?
+  fileType      String?
+  createdAt     DateTime       @default(now())
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
   semanticUnits SemanticUnit[]
+  chunks        TextChunk[]
 
   @@index([courseId, createdAt])
 }
 
 model Slide {
-  id          String      @id @default(uuid())
-  courseId    String
-  course      Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  title       String
-  description String
-  order       Int         @default(0)
-  figureRefs  String      @default("[]")
-  htmlDesign  String?
-  kind        String      @default("concept")
-  status      SlideStatus @default(PENDING)
+  id            String     @id @default(uuid())
+  courseId      String
+  title         String
+  description   String
+  order         Int        @default(0)
+  numericPath   String?
+  displayOrder  Int?
+  figureRefs    String     @default("[]")
+  htmlDesign    String?
+  kind          String     @default("concept")
+  status        String     @default("PENDING")
   parentSlideId String?
-  parentSlide   Slide?    @relation("SlideTree", fields: [parentSlideId], references: [id], onDelete: SetNull)
-  childSlides   Slide[]   @relation("SlideTree")
   sourceNodeId  String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  boxes SlideBox[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  parentSlide   Slide?     @relation("SlideTree", fields: [parentSlideId], references: [id])
+  childSlides   Slide[]    @relation("SlideTree")
+  course        Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  boxes         SlideBox[]
 
   @@index([courseId, order])
+  @@index([courseId, displayOrder])
   @@index([courseId, status])
   @@index([courseId, parentSlideId])
   @@index([sourceNodeId])
@@ -77,9 +71,9 @@ model Slide {
 model SlideBox {
   id      String @id @default(uuid())
   slideId String
-  slide   Slide  @relation(fields: [slideId], references: [id], onDelete: Cascade)
   type    String
   content String
+  slide   Slide  @relation(fields: [slideId], references: [id], onDelete: Cascade)
 
   @@index([slideId, type])
 }
@@ -87,11 +81,11 @@ model SlideBox {
 model TextChunk {
   id         String   @id @default(uuid())
   materialId String
-  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
   chunkIndex Int
   content    String
   embedding  String?
   tokenCount Int
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   @@index([materialId, chunkIndex])
 }
@@ -99,32 +93,31 @@ model TextChunk {
 model Figure {
   id        String   @id @default(uuid())
   courseId  String
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   filename  String
   caption   String?
   pageNum   Int?
   tags      String   @default("[]")
   createdAt DateTime @default(now())
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId, createdAt])
 }
 
 model SemanticUnit {
-  id         String   @id @default(uuid())
-  materialId String
-  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  content    String
-  order      Int
-  pageStart  Int?
-  pageEnd    Int?
-  sectionRef String?
+  id             String              @id @default(uuid())
+  materialId     String
+  content        String
+  order          Int
+  pageStart      Int?
+  pageEnd        Int?
+  sectionRef     String?
+  createdAt      DateTime            @default(now())
   /// PR2 — breadcrumb of heading titles from the document root to this unit's
   /// section, JSON-encoded (e.g. ["Cap 3","3.2 Termodinámica"]). Empty "[]"
   /// when docling gave no structure (text-only fallback). Feeds the tree
   /// skeleton so the LLM refines a real hierarchy instead of inventing one.
-  sectionPath String  @default("[]")
-  createdAt  DateTime @default(now())
-
+  sectionPath    String              @default("[]")
+  material       Material            @relation(fields: [materialId], references: [id], onDelete: Cascade)
   representation UnitRepresentation?
 
   @@index([materialId, order])
@@ -133,7 +126,6 @@ model SemanticUnit {
 model UnitRepresentation {
   id            String       @id @default(uuid())
   unitId        String       @unique
-  unit          SemanticUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
   concepts      String       @default("[]")
   mainIdeas     String       @default("[]")
   formulas      String       @default("[]")
@@ -142,36 +134,40 @@ model UnitRepresentation {
   introduces    String       @default("[]")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+  unit          SemanticUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
 }
 
 model TopicNode {
-  id               String      @id @default(uuid())
-  courseId         String
-  course           Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  parentId         String?
-  parent           TopicNode?  @relation("TopicTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children         TopicNode[] @relation("TopicTree")
-  name             String
-  summary          String?
-  depth            Int         @default(0)
-  orderIndex       Int         @default(0)
-  isLeaf           Boolean     @default(false)
-  version          Int         @default(1)
-  sourceMaterialId String?
-  pageStart        Int?
-  pageEnd          Int?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  id                String      @id @default(uuid())
+  courseId          String
+  parentId          String?
+  name              String
+  summary           String?
+  depth             Int         @default(0)
+  orderIndex        Int         @default(0)
+  numericPath       String?
+  displayOrder      Int?
+  sourceMaterialIds String      @default("[]")
+  isLeaf            Boolean     @default(false)
+  version           Int         @default(1)
+  sourceMaterialId  String?
+  pageStart         Int?
+  pageEnd           Int?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  parent            TopicNode?  @relation("TopicTree", fields: [parentId], references: [id])
+  children          TopicNode[] @relation("TopicTree")
+  course            Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId, parentId])
   @@index([courseId, version])
   @@index([courseId, isLeaf])
+  @@index([courseId, displayOrder])
 }
 
 model TopicGroup {
   id            String   @id @default(uuid())
   courseId      String
-  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   name          String
   description   String
   importance    Float    @default(0.5)
@@ -180,6 +176,7 @@ model TopicGroup {
   version       Int      @default(1)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId, version])
 }
@@ -203,10 +200,10 @@ model ProcessingJob {
   currentStep String?
   error       String?
   courseId    String?
-  course      Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
   materialId  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  course      Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([type, status])
   @@index([courseId, createdAt])

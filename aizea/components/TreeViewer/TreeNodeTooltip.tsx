@@ -32,6 +32,7 @@
 
 import { cn } from "@/lib/utils";
 import type { TreeFlowNodeData } from "@/lib/adapters/useTreeAdapter";
+import { useTranslations } from "@/components/LocaleProvider";
 
 export type TooltipMode = "brief" | "full";
 export type TooltipPosition = "top" | "right" | "bottom" | "left";
@@ -113,6 +114,7 @@ function BriefContent({
   data: TreeFlowNodeData;
   maxItems: number;
 }) {
+  const t = useTranslations();
   const childNames = data.childNames ?? [];
   const visible = childNames.slice(0, maxItems);
   const overflow = childNames.length - visible.length;
@@ -121,7 +123,7 @@ function BriefContent({
     <div>
       <header className="mb-1.5 flex items-baseline justify-between gap-2">
         <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Sub-conceptos
+          {t("tree.tooltip.subconcepts")}
         </h4>
         <span className="font-mono text-[10px] text-muted-foreground">
           {childNames.length}
@@ -129,7 +131,7 @@ function BriefContent({
       </header>
       {childNames.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Sin sub-conceptos en esta caja.
+          {t("tree.tooltip.noSubconcepts")}
         </p>
       ) : (
         <ul className="space-y-0.5 text-xs leading-snug">
@@ -148,7 +150,7 @@ function BriefContent({
               data-testid="tree-node-tooltip-overflow"
               className="pl-3 font-mono text-[10px] text-muted-foreground"
             >
-              … y {overflow} más
+              {t("tree.tooltip.more", { count: overflow })}
             </li>
           )}
         </ul>
@@ -164,17 +166,18 @@ function FullContent({
   data: TreeFlowNodeData;
   maxChars: number;
 }) {
+  const t = useTranslations();
   const summary = data.summary;
   if (!summary) {
     return (
       <div>
         <header className="mb-1.5 flex items-baseline justify-between gap-2">
           <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Corpus
+            {t("tree.tooltip.corpus")}
           </h4>
         </header>
         <p className="text-xs italic text-muted-foreground">
-          Sin contenido del corpus en esta caja todavía.
+          {t("tree.tooltip.noCorpus")}
         </p>
       </div>
     );
@@ -186,11 +189,11 @@ function FullContent({
     <div>
       <header className="mb-1.5 flex items-baseline justify-between gap-2">
         <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Corpus
+          {t("tree.tooltip.corpus")}
         </h4>
         {truncated && (
           <span className="font-mono text-[10px] text-muted-foreground">
-            {summary.length} chars
+            {t("tree.tooltip.characters", { count: summary.length })}
           </span>
         )}
       </header>
@@ -206,7 +209,7 @@ function FullContent({
           data-testid="tree-node-tooltip-read-more"
           className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-primary/80"
         >
-          Leer más (click en la caja)
+          {t("tree.tooltip.readMore")}
         </p>
       )}
     </div>

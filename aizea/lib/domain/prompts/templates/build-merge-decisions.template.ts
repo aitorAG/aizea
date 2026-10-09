@@ -16,6 +16,8 @@
 // asked for `action`/`parentRef`, so validation always fell back to the raw
 // cosine decision (P7). This template fixes that.
 
+import { buildContextBlock } from "./context-block";
+
 export interface MergeDecisionInput {
   /** The new concept name. */
   concept: string;
@@ -36,12 +38,14 @@ export interface MergeExistingNode {
 
 export function buildMergeDecisionsTemplate(
   decisions: MergeDecisionInput[],
-  existing: MergeExistingNode[]
+  existing: MergeExistingNode[],
+  llmContext?: string | null
 ): { system: string; user: string } {
+  const contextBlock = buildContextBlock(llmContext);
   const system = `Eres un asistente educativo que mantiene un árbol de temas (TopicNode) coherente al incorporar material nuevo. Recibes:
 1. El árbol EXISTENTE (lista de nodos con id, name, depth, parentId).
 2. Una lista de CONCEPTOS NUEVOS, cada uno con una decisión provisional calculada por similitud vectorial (suggestedAction) y el nodo candidato (targetId).
-
+${contextBlock}
 Tu tarea: confirmar o corregir cada decisión usando tu conocimiento del árbol. Para cada concepto devuelve un objeto con:
 - "concept": el nombre exacto del concepto nuevo (cópialo tal cual).
 - "action": "same" | "child" | "new".

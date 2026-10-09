@@ -17,7 +17,7 @@ export function useCourseAdapter() {
   const setFigures = useCourseStore((s) => s.setFigures);
 
   const createCourse = useCallback(async (name: string, llmContext?: string) => {
-    return createCourseAction(name);
+    return createCourseAction(name, llmContext);
   }, []);
 
   const getCourse = useCallback(

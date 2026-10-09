@@ -264,11 +264,38 @@ export class PipelineService implements IPipelineService {
 
   // --- internals ---
 
+  /**
+   * R2 — loads the user's generation instructions for this course.
+   * Prefers `generationInstructions` (explicit field for tree-steering),
+   * falls back to `llmContext` (legacy catch-all field). Returns null if
+   * both are absent or empty.
+   */
+  private async loadCourseInstructions(
+    courseId: string
+  ): Promise<string | null> {
+    const course = await db.course.findUnique({
+      where: { id: courseId },
+      select: { generationInstructions: true, llmContext: true },
+    });
+    if (!course) return null;
+    const explicit = course.generationInstructions?.trim();
+    if (explicit) return explicit;
+    const legacy = course.llmContext?.trim();
+    return legacy || null;
+  }
+
   private async runPhases(
     courseId: string,
     materialId: string | undefined,
     buffer: Buffer | undefined
   ): Promise<ProcessCourseResult> {
+    // R2 — load the user's generation instructions ONCE. These steer every
+    // LLM phase (extraction, integration, tree-building) so the tree reflects
+    // the pedagogical intent the user expressed at upload time. Prefers the
+    // explicit `generationInstructions` field, falling back to the legacy
+    // `llmContext` field (both hold free-form user guidance).
+    const llmContext = await this.loadCourseInstructions(courseId);
+
     // 1. Segmentation
     const segJobId = await this.startPhase(
       "segmentation",
@@ -310,7 +337,11 @@ export class PipelineService implements IPipelineService {
       units.length
     );
     try {
-      await this.runExtraction(units, materialId, extJobId);
+      // Check for cancellation before starting extraction
+      if (await this.isJobCancelled(extJobId)) {
+        throw new PipelineCancelledError(extJobId);
+      }
+      await this.runExtraction(units, materialId, extJobId, llmContext);
       await this.completePhase(
         extJobId,
         `Extracción completada (${units.length} unidades)`
@@ -327,7 +358,11 @@ export class PipelineService implements IPipelineService {
       materialId
     );
     try {
-      await this.runIntegration(courseId);
+      // Check for cancellation before starting integration
+      if (await this.isJobCancelled(intJobId)) {
+        throw new PipelineCancelledError(intJobId);
+      }
+      await this.runIntegration(courseId, llmContext);
       await this.completePhase(intJobId, "Integración completada");
     } catch (err) {
       await this.failPhase(intJobId, err);
@@ -341,7 +376,11 @@ export class PipelineService implements IPipelineService {
       materialId
     );
     try {
-      await this.runTreeBuilding(courseId);
+      // Check for cancellation before starting tree building
+      if (await this.isJobCancelled(treeJobId)) {
+        throw new PipelineCancelledError(treeJobId);
+      }
+      await this.runTreeBuilding(courseId, llmContext);
       await this.completePhase(treeJobId, "Árbol conceptual generado");
     } catch (err) {
       await this.failPhase(treeJobId, err);
@@ -488,7 +527,8 @@ export class PipelineService implements IPipelineService {
   private async runExtraction(
     units: SemanticUnit[],
     materialId: string | undefined,
-    jobId: string
+    jobId: string,
+    llmContext: string | null
   ): Promise<void> {
     if (units.length === 0) return;
 
@@ -518,7 +558,7 @@ export class PipelineService implements IPipelineService {
             markCancelled();
             throw new PipelineCancelledError(jobId);
           }
-          await this.unitExtractor.extract(unit);
+          await this.unitExtractor.extract(unit, llmContext);
           // Progreso atómico: contador compartido incrementado al completar.
           processed += 1;
           const progress = Math.round((processed / units.length) * 100);
@@ -541,7 +581,7 @@ export class PipelineService implements IPipelineService {
     }
   }
 
-  private async runIntegration(courseId: string): Promise<void> {
+  private async runIntegration(courseId: string, llmContext: string | null): Promise<void> {
     try {
       const { ConceptIntegrator } = await import(
         "@/lib/domain/pipeline/ConceptIntegrator"
@@ -554,7 +594,7 @@ export class PipelineService implements IPipelineService {
         embeddingProvider: new OpenRouterEmbeddingProvider(),
         llmProvider: new OpenRouterLLMProvider(),
       });
-      await integrator.integrate(courseId);
+      await integrator.integrate(courseId, llmContext);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (WAVE4_NOT_PRESENT.test(msg)) {
@@ -567,7 +607,7 @@ export class PipelineService implements IPipelineService {
     }
   }
 
-  private async runTreeBuilding(courseId: string): Promise<void> {
+  private async runTreeBuilding(courseId: string, llmContext: string | null): Promise<void> {
     try {
       const { TreeBuilder } = await import("@/lib/domain/pipeline/TreeBuilder");
       const { PrismaTreeBuilderRepository } = await import(
@@ -577,7 +617,12 @@ export class PipelineService implements IPipelineService {
         repository: new PrismaTreeBuilderRepository(),
         llmProvider: new OpenRouterLLMProvider(),
       });
-      await builder.build(courseId);
+      await builder.build(courseId, llmContext);
+
+      // Calculate hierarchical numbering after building the tree
+      const { TreeService } = await import("@/lib/application/TreeService");
+      const treeService = new TreeService();
+      await treeService.recalculateTreeNumbering(courseId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (WAVE4_NOT_PRESENT.test(msg)) {

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SlideGenerationStatus } from "@/lib/stores/useSlideGenerationStore";
+import { useLocale, useTranslations } from "@/components/LocaleProvider";
 
 export interface SlideSummary {
   id: string;
@@ -23,8 +24,44 @@ export interface SlideSummary {
   description: string;
   order: number;
   htmlDesign?: string | null;
+  /** True when the slide has at least one content box (guion/relevancia/…). */
   hasContent: boolean;
+  /** v0.11.0 — True when the slide has a non-empty htmlDesign. A concept slide
+   *  is only "fully generated" when it has BOTH content and html. */
+  hasHtml?: boolean;
+  /** Slide kind: "concept" (default) requires content+html; "figure" needs
+   *  only html to be considered generated. */
+  kind?: string | null;
   parentSlideId?: string | null;
+  /** v1.0 — hierarchical number (e.g. "1.2.3"). Shown as a muted
+   *  monospace prefix on each row so the slide hierarchy mirrors the
+   *  conceptual tree numbering. */
+  numericPath?: string | null;
+  /** v0.12.0 (RC3) — generation status: "idle" | "pending" | "running" | "success" | "failed" | "cancelled" */
+  status?: string;
+}
+
+/**
+ * v0.11.0 — A slide is FULLY generated only when its real artifacts exist:
+ * concept slides need content boxes AND an htmlDesign; figure slides need
+ * only the htmlDesign. This prevents a content-only slide (html failed or
+ * skipped) from being painted as "generated".
+ */
+export function isSlideFullyGenerated(slide: SlideSummary): boolean {
+  const hasHtml = slide.hasHtml ?? (!!slide.htmlDesign && slide.htmlDesign.trim().length > 0);
+  if (slide.kind === "figure") return hasHtml;
+  return slide.hasContent && hasHtml;
+}
+
+/**
+ * v0.11.0 — A slide is PARTIALLY generated when it has content but is still
+ * missing its html design (concept slides only). Used to paint an "en
+ * progreso / falta diseño" cue distinct from both "generada" and "fallida".
+ */
+export function isSlidePartiallyGenerated(slide: SlideSummary): boolean {
+  if (slide.kind === "figure") return false;
+  const hasHtml = slide.hasHtml ?? (!!slide.htmlDesign && slide.htmlDesign.trim().length > 0);
+  return slide.hasContent && !hasHtml;
 }
 
 interface TreeNode {
@@ -181,6 +218,9 @@ interface SlideCardProps {
   totalSlides: number;
   isGenerating: boolean;
   isGenerated: boolean;
+  // v0.11.0 — content present but html design still missing. Painted as a
+  // distinct "falta diseño" cue (neither generated nor failed).
+  isPartial?: boolean;
   // v1.8 / Issue 3.4 — when true, paint the red left-border +
   // error badge. Lives in its own prop so memoized cards don't
   // re-render when sibling failure state flips.
@@ -200,6 +240,7 @@ const SlideCard = memo(function SlideCard({
   totalSlides,
   isGenerating,
   isGenerated,
+  isPartial = false,
   isFailed,
   mapStatus,
   onGenerate,
@@ -207,6 +248,9 @@ const SlideCard = memo(function SlideCard({
   onDelete,
   onNavigate,
 }: SlideCardProps) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const number = (value: number) => new Intl.NumberFormat(locale).format(value);
   // v1.10 / Wave 2 — resolve the effective status once. The
   // legacy boolean flags are still consulted so a single-slide
   // "Generar" click (which only flips `generatingId`) renders
@@ -267,23 +311,44 @@ const SlideCard = memo(function SlideCard({
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="shrink-0 text-[11px] font-semibold tabular-nums">
-              {slide.order + 1} / {totalSlides}
+              {number(slide.order + 1)} / {number(totalSlides)}
             </Badge>
+            {slide.numericPath && (
+              <span
+                data-testid="slide-hierarchy-number"
+                className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground"
+                title={t("slides.hierarchyNumber", { number: slide.numericPath })}
+              >
+                {slide.numericPath}
+              </span>
+            )}
             {isInFlight && (
               <span className="flex items-center gap-1.5 text-xs text-amber-700 animate-in fade-in">
                 <Spinner size="sm" className="h-3 w-3" />
                 <span className="animate-pulse">
                   {status === "generating_html"
-                    ? "Generando HTML…"
+                    ? t("slides.generatingHtml")
                     : status === "pending"
-                      ? "En cola…"
-                      : "Generando contenido…"}
+                      ? t("slides.queued")
+                      : t("slides.generatingContent")}
                 </span>
               </span>
             )}
             {isCompleted && !isInFlight && !isFailedNow && (
               <span className="text-xs font-medium text-emerald-600">
-                Listo
+                {t("slides.ready")}
+              </span>
+            )}
+            {/* v0.11.0 — content present but html design still missing. */}
+            {isPartial && !isInFlight && !isCompleted && !isFailedNow && (
+              <span
+                className="flex items-center gap-1 text-xs font-medium text-amber-600"
+                data-testid="slide-partial-badge"
+                data-slide-status="partial"
+                title={t("slides.partialHint")}
+              >
+                <AlertCircle className="h-3.5 w-3.5" />
+                {t("slides.partial")}
               </span>
             )}
             {/* v1.8 / Issue 3.4 + v1.10 / Wave 2 — failure badge.
@@ -302,7 +367,7 @@ const SlideCard = memo(function SlideCard({
                 data-slide-status="failed"
               >
                 <AlertCircle className="h-3.5 w-3.5" />
-                Fallida
+                {t("slides.failed")}
               </span>
             )}
           </div>
@@ -327,6 +392,11 @@ const SlideCard = memo(function SlideCard({
                 onGenerate(slide.id);
               }}
               disabled={isInFlight}
+              aria-label={isFailedNow
+                ? t("common.retry")
+                : isCompleted
+                  ? t("common.regenerate")
+                  : t("common.generate")}
             >
               {isInFlight ? (
                 <Spinner size="sm" className="h-3.5 w-3.5" />
@@ -335,10 +405,10 @@ const SlideCard = memo(function SlideCard({
               )}
               <span className="hidden sm:inline">
                 {isFailedNow
-                  ? "Reintentar"
+                  ? t("common.retry")
                   : isCompleted
-                    ? "Regenerar"
-                    : "Generar"}
+                    ? t("common.regenerate")
+                    : t("common.generate")}
               </span>
             </Button>
             <Button
@@ -349,7 +419,7 @@ const SlideCard = memo(function SlideCard({
                 e.stopPropagation();
                 onEdit(slide.id);
               }}
-              aria-label="Editar"
+              aria-label={t("common.edit")}
             >
               <Edit className="h-3.5 w-3.5" />
             </Button>
@@ -361,7 +431,7 @@ const SlideCard = memo(function SlideCard({
                 e.stopPropagation();
                 onDelete(slide.id);
               }}
-              aria-label="Eliminar"
+              aria-label={t("common.delete")}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -407,6 +477,7 @@ const TreeRow = memo(function TreeRow({
   onDelete,
   onNavigate,
 }: TreeRowProps) {
+  const t = useTranslations();
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsedIds.has(node.slide.id);
 
@@ -436,7 +507,7 @@ const TreeRow = memo(function TreeRow({
                   toggleCollapse(node.slide.id);
                 }}
                 className="my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label={isCollapsed ? "Expandir" : "Colapsar"}
+                aria-label={isCollapsed ? t("common.expand") : t("common.collapse")}
                 aria-expanded={!isCollapsed}
               >
                 {isCollapsed ? (
@@ -451,7 +522,13 @@ const TreeRow = memo(function TreeRow({
                 slide={node.slide}
                 totalSlides={totalSlides}
                 isGenerating={generatingId === node.slide.id}
-                isGenerated={generatedIds.has(node.slide.id) || node.slide.hasContent}
+                // v0.11.0 — "generated" now requires the REAL artifacts
+                // (content + html for concept slides). generatedIds is the
+                // live batch signal; isSlideFullyGenerated is the persisted
+                // truth from the server. A content-only slide is NOT generated.
+                isGenerated={generatedIds.has(node.slide.id) || isSlideFullyGenerated(node.slide)}
+                // v0.11.0 — content present but html still missing.
+                isPartial={isSlidePartiallyGenerated(node.slide)}
                 // v1.8 / Issue 3.4 — flip the failure flag
                 // based on the parent's failedIds set.
                 isFailed={failedIds.has(node.slide.id)}
@@ -508,6 +585,8 @@ function SlidesHierarchy({
   onDelete,
   onNavigate,
 }: SlidesHierarchyProps) {
+  const t = useTranslations();
+  const locale = useLocale();
   const { roots, orphanCount } = useMemo(() => buildTree(slides), [slides]);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
@@ -526,8 +605,9 @@ function SlidesHierarchy({
     <div className="space-y-2" data-testid="slides-hierarchy">
       {orphanCount > 0 && (
         <p className="text-xs text-muted-foreground">
-          {orphanCount} diapositiva{orphanCount !== 1 ? "s" : ""} con referencia a padre
-          inexistente mostrada{orphanCount !== 1 ? "s" : ""} como raíz.
+          {t(orphanCount === 1 ? "slides.orphanOne" : "slides.orphanMany", {
+            count: new Intl.NumberFormat(locale).format(orphanCount),
+          })}
         </p>
       )}
       <div className="space-y-0">

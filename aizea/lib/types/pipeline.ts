@@ -150,6 +150,12 @@ export interface TopicNode {
   depth: number;
   /** v1.0 — sibling order (lower first). Basis for DFS pre-order traversal. */
   orderIndex: number;
+  /** Hierarchical number (e.g., "1.2.3") calculated via DFS pre-order. */
+  numericPath?: string;
+  /** Global display order (DFS pre-order index, 0-based). */
+  displayOrder?: number;
+  /** IDs of Materials that contributed to this node (multi-document support). */
+  sourceMaterialIds: string[];
   isLeaf: boolean;
   /** Increments on every tree rebuild / merge (rollback support). */
   version: number;

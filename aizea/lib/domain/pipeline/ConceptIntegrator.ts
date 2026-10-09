@@ -78,7 +78,7 @@ export class ConceptIntegrator {
     this.llmProvider = options.llmProvider;
   }
 
-  async integrate(courseId: string): Promise<TopicGroup[]> {
+  async integrate(courseId: string, llmContext?: string | null): Promise<TopicGroup[]> {
     if (!this.repository) {
       throw new Error(
         "ConceptIntegrator requiere un repositorio inyectado (options.repository)."
@@ -147,7 +147,8 @@ export class ConceptIntegrator {
 
     // 5. Send to LLM for naming/description.
     const { system, user } = this.promptManager.buildIntegrateConceptsPrompt(
-      clusters.map((c) => ({ concepts: c.concepts }))
+      clusters.map((c) => ({ concepts: c.concepts })),
+      llmContext
     );
     const response = await llmProvider.chatJSON<LlmGroupResponse>([
       { role: "system", content: system },

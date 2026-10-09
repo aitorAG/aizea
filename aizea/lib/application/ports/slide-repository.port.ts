@@ -1,7 +1,5 @@
 // ISlideRepository — port for Slide persistence.
 
-import type { SlideStatus } from "@prisma/client";
-
 export interface SlideRow {
   id: string;
   courseId: string;
@@ -10,7 +8,7 @@ export interface SlideRow {
   order: number;
   figureRefs: string;
   htmlDesign: string | null;
-  status: SlideStatus;
+  status: string;
   parentSlideId: string | null;
   sourceNodeId: string | null;
   createdAt: Date;
@@ -27,4 +25,8 @@ export interface ISlideRepository {
   delete(id: string): Promise<void>;
   deleteByCourseId(courseId: string): Promise<void>;
   maxOrderByCourseId(courseId: string): Promise<number>;
+  // v0.12.0 (RC3) — persist generation status for recovery after navigation
+  updateStatus(id: string, status: string): Promise<void>;
+  // v0.12.0 (RC2) — finished jobs window needs all slides for grouping
+  findAll(): Promise<SlideRow[]>;
 }

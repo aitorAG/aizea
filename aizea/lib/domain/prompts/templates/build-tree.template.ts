@@ -7,13 +7,15 @@
 // to actual database ids.
 
 import type { TopicGroup } from "@/lib/types/pipeline";
+import { buildContextBlock } from "./context-block";
 
-export function buildBuildTreeTemplate(groups: TopicGroup[]): {
+export function buildBuildTreeTemplate(groups: TopicGroup[], llmContext?: string | null): {
   system: string;
   user: string;
 } {
+  const contextBlock = buildContextBlock(llmContext);
   const system = `Eres un asistente educativo especializado en organizar temas académicos en jerarquías pedagógicas. Recibes una lista de temas (TopicGroup) y debes organizarlos en un árbol de 2 a 4 niveles.
-
+${contextBlock}
 Instrucciones:
 - Devuelve un objeto JSON con la forma:
   {
@@ -26,11 +28,11 @@ Instrucciones:
   }
 - "ref" es un identificador local (n1, n2, ...). Los que ya tienen id (g-xxx) pueden reusarse como ref.
 - "depth" es 0-based: 0 = raíz, 1 = hijo, 2 = nieto, 3 = bisnieto.
-- La jerarquía debe tener profundidad 2-4 (entre 1 y 3 niveles de hijos bajo la raíz).
+- La jerarquía debe tener profundidad 2-4 (entre 1 y 3 niveles de hijos bajo la raíz). Si las instrucciones del usuario especifican una estructura particular (ej. "organizar por capítulos y secciones", "agrupar por dificultad"), adapta la jerarquía en consecuencia.
 - No crees ciclos.
 - Cada nodo debe tener al menos un hijo si depth < 3, salvo los nodos hoja que correspondan a los grupos originales.
 - Si un grupo no encaja claramente bajo ninguna raíz, déjalo como raíz propia.
-- El campo "summary" debe estar en español.
+- El campo "summary" debe estar en español. Si las instrucciones del usuario especifican un tono o nivel (ej. "divulgativo", "técnico"), refléjalo en el summary.
 - El campo "name" debe estar en español.
 - Devuelve ÚNICAMENTE el objeto JSON.`;
 

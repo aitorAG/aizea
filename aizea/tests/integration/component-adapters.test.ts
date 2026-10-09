@@ -176,7 +176,7 @@ describe("Component Adapters delegate to Server Actions and update stores", () =
     it("createCourse delegates to createCourse action", async () => {
       const adapter = captureHookResult(useCourseAdapter);
       const result = await adapter.createCourse("Test Course");
-      expect(courseActions.createCourse).toHaveBeenCalledWith("Test Course");
+      expect(courseActions.createCourse).toHaveBeenCalledWith("Test Course", undefined);
       expect(result).toEqual({ id: "course-1" });
     });
 

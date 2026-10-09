@@ -23,7 +23,7 @@ export default async function TreePage({ params }: TreePageProps) {
 
   const course = await db.course.findUnique({
     where: { id: courseId },
-    select: { id: true, name: true, slideTarget: true },
+    select: { id: true, name: true, slideTarget: true, llmContext: true },
   });
 
   if (!course) {
@@ -43,6 +43,12 @@ export default async function TreePage({ params }: TreePageProps) {
     summary: row.summary,
     depth: row.depth,
     orderIndex: row.orderIndex,
+    // v0.12.0 (RA3.2) — include hierarchical numbering on the FIRST server
+    // render. Without these the number badge is empty until a mutation
+    // triggers router.refresh(), because the client only ever received undefined.
+    numericPath: row.numericPath ?? undefined,
+    displayOrder: row.displayOrder ?? undefined,
+    sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds as string) : [],
     isLeaf: row.isLeaf,
     version: row.version,
     sourceMaterialId: row.sourceMaterialId,
@@ -71,6 +77,7 @@ export default async function TreePage({ params }: TreePageProps) {
       courseName={course.name}
       initialNodes={initialNodes}
       initialSlideTarget={course.slideTarget ?? null}
+      initialLlmContext={course.llmContext ?? null}
       activeJobId={activeJob?.id ?? null}
       activeJobPhase={(activeJob?.type as PipelinePhase) ?? null}
     />

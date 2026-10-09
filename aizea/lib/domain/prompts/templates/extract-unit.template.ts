@@ -6,16 +6,18 @@
 // and deterministic so the model can reason consistently).
 
 import type { SemanticUnit } from "@/lib/types/pipeline";
+import { buildContextBlock } from "./context-block";
 
-export function buildExtractUnitTemplate(unit: SemanticUnit): {
+export function buildExtractUnitTemplate(unit: SemanticUnit, llmContext?: string | null): {
   system: string;
   user: string;
 } {
+  const contextBlock = buildContextBlock(llmContext);
   const system = `Eres un asistente educativo especializado en analizar unidades de contenido académico y extraer conocimiento estructurado. Tu tarea es analizar la unidad de texto proporcionada y devolver un objeto JSON con la estructura que se indica a continuación.
-
+${contextBlock}
 Instrucciones:
-- Identifica los conceptos clave (palabras o frases cortas) y asígnales una importancia entre 0 y 1.
-- Identifica las ideas principales del texto y su relevancia (salience 0..1).
+- Identifica los conceptos clave (palabras o frases cortas) y asígnales una importancia entre 0 y 1. Si las instrucciones del usuario especifican qué tipo de conceptos priorizar o qué nivel de detalle aplicar, síguelas al extraer los conceptos.
+- Identifica las ideas principales del texto y su relevancia (salience 0..1). Adapta el nivel de abstracción y el foco según las instrucciones del usuario (si las hay).
 - Detecta fórmulas matemáticas y devuélvelas en LaTeX. Si hay varias, devuélvelas en una lista.
 - Lista los nombres de conceptos que el texto da por conocidos (prerequisites).
 - Lista los nombres de conceptos que el texto introduce por primera vez (introduces).

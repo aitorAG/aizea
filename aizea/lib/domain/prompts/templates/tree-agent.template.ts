@@ -5,10 +5,12 @@
 // and must reply in a strict JSON envelope: { reply, actions[] }.
 
 import type { TopicNode } from "@/lib/types/pipeline";
+import { buildContextBlock } from "./context-block";
 
 export interface TreeAgentPromptParams {
   tree: TopicNode[];
   slideTarget: number | null;
+  llmContext?: string | null;
 }
 
 /** Compact, LLM-friendly view of a node (keeps the prompt small on big trees). */
@@ -32,8 +34,9 @@ export function buildTreeAgentPrompt(params: TreeAgentPromptParams): {
     isLeaf: n.isLeaf,
   }));
 
+  const contextBlock = buildContextBlock(params.llmContext);
   const system = `Eres un asistente que edita el ÁRBOL DE TEMAS de un curso conversando con el usuario en español.
-
+${contextBlock}
 Puedes proponer ACCIONES sobre el árbol. Cada acción equivale a una operación que el usuario podría hacer a mano:
 - addLeaf: crea una hoja nueva. Campos: { "type":"addLeaf", "parentId": <id o null para raíz>, "name": <string>, "summary"?: <string> }
 - deleteNode: elimina un nodo (sus hijos se recuelgan del abuelo). Campos: { "type":"deleteNode", "nodeId": <id> }

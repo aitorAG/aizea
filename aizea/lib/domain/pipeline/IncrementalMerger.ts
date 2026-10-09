@@ -108,7 +108,8 @@ export class IncrementalMerger {
   async merge(
     courseId: string,
     newMaterialId: string,
-    buffer: Buffer
+    buffer: Buffer,
+    llmContext?: string | null
   ): Promise<TopicNode[]> {
     if (!this.repository) {
       throw new Error(
@@ -157,6 +158,7 @@ export class IncrementalMerger {
       summary: r.summary,
       depth: r.depth,
       orderIndex: r.orderIndex,
+      sourceMaterialIds: r.sourceMaterialIds ? JSON.parse(r.sourceMaterialIds as string) : [],
       isLeaf: r.isLeaf,
       version: r.version,
       sourceMaterialId: r.sourceMaterialId,
@@ -235,9 +237,17 @@ export class IncrementalMerger {
     };
     for (const d of validated) {
       if (d.kind === "same") {
-        // Enrich the existing node (no row-level change; presence in the
-        // returned tree is enough for callers that build their tree from
-        // the latest version of each node).
+        // Enrich the existing node: add newMaterialId to its sourceMaterialIds.
+        const existing = persisted.find((n) => n.id === d.targetId);
+        if (existing) {
+          const updated = [...existing.sourceMaterialIds];
+          if (!updated.includes(newMaterialId)) {
+            updated.push(newMaterialId);
+          }
+          await repository.updateNodeSourceMaterials(existing.id, updated);
+          // Update in-memory copy
+          existing.sourceMaterialIds = updated;
+        }
         continue;
       }
 
@@ -265,6 +275,7 @@ export class IncrementalMerger {
             isLeaf: true,
             version: newVersion,
             sourceMaterialId: newMaterialId,
+            sourceMaterialIds: [newMaterialId],
           });
           persisted.push({
             id: row.id,
@@ -274,6 +285,7 @@ export class IncrementalMerger {
             summary: row.summary,
             depth: row.depth,
             orderIndex: row.orderIndex,
+            sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds as string) : [],
             isLeaf: row.isLeaf,
             version: row.version,
             sourceMaterialId: row.sourceMaterialId,
@@ -344,7 +356,8 @@ export class IncrementalMerger {
         name: n.name,
         depth: n.depth,
         parentId: n.parentId,
-      }))
+      })),
+      null
     );
     const response = await this.llmProvider.chatJSON<LlmMergeResponse>([
       { role: "system", content: system },
@@ -393,6 +406,7 @@ export class IncrementalMerger {
       isLeaf: true,
       version,
       sourceMaterialId,
+      sourceMaterialIds: [sourceMaterialId],
     });
     return {
       id: row.id,
@@ -402,6 +416,7 @@ export class IncrementalMerger {
       summary: row.summary,
       depth: row.depth,
       orderIndex: row.orderIndex,
+      sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds as string) : [],
       isLeaf: row.isLeaf,
       version: row.version,
       sourceMaterialId: row.sourceMaterialId,

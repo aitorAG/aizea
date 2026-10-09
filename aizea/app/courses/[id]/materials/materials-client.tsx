@@ -22,6 +22,7 @@ import { revalidateMaterials } from "@/lib/actions/revalidate";
 import { useMaterialAdapter } from "@/lib/adapters/useMaterialAdapter";
 import { cn } from "@/lib/utils";
 import type { MaterialItem } from "./page";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface MaterialsClientProps {
   courseId: string;
@@ -42,6 +43,7 @@ function MaterialsClient({
 }: MaterialsClientProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const t = useTranslations();
 
   const [materials, setMaterials] = useState<MaterialItem[]>(initialMaterials);
   const [context, setContext] = useState(initialContext);
@@ -77,8 +79,8 @@ function MaterialsClient({
 
       if (validFiles.length === 0) {
         toast({
-          title: "Formato no válido",
-          description: "Solo se aceptan PDFs, documentos Word e imágenes.",
+         title: t("materials.errors.invalidFormat"),
+         description: t("materials.errors.invalidFormatDescription"),
           variant: "error",
         });
         return;
@@ -128,20 +130,21 @@ function MaterialsClient({
               ...prev.filter((m) => m.id !== result.id),
             ]);
             toast({
-              title: "Archivo subido",
+               title: t("materials.uploaded"),
               // v1.5 finding 1.7: upload ONLY persists the file.
               // The pipeline (segmentation, extraction, tree
               // building) is gated behind the explicit
               // "Generar árbol" CTA. Telling the user that
               // processing has started here is misleading — the
               // upload is now < 2s and no jobs are created.
-              description: `"${file.name}" se ha subido correctamente. Ve a "Generar árbol" para procesarlo.`,
+               description: t("materials.uploadedDescription", { filename: file.name }),
               variant: "success",
             });
           } catch (err) {
+            console.error("[materials] upload failed:", err);
             toast({
-              title: "Error al subir",
-              description: `No se pudo subir "${file.name}": ${err instanceof Error ? err.message : "Error desconocido"}`,
+               title: t("materials.errors.upload"),
+                description: t("materials.errors.uploadDescription", { filename: file.name }),
               variant: "error",
             });
           }
@@ -170,6 +173,7 @@ function MaterialsClient({
         // truth.
         router.refresh();
       } catch (err) {
+        console.error("[materials] delete failed:", err);
         // eslint-disable-next-line no-console
         console.warn(
           "[materials] post-upload revalidation failed:",
@@ -177,7 +181,7 @@ function MaterialsClient({
         );
       }
     },
-    [courseId, toast, materialAdapter, router]
+    [courseId, toast, materialAdapter, router, t]
   );
 
   function handleDrop(e: React.DragEvent) {
@@ -209,21 +213,21 @@ function MaterialsClient({
         await materialAdapter.deleteMaterial(materialId);
         setMaterials((prev) => prev.filter((m) => m.id !== materialId));
         toast({
-          title: "Material eliminado",
+           title: t("materials.deleted"),
           variant: "success",
         });
         await revalidateMaterials(courseId);
       } catch (err) {
         toast({
-          title: "Error al eliminar",
-          description: err instanceof Error ? err.message : "No se pudo eliminar el material.",
+           title: t("materials.errors.delete"),
+           description: t("materials.errors.deleteDescription"),
           variant: "error",
         });
       } finally {
         setDeletingId(null);
       }
     },
-    [toast, courseId, materialAdapter]
+    [toast, courseId, materialAdapter, t]
   );
 
   const handlePreview = useCallback((filename: string) => {
@@ -237,23 +241,24 @@ function MaterialsClient({
     try {
       await updateCourseContext(courseId, context);
       toast({
-        title: "Contexto guardado",
+         title: t("materials.context.saved"),
         // F3: the next phase is the conceptual tree (phase 2), NOT
         // the slides (phase 3). The user must land on /tree to either
         // see the existing tree or the empty-state CTA "Generar árbol".
-        description: "Continuando al árbol conceptual...",
+         description: t("materials.context.continuing"),
         variant: "success",
       });
       router.push(`/courses/${courseId}/tree`);
     } catch (err) {
+      console.error("[materials] save context failed:", err);
       toast({
-        title: "Error al guardar",
-        description: err instanceof Error ? err.message : "No se pudo guardar el contexto.",
+         title: t("materials.errors.save"),
+          description: t("materials.errors.saveDescription"),
         variant: "error",
       });
       setSaving(false);
     }
-  }, [courseId, context, toast, router]);
+  }, [courseId, context, toast, router, t]);
 
   return (
     <div className="space-y-8">
@@ -269,7 +274,7 @@ function MaterialsClient({
           <span className="text-foreground font-medium">{courseName}</span>
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
-          Materiales del Curso
+           {t("materials.courseTitle")}
         </h1>
       </div>
 
@@ -277,7 +282,7 @@ function MaterialsClient({
       <section className="space-y-4">
         <div className="flex items-center gap-2">
           <FileText className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">Materiales</h2>
+           <h2 className="text-lg font-semibold">{t("materials.title")}</h2>
         </div>
 
         {/* Upload zone */}
@@ -299,17 +304,17 @@ function MaterialsClient({
               <Loader2
                 className="h-8 w-8 animate-spin text-primary"
                 data-testid="upload-spinner"
-                aria-label="Subiendo archivo"
+                 aria-label={t("materials.uploadingFile")}
               />
               <p className="mt-3 text-sm font-medium text-foreground">
-                Subiendo archivo...
+                 {t("materials.uploading")}
               </p>
               <p
                 className="mt-1 max-w-[28ch] truncate text-xs text-muted-foreground"
                 data-testid="upload-filename"
                 title={uploadingFileName ?? undefined}
               >
-                {uploadingFileName ?? "Por favor, espera"}
+                 {uploadingFileName ?? t("common.pleaseWait")}
               </p>
               {/* Real percent-based progress bar. `uploadProgress`
                   is driven by `xhr.upload.onprogress` in the
@@ -320,7 +325,7 @@ function MaterialsClient({
               <div
                 className="mt-3 h-1.5 w-40 overflow-hidden rounded-full bg-muted"
                 role="progressbar"
-                aria-label="Progreso de subida"
+                 aria-label={t("materials.uploadProgress")}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={uploadProgress}
@@ -345,20 +350,21 @@ function MaterialsClient({
                 <Upload className="h-5 w-5 text-muted-foreground" />
               </div>
               <p className="mt-3 text-sm font-medium text-foreground">
-                Arrastra archivos aquí
+                 {t("materials.dropFiles")}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                o haz clic para seleccionar archivos
+                 {t("materials.selectFiles")}
               </p>
               <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <FileText className="h-3.5 w-3.5" />
-                PDFs, documentos Word e imágenes
+                 {t("materials.acceptedTypes")}
               </div>
             </>
           )}
           <input
             ref={inputRef}
             type="file"
+            aria-label={t("materials.selectFiles")}
             accept={ACCEPTED_MIME}
             multiple
             onChange={handleInputChange}
@@ -371,8 +377,8 @@ function MaterialsClient({
         {materials.length === 0 ? (
           <EmptyState
             icon={<FileText className="h-8 w-8" />}
-            title="Sin materiales subidos"
-            description="Sube archivos PDF, documentos Word o imágenes para que la IA los procese."
+             title={t("materials.emptyTitle")}
+             description={t("materials.emptyDescription")}
           />
         ) : (
           <div className="space-y-2">
@@ -395,15 +401,15 @@ function MaterialsClient({
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
-          <h2 className="text-lg font-semibold">Contexto para la IA</h2>
+           <h2 className="text-lg font-semibold">{t("materials.context.title")}</h2>
         </div>
         <p className="text-sm text-muted-foreground">
-          Instrucciones adicionales para guiar a la IA en la generación de contenido.
+           {t("materials.context.description")}
         </p>
         <Textarea
           id="llm-context"
-          label="Instrucciones para la IA"
-          placeholder="Ej: El curso está dirigido a estudiantes de primer año de ingeniería. Usa un tono didáctico y ejemplos prácticos. Incluye referencias a la bibliografía del PDF principal..."
+           label={t("materials.context.label")}
+           placeholder={t("materials.context.placeholder")}
           value={context}
           onChange={(e) => setContext(e.target.value)}
           rows={6}
@@ -419,8 +425,7 @@ function MaterialsClient({
           id="save-and-continue-hint"
           className="text-xs text-muted-foreground"
         >
-          Al guardar, continuarás a la <strong>fase 2: árbol conceptual</strong>.
-          Si ya existe un árbol, lo verás. Si no, podrás generarlo.
+           {t("materials.context.continueHint")}
         </p>
         <div className="flex items-center justify-between">
           <Link
@@ -428,7 +433,7 @@ function MaterialsClient({
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver
+             {t("common.back")}
           </Link>
           <Button
             onClick={handleSaveAndContinue}
@@ -436,7 +441,7 @@ function MaterialsClient({
             data-testid="save-and-continue"
           >
             <Save className="h-4 w-4" />
-            Guardar y continuar
+             {t("common.saveAndContinue")}
           </Button>
         </div>
       </div>

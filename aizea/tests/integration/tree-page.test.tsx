@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render as testingRender, screen, cleanup, waitFor, type RenderOptions } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { LocaleProvider } from "@/components/LocaleProvider";
 import userEvent from "@testing-library/user-event";
+function render(ui: ReactElement, options?: RenderOptions) {
+  return testingRender(ui, {
+    ...options,
+    wrapper: ({ children }) => <LocaleProvider locale="es">{children}</LocaleProvider>,
+  });
+}
 
 // --- Mocks for server-side data fetching -------------------------------
 
@@ -49,6 +57,10 @@ const mockGetCourseTree = vi.fn();
 const mockGetJobStatus = vi.fn();
 const mockStartPipeline = vi.fn();
 const mockRouterRefresh = vi.fn();
+const mockTestConnection = vi.fn().mockResolvedValue({
+  openRouter: { ok: true, message: "API key válida." },
+  docling: { ok: true, message: "docling-serve accesible." },
+});
 
 vi.mock("@/lib/actions/tree", () => ({
   getCourseTreeAction: (...args: unknown[]) => mockGetCourseTree(...args),
@@ -57,6 +69,10 @@ vi.mock("@/lib/actions/tree", () => ({
 vi.mock("@/lib/actions/pipeline", () => ({
   getJobStatusAction: (...args: unknown[]) => mockGetJobStatus(...args),
   startPipelineAction: (...args: unknown[]) => mockStartPipeline(...args),
+}));
+
+vi.mock("@/lib/actions/settings", () => ({
+  testConnectionAction: (...args: unknown[]) => mockTestConnection(...args),
 }));
 
 vi.mock("@/lib/actions/slide", () => ({
@@ -229,12 +245,16 @@ describe("<TreePageClient />", () => {
     );
     await waitFor(() => {
       expect(
-        screen.getByText(/[áa]rbol.*(vac[íi]o|generar)/i)
+        screen.getByRole("heading", { name: /sin árbol conceptual/i })
       ).toBeInTheDocument();
     });
   });
 
-  it("renders the PipelineProgress when a job is in progress", async () => {
+  // v0.11.0 / R5 — pipeline progress no longer renders on the tree page.
+  // The Jobs tab is now the single source of truth for process visibility, so
+  // even with an active job the tree page must NOT show the PipelineProgress
+  // sidebar; it keeps the TreeViewer usable instead.
+  it("does NOT render PipelineProgress even when a job is in progress (R5)", async () => {
     vi.mocked(db.course.findUnique).mockResolvedValue(mockCourse as never);
     vi.mocked(db.topicNode.findMany).mockResolvedValue(
       mockCourse.nodes as never
@@ -250,7 +270,7 @@ describe("<TreePageClient />", () => {
         activeJobPhase="extraction"
       />
     );
-    expect(screen.getByTestId("pipeline-progress")).toBeInTheDocument();
+    expect(screen.queryByTestId("pipeline-progress")).toBeNull();
   });
 
   it("does not render PipelineProgress when no job is active", async () => {
@@ -329,6 +349,58 @@ describe("<TreePageClient />", () => {
     });
     await waitFor(() => {
       expect(mockRouterRefresh).toHaveBeenCalled();
+    });
+  });
+
+  it("allows retrying the service preflight without reloading", async () => {
+    vi.mocked(db.course.findUnique).mockResolvedValue(mockEmptyCourse as never);
+    vi.mocked(db.topicNode.findMany).mockResolvedValue([] as never);
+    mockGetCourseTree.mockResolvedValue({ ok: true, tree: [] });
+    mockTestConnection
+      .mockResolvedValueOnce({
+        openRouter: { ok: false, message: "La API key de OpenRouter no es válida." },
+        docling: { ok: true, message: "docling-serve accesible." },
+      })
+      .mockResolvedValueOnce({
+        openRouter: { ok: true, message: "API key válida." },
+        docling: { ok: true, message: "docling-serve accesible." },
+      });
+
+    const user = userEvent.setup();
+    render(
+      <TreePageClient
+        courseId="course-2"
+        courseName="Curso sin árbol"
+        initialNodes={[]}
+      />
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /generar.*árbol|generar.*arbol/i,
+      })
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La API key de OpenRouter no es válida."
+    );
+    expect(mockStartPipeline).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getByTestId("retry-tree-preflight")
+    );
+
+    await waitFor(() => {
+      expect(mockTestConnection).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /generar.*árbol|generar.*arbol/i,
+      })
+    );
+    await waitFor(() => {
+      expect(mockStartPipeline).toHaveBeenCalledWith("course-2");
     });
   });
 });

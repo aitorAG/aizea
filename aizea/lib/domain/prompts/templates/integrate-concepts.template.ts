@@ -6,6 +6,7 @@
 // pre-clustered groups.
 
 import type { Concept } from "@/lib/types/pipeline";
+import { buildContextBlock } from "./context-block";
 
 export interface ConceptGroup {
   /** Names of concepts in this pre-clustered group. */
@@ -13,7 +14,8 @@ export interface ConceptGroup {
 }
 
 export function buildIntegrateConceptsTemplate(
-  concepts: Concept[] | ConceptGroup[]
+  concepts: Concept[] | ConceptGroup[],
+  llmContext?: string | null
 ): { system: string; user: string } {
   // Accept either a flat list of concepts (we pre-cluster outside the prompt)
   // or a pre-clustered list of { concepts: string[] }. Normalise to a list
@@ -22,14 +24,15 @@ export function buildIntegrateConceptsTemplate(
     ? (concepts as Concept[]).map((c) => [c.name])
     : (concepts as ConceptGroup[]).map((g) => g.concepts);
 
+  const contextBlock = buildContextBlock(llmContext);
   const system = `Eres un asistente educativo especializado en agrupar conceptos académicos en temas coherentes. Recibes grupos pre-agrupados de conceptos (por similitud semántica) y debes asignar a cada grupo un nombre de tema, una descripción breve, una importancia y un identificador estable.
-
+${contextBlock}
 Instrucciones:
 - Para cada grupo, devuelve: { id, name, description, importance, concepts, sourceUnitIds }.
 - "id" debe ser un slug estable derivado del name (ej. "termodinamica").
-- "name" es el nombre del tema en español, conciso (2-5 palabras).
-- "description" es una descripción de 1-2 frases en español.
-- "importance" es un número entre 0 y 1 (lo asignas tú en función de la centralidad del tema).
+- "name" es el nombre del tema en español, conciso (2-5 palabras). Si las instrucciones del usuario especifican un nivel de abstracción o enfoque particular (ej. "enfocado en aplicaciones prácticas", "nivel universitario"), refléjalo en el nombre del tema.
+- "description" es una descripción de 1-2 frases en español. Adapta el tono y el nivel según las instrucciones del usuario (si las hay).
+- "importance" es un número entre 0 y 1 (lo asignas tú en función de la centralidad del tema). Si las instrucciones del usuario priorizan ciertos tipos de conceptos, ajusta la importancia en consecuencia.
 - "concepts" es la lista de nombres de conceptos del grupo.
 - "sourceUnitIds" lo dejas como [] (lo rellenamos fuera del prompt).
 - Devuelve ÚNICAMENTE el objeto JSON con la forma { "groups": [ ... ] }.

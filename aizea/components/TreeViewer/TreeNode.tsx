@@ -56,6 +56,7 @@ import {
   type TooltipPosition,
 } from "./TreeNodeTooltip";
 import { InlineTreeNodeEditor } from "./InlineTreeNodeEditor";
+import { useTranslations } from "@/components/LocaleProvider";
 
 /** Number of ms of continuous hover before the tooltip transitions
  *  from 'brief' (sub-conceptos) to 'full' (corpus). Locked by the
@@ -68,6 +69,7 @@ const HOVER_FULL_DELAY_MS = 3000;
 type HoverState = "idle" | "brief" | "full";
 
 function TreeNode({ data }: NodeProps<TreeFlowNodeData>) {
+  const t = useTranslations();
   const isLeaf = data.isLeaf;
   const isSelected = data.selected ?? false;
   const conceptCount = data.conceptCount ?? 0;
@@ -269,7 +271,7 @@ function TreeNode({ data }: NodeProps<TreeFlowNodeData>) {
         role="checkbox"
         aria-checked={isSelected}
         aria-label={
-          isSelected ? `Deseleccionar ${data.name}` : `Seleccionar ${data.name}`
+          isSelected ? t("tree.node.deselect", { name: data.name }) : t("tree.node.select", { name: data.name })
         }
         data-testid="tree-node-checkbox"
         onClick={handleToggle}
@@ -306,12 +308,23 @@ function TreeNode({ data }: NodeProps<TreeFlowNodeData>) {
             </div>
           ) : (
             <>
-              <p
-                data-testid="tree-node-name"
-                className="line-clamp-2 text-sm font-medium leading-tight text-foreground"
-              >
-                {data.name}
-              </p>
+              <div className="flex items-start gap-1.5">
+                {data.numericPath && (
+                  <span
+                    data-testid="tree-node-number"
+                    className="mt-0.5 shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-primary"
+                    title={t("tree.node.hierarchicalNumber", { path: data.numericPath })}
+                  >
+                    {data.numericPath}
+                  </span>
+                )}
+                <p
+                  data-testid="tree-node-name"
+                  className="line-clamp-2 text-sm font-medium leading-tight text-foreground"
+                >
+                  {data.name}
+                </p>
+              </div>
               <span
                 className={cn(
                   "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
@@ -319,7 +332,7 @@ function TreeNode({ data }: NodeProps<TreeFlowNodeData>) {
                     ? "bg-muted text-muted-foreground"
                     : "bg-primary/10 text-primary"
                 )}
-                title={isLeaf ? "Hoja" : "Rama"}
+                 title={isLeaf ? t("tree.node.leaf") : t("tree.node.branch")}
               >
                 {isLeaf ? (
                   <Leaf className="h-3 w-3" />
@@ -345,28 +358,28 @@ function TreeNode({ data }: NodeProps<TreeFlowNodeData>) {
             <span
               data-testid="tree-node-new-badge"
               className="flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-primary"
-              title="Nodo recién creado — completa su nombre y descripción"
+              title={t("tree.node.newHint")}
             >
               <PencilLine className="h-2.5 w-2.5" />
-              Nuevo
+              {t("tree.node.new")}
             </span>
           )}
           {conceptCount > 0 && (
             <span
               data-testid="tree-node-concepts"
               className="rounded bg-muted/70 px-1.5 py-0.5"
-              title="Conceptos extraídos"
+              title={t("tree.node.extractedConcepts")}
             >
-              {conceptCount} conc.
+              {t("tree.node.concepts", { count: conceptCount })}
             </span>
           )}
           {slideCount > 0 && (
             <span
               data-testid="tree-node-slides"
               className="rounded bg-muted/70 px-1.5 py-0.5"
-              title="Diapositivas generadas"
+              title={t("tree.node.generatedSlides")}
             >
-              {slideCount} slides
+              {t("tree.node.slides", { count: slideCount })}
             </span>
           )}
           <span className="ml-auto font-mono text-[9px] uppercase tracking-wider opacity-60">

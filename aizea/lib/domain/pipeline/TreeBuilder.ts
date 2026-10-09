@@ -99,7 +99,7 @@ export class TreeBuilder {
     this.skeletonBuilder = options.skeletonBuilder ?? new TreeSkeletonBuilder();
   }
 
-  async build(courseId: string): Promise<TopicNode[]> {
+  async build(courseId: string, llmContext?: string | null): Promise<TopicNode[]> {
     if (!this.repository) {
       throw new Error(
         "TreeBuilder requiere un repositorio inyectado (options.repository)."
@@ -133,7 +133,7 @@ export class TreeBuilder {
       if (viaStructure !== null) return viaStructure;
     }
 
-    return this.buildViaLlm(courseId, groups, repository);
+    return this.buildViaLlm(courseId, groups, repository, llmContext);
   }
 
   // ----- strategy: LLM (legacy) -----
@@ -141,7 +141,8 @@ export class TreeBuilder {
   private async buildViaLlm(
     courseId: string,
     groups: TopicGroup[],
-    repository: ITreeBuilderRepository
+    repository: ITreeBuilderRepository,
+    llmContext?: string | null
   ): Promise<TopicNode[]> {
     if (!this.llmProvider) {
       throw new Error(
@@ -151,7 +152,7 @@ export class TreeBuilder {
     const llmProvider = this.llmProvider;
 
     // 2. Ask the LLM to build the hierarchy.
-    const { system, user } = this.promptManager.buildBuildTreePrompt(groups);
+    const { system, user } = this.promptManager.buildBuildTreePrompt(groups, llmContext);
     const response = await llmProvider.chatJSON<LlmHierarchyResponse>([
       { role: "system", content: system },
       { role: "user", content: user },
@@ -209,6 +210,7 @@ export class TreeBuilder {
         summary: row.summary,
         depth: row.depth,
         orderIndex: row.orderIndex,
+        sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds as string) : [],
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
@@ -374,6 +376,7 @@ export class TreeBuilder {
       summary: row.summary,
       depth: row.depth,
       orderIndex: row.orderIndex,
+      sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds as string) : [],
       isLeaf: row.isLeaf,
       version: row.version,
       sourceMaterialId: row.sourceMaterialId,

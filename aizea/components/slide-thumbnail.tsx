@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, memo } from "react";
 import { FileText } from "lucide-react";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface SlideThumbnailProps {
   html: string | null;
@@ -11,6 +12,7 @@ interface SlideThumbnailProps {
 
 function SlideThumbnailImpl({ html, slideNumber, onClick }: SlideThumbnailProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const t = useTranslations();
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -29,13 +31,13 @@ function SlideThumbnailImpl({ html, slideNumber, onClick }: SlideThumbnailProps)
       <button
         onClick={onClick}
         className="flex h-[150px] w-[200px] shrink-0 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/40 transition-colors hover:border-primary/50 hover:bg-muted/60"
-        aria-label={`Diapositiva ${slideNumber}`}
+        aria-label={t("slides.hierarchyNumber", { number: slideNumber })}
       >
         <FileText className="h-8 w-8 text-muted-foreground/60" />
         <span className="text-xs font-medium text-muted-foreground">
-          Diapositiva {slideNumber}
+          {t("slides.hierarchyNumber", { number: slideNumber })}
         </span>
-        <span className="text-[10px] text-muted-foreground/70">Sin diseño</span>
+        <span className="text-[10px] text-muted-foreground/70">{t("slides.noHtmlDesign")}</span>
       </button>
     );
   }
@@ -44,7 +46,7 @@ function SlideThumbnailImpl({ html, slideNumber, onClick }: SlideThumbnailProps)
     <button
       onClick={onClick}
       className="group/thumbnail relative h-[150px] w-[200px] shrink-0 overflow-hidden rounded-md border border-border bg-white transition-shadow hover:shadow-md"
-      aria-label={`Ver diapositiva ${slideNumber}`}
+      aria-label={t("slides.previewTitle")}
     >
       <iframe
         ref={iframeRef}
@@ -58,7 +60,7 @@ function SlideThumbnailImpl({ html, slideNumber, onClick }: SlideThumbnailProps)
         }}
         sandbox="allow-same-origin"
         scrolling="no"
-        title={`Vista previa diapositiva ${slideNumber}`}
+        title={t("slides.previewTitle")}
       />
       <div className="absolute inset-0 bg-transparent transition-colors group-hover/thumbnail:bg-primary/5" />
     </button>

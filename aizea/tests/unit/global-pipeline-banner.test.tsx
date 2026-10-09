@@ -1,27 +1,39 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render as testingRender, screen, cleanup, act, type RenderOptions } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { LocaleProvider } from "@/components/LocaleProvider";
 import userEvent from "@testing-library/user-event";
 import { GlobalPipelineBanner } from "@/components/PipelineProgress/GlobalPipelineBanner";
 import { usePipelineStore } from "@/lib/stores/usePipelineStore";
 
 // --- Mocks ---------------------------------------------------------------
+function render(ui: ReactElement, options?: RenderOptions) {
+  return testingRender(ui, {
+    ...options,
+    wrapper: ({ children }) => <LocaleProvider locale="es">{children}</LocaleProvider>,
+  });
+}
 
 vi.mock("@/lib/actions/pipeline", () => ({
   getJobStatusAction: vi.fn(),
   listActiveJobsAction: vi.fn(),
   cancelPipelineAction: vi.fn(),
+  retryPipelineAction: vi.fn(),
 }));
 
-import { getJobStatusAction, listActiveJobsAction, cancelPipelineAction } from "@/lib/actions/pipeline";
+import { getJobStatusAction, listActiveJobsAction, cancelPipelineAction, retryPipelineAction } from "@/lib/actions/pipeline";
 const mockGetJobStatus = vi.mocked(getJobStatusAction);
 const mockListActiveJobs = vi.mocked(listActiveJobsAction);
 const mockCancelPipeline = vi.mocked(cancelPipelineAction);
+const mockRetryPipeline = vi.mocked(retryPipelineAction);
+
+const { mockToast } = vi.hoisted(() => ({ mockToast: vi.fn() }));
 
 vi.mock("@/components/toast", () => ({
   useToast: () => ({
-    toast: vi.fn(),
+    toast: mockToast,
   }),
 }));
 
@@ -42,9 +54,146 @@ beforeEach(() => {
     jobId: "any",
     status: "cancelled",
   });
+  mockRetryPipeline.mockReset();
   // Reset to a known course path so tests behave deterministically.
   mockPathname = "/courses/00000000-0000-0000-0000-000000000001/tree";
   usePipelineStore.getState().reset();
+});
+
+describe("<GlobalPipelineBanner /> — retry", () => {
+  it("retries the representative job and removes the old group only after acceptance", async () => {
+    usePipelineStore.getState().addJob({
+      jobId: "failed-phase",
+      runId: "failed-run",
+      courseId: "c-1",
+      phase: "extraction",
+      status: "failed",
+      error: "Boom",
+    });
+    let resolveRetry: ((result: Awaited<ReturnType<typeof retryPipelineAction>>) => void) | undefined;
+    mockRetryPipeline.mockReturnValue(new Promise((resolve) => {
+      resolveRetry = resolve;
+    }));
+    render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await userEvent.click(screen.getByTestId("banner-retry"));
+    expect(mockRetryPipeline).toHaveBeenCalledWith("failed-phase");
+    expect(usePipelineStore.getState().jobs.has("failed-phase")).toBe(true);
+    expect(screen.getByTestId("banner-retry")).toBeDisabled();
+
+    await act(async () => {
+      resolveRetry?.({ ok: true, empty: false, enqueued: true, runId: "retry-run" });
+    });
+    expect(usePipelineStore.getState().jobs.has("failed-phase")).toBe(false);
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Reintento iniciado",
+      variant: "success",
+    }));
+    const placeholder = usePipelineStore.getState().jobs.get("pending:retry-run");
+    expect(placeholder).toMatchObject({
+      runId: "retry-run",
+      courseId: "c-1",
+      phase: "segmentation",
+      status: "pending",
+    });
+  });
+
+  it("keeps the old group and reports an informational result when retry is empty", async () => {
+    usePipelineStore.getState().addJob({
+      jobId: "failed-phase",
+      runId: "failed-run",
+      courseId: "c-1",
+      courseName: "Course 1",
+      phase: "extraction",
+      status: "failed",
+    });
+    mockRetryPipeline.mockResolvedValue({
+      ok: true,
+      empty: true,
+      reason: "NO_MATERIALS",
+      message: "Sube un PDF antes de generar el árbol.",
+    });
+    render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await userEvent.click(screen.getByTestId("banner-retry"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(usePipelineStore.getState().jobs.has("failed-phase")).toBe(true);
+    expect(usePipelineStore.getState().jobs.has("pending:undefined")).toBe(false);
+    expect(screen.getByTestId("global-pipeline-banner")).toBeInTheDocument();
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Sin contenido que procesar",
+      description: "Sin contenido que procesar",
+      variant: "info",
+    }));
+  });
+
+  it("keeps the group and reports an action failure", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    usePipelineStore.getState().addJob({
+      jobId: "failed-phase",
+      courseId: "c-1",
+      phase: "extraction",
+      status: "failed",
+    });
+    mockRetryPipeline.mockResolvedValue({ ok: false, error: "Retry rejected" });
+    render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await userEvent.click(screen.getByTestId("banner-retry"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(usePipelineStore.getState().jobs.has("failed-phase")).toBe(true);
+    expect(screen.getByTestId("global-pipeline-banner")).toBeInTheDocument();
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "No se pudo reintentar",
+      description: "Error desconocido",
+      variant: "error",
+    }));
+    expect(consoleError).toHaveBeenCalledWith(
+      "[pipeline] retry action failed:",
+      "Retry rejected"
+    );
+    consoleError.mockRestore();
+  });
+
+  it("does not issue a second retry while the first is pending", async () => {
+    usePipelineStore.getState().addJob({
+      jobId: "failed-phase",
+      courseId: "c-1",
+      phase: "extraction",
+      status: "failed",
+    });
+    let resolveRetry: ((result: Awaited<ReturnType<typeof retryPipelineAction>>) => void) | undefined;
+    mockRetryPipeline.mockReturnValue(new Promise((resolve) => {
+      resolveRetry = resolve;
+    }));
+    render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const retryButton = screen.getByTestId("banner-retry");
+    await userEvent.click(retryButton);
+    expect(retryButton).toBeDisabled();
+    expect(mockRetryPipeline).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRetry?.({ ok: true, empty: false, enqueued: true, runId: "retry-run" });
+    });
+  });
 });
 
 afterEach(() => {
@@ -203,6 +352,28 @@ describe("<GlobalPipelineBanner /> — hydration on mount", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("keeps a pending placeholder when discovery returns no jobs", async () => {
+    const placeholderJobId = "pending:retry-run";
+    usePipelineStore.getState().addJob({
+      jobId: placeholderJobId,
+      runId: "retry-run",
+      courseId: "00000000-0000-0000-0000-000000000001",
+      courseName: "Course 1",
+      phase: "segmentation",
+      status: "pending",
+      currentStep: "Iniciando pipeline…",
+    });
+    mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [] });
+
+    render(<GlobalPipelineBanner />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(usePipelineStore.getState().jobs.has(placeholderJobId)).toBe(true);
+    expect(screen.getByTestId("global-pipeline-banner")).toBeInTheDocument();
+  });
+
   it("scopes the hydration request to the current courseId from the URL (v1.5 #2.3)", async () => {
     mockPathname = "/courses/abc-123-uuid/tree";
     mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [] });
@@ -254,6 +425,128 @@ describe("<GlobalPipelineBanner /> — hydration on mount", () => {
     });
     // The two hydrations are distinct calls.
     expect(mockListActiveJobs).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("<GlobalPipelineBanner /> — discovery", () => {
+  beforeEach(() => {
+    mockGetJobStatus.mockResolvedValue({ ok: false, error: "Not available" });
+  });
+  const realJob = (courseId: string, jobId = "real-phase") => ({
+    jobId,
+    courseId,
+    courseName: null,
+    phase: "extraction",
+    status: "running",
+    progress: 35,
+    currentStep: "Extrayendo",
+    error: null,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+
+  it("replaces only the discovered course placeholder and inherits its runId", async () => {
+    mockPathname = "/courses/course-A/tree";
+    for (const courseId of ["course-B", "course-A"]) {
+      usePipelineStore.getState().addJob({
+        jobId: `pending:${courseId}`,
+        runId: `run-${courseId}`,
+        courseId,
+        phase: "segmentation",
+        status: "pending",
+      });
+    }
+    mockListActiveJobs.mockResolvedValueOnce({ ok: true, jobs: [] });
+    mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [realJob("course-A")] });
+
+    render(<GlobalPipelineBanner />);
+    await act(async () => { await Promise.resolve(); });
+
+    const jobs = usePipelineStore.getState().jobs;
+    expect(jobs.has("pending:course-B")).toBe(true);
+    expect(jobs.has("pending:course-A")).toBe(false);
+    expect(jobs.get("real-phase")?.runId).toBe("run-course-A");
+    expect(screen.getAllByTestId("global-pipeline-banner")).toHaveLength(2);
+  });
+
+  it("keeps placeholders from other groups in the same course", async () => {
+    mockPathname = "/courses/course-A/tree";
+    for (const runId of ["first-run", "other-run"]) {
+      usePipelineStore.getState().addJob({
+        jobId: `pending:${runId}`,
+        runId,
+        courseId: "course-A",
+        phase: "segmentation",
+        status: "pending",
+      });
+    }
+    mockListActiveJobs.mockResolvedValueOnce({ ok: true, jobs: [] });
+    mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [realJob("course-A")] });
+    render(<GlobalPipelineBanner />);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(usePipelineStore.getState().jobs.has("pending:first-run")).toBe(false);
+    expect(usePipelineStore.getState().jobs.has("pending:other-run")).toBe(true);
+    expect(usePipelineStore.getState().jobs.get("real-phase")?.runId).toBe("first-run");
+  });
+
+  it("does not assign the current course runId to a different course returned by the server", async () => {
+    mockPathname = "/courses/course-A/tree";
+    usePipelineStore.getState().addJob({
+      jobId: "pending:run-A", runId: "run-A", courseId: "course-A",
+      phase: "segmentation", status: "pending",
+    });
+    mockListActiveJobs.mockResolvedValueOnce({ ok: true, jobs: [] });
+    mockListActiveJobs.mockResolvedValue({ ok: true, jobs: [realJob("course-B")] });
+    render(<GlobalPipelineBanner />);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(usePipelineStore.getState().jobs.has("pending:run-A")).toBe(true);
+    expect(usePipelineStore.getState().jobs.get("real-phase")?.runId).not.toBe("run-A");
+  });
+
+  it("ignores discovery started before a retry is accepted", async () => {
+    mockPathname = "/courses/course-A/tree";
+    usePipelineStore.getState().addJob({
+      jobId: "failed-phase", runId: "failed-run", courseId: "course-A",
+      phase: "extraction", status: "failed",
+    });
+    usePipelineStore.getState().addJob({
+      jobId: "pending:old-run", runId: "old-run", courseId: "course-A",
+      phase: "segmentation", status: "pending",
+    });
+    let resolveDiscovery: ((result: Awaited<ReturnType<typeof listActiveJobsAction>>) => void) | undefined;
+    mockListActiveJobs.mockResolvedValueOnce({ ok: true, jobs: [] });
+    mockListActiveJobs.mockReturnValueOnce(new Promise((resolve) => { resolveDiscovery = resolve; }));
+    mockRetryPipeline.mockResolvedValue({ ok: true, empty: false, enqueued: true, runId: "new-run" });
+    render(<GlobalPipelineBanner />);
+    await act(async () => { await Promise.resolve(); });
+    await userEvent.click(screen.getByTestId("banner-retry"));
+    await act(async () => {
+      resolveDiscovery?.({ ok: true, jobs: [realJob("course-A", "old-phase")] });
+    });
+
+    expect(usePipelineStore.getState().jobs.has("pending:new-run")).toBe(true);
+    expect(usePipelineStore.getState().jobs.has("pending:old-run")).toBe(true);
+    expect(usePipelineStore.getState().jobs.has("old-phase")).toBe(false);
+  });
+
+  it("does not overlap discovery requests while the previous response is pending", async () => {
+    vi.useFakeTimers();
+    mockPathname = "/courses/course-A/tree";
+    usePipelineStore.getState().addJob({
+      jobId: "pending:run-A", runId: "run-A", courseId: "course-A",
+      phase: "segmentation", status: "pending",
+    });
+    mockListActiveJobs.mockResolvedValueOnce({ ok: true, jobs: [] });
+    let resolveDiscovery: ((result: Awaited<ReturnType<typeof listActiveJobsAction>>) => void) | undefined;
+    mockListActiveJobs.mockReturnValueOnce(new Promise((resolve) => { resolveDiscovery = resolve; }));
+    render(<GlobalPipelineBanner />);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_500); });
+    expect(mockListActiveJobs).toHaveBeenCalledTimes(2);
+    await act(async () => { resolveDiscovery?.({ ok: true, jobs: [] }); });
+    expect(usePipelineStore.getState().jobs.has("pending:run-A")).toBe(true);
   });
 });
 
@@ -567,7 +860,7 @@ describe("<GlobalPipelineBanner /> — stuck detection", () => {
               "job-stuck",
               {
                 ...job,
-                lastProgressAt: Date.now() - (6 * 60 * 1000),
+                lastProgressAt: Date.now() - (16 * 60 * 1000),
               },
             ],
           ]),
@@ -579,7 +872,11 @@ describe("<GlobalPipelineBanner /> — stuck detection", () => {
     });
     const banner = screen.getByTestId("global-pipeline-banner");
     expect(banner.getAttribute("data-stuck")).toBe("true");
-    expect(banner.getAttribute("data-status")).toBe("failed");
+    expect(banner.getAttribute("data-status")).toBe("stuck");
+    const currentPhase = screen.getAllByTestId("phase")[0];
+    expect(currentPhase.getAttribute("data-phase")).toBe("segmentation");
+    expect(currentPhase.getAttribute("data-status")).toBe("stuck");
+    expect(currentPhase.className).toContain("border-orange-300");
   });
 
   it("shows the retry button for a failed job", async () => {

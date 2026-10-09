@@ -36,6 +36,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useTranslations } from "@/components/LocaleProvider";
 import { cn } from "@/lib/utils";
 import { CheckpointItem } from "./CheckpointItem";
 import { CHECKPOINTS } from "./icons";
@@ -104,13 +105,14 @@ export function CheckpointBar({
 }: CheckpointBarProps) {
   const pathname = usePathname() ?? "";
   const currentPhase = forcePhase ?? getCurrentPhase(pathname, courseId);
+  const t = useTranslations();
 
   return (
     <nav
       data-testid="checkpoint-bar"
       data-course-id={courseId}
       data-current-phase={currentPhase}
-      aria-label="Fases del curso"
+      aria-label={t("course.checkpoints.ariaLabel")}
       // Fixed bottom bar — 56px on mobile, 64px on >= sm. The
       // `inset-x-0` keeps it flush with both edges. z-40 sits below
       // the GlobalPipelineBanner (z-[60]) so a running pipeline
@@ -143,7 +145,7 @@ export function CheckpointBar({
               currentPhase={currentPhase}
               href={cp.href(courseId, availability.firstSlideId)}
               icon={cp.icon}
-              label={cp.label}
+               label={t(cp.labelKey)}
               // cp.phase is `number` (see icons.tsx) but
               // PhaseAvailability is keyed by the literal union 1|2|3|4.
               // We know from the descriptor list in icons.tsx that

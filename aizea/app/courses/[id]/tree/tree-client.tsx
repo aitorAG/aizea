@@ -41,21 +41,25 @@ import { ArrowLeft, GitBranch, Sparkles, FilePlus2, Plus, MessageSquare } from "
 import { cn } from "@/lib/utils";
 import { TreeViewer } from "@/components/TreeViewer/TreeViewer";
 import { TreeAgentChat } from "@/components/TreeViewer/TreeAgentChat";
-import { PipelineProgress } from "@/components/PipelineProgress/PipelineProgress";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { useTranslations } from "@/components/LocaleProvider";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/toast";
 import { useTreeAdapter } from "@/lib/adapters/useTreeAdapter";
 import { usePipelineStore } from "@/lib/stores/usePipelineStore";
 import { startPipelineAction } from "@/lib/actions/pipeline";
-import { updateSlideTarget } from "@/lib/actions/course";
+import { testConnectionAction } from "@/lib/actions/settings";
+import { updateSlideTarget, updateLlmContext } from "@/lib/actions/course";
 import { createMinimalSlides } from "@/lib/actions/slide";
 import { createSlide } from "@/lib/actions/slide";
 import { regenerateHtmlDesign } from "@/lib/actions/generate";
 import {
   addTreeNodeAction,
   updateTreeNodeAction,
+  expandTreeDepthAction,
+  expandSelectedNodesDepthAction,
   type AddTreeNodeInput,
   type UpdateTreeNodeInput,
 } from "@/lib/actions/tree";
@@ -67,6 +71,8 @@ interface TreePageClientProps {
   initialNodes: TopicNode[];
   /** v1.0 — target slide count (0-300) or null. Orients tree granularity. */
   initialSlideTarget?: number | null;
+  /** User-provided context for LLM operations (extraction, integration, tree-building). */
+  initialLlmContext?: string | null;
   activeJobId?: string | null;
   activeJobPhase?: PipelinePhase | null;
 }
@@ -81,22 +87,27 @@ const RECENTLY_ADDED_TTL_MS = 5 * 60 * 1000;
 // F4.4 — the placeholder name we give a newly-created box so the
 // inline-edit field has a sensible starting value. The user is
 // expected to replace it as soon as they start typing.
-const NEW_NODE_PLACEHOLDER_NAME = "Nuevo nodo";
 
 export function TreePageClient({
   courseId,
   courseName,
   initialNodes,
   initialSlideTarget = null,
+  initialLlmContext = null,
   activeJobId = null,
   activeJobPhase = null,
 }: TreePageClientProps) {
+  const t = useTranslations();
   const [nodes, setNodes] = useState<TopicNode[]>(initialNodes);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [preflightChecking, setPreflightChecking] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   // v1.0 — target slide count slider (0-300). Default 50 when unset (the
   // middle orientation). Persisted on change so the pipeline/agent can read it.
   const [slideTarget, setSlideTarget] = useState<number>(initialSlideTarget ?? 50);
+  // User-provided context for LLM operations. Persisted on blur.
+  const [llmContext, setLlmContext] = useState<string>(initialLlmContext ?? "");
   // v1.0 — the tree agent chat panel toggle. When the agent applies changes it
   // returns the fresh tree, which we push straight into `setNodes` (live).
   const [chatOpen, setChatOpen] = useState(false);
@@ -132,6 +143,12 @@ export function TreePageClient({
   const handleToggleFullscreen = useCallback(() => {
     setIsFullscreen((prev) => !prev);
   }, []);
+  // RA1 — ghost placeholders during expansion. IDs of leaf nodes
+  // currently being expanded (one ghost child per leaf). Passed to
+  // TreeViewer which injects phantom nodes under each leaf so the
+  // user sees that children are being generated before the server
+  // action returns.
+  const [expandingLeafIds, setExpandingLeafIds] = useState<string[]>([]);
   // Mirror the fullscreen flag to a body data attribute so the
   // CSS rule in globals.css can hide the CheckpointBar (and any
   // other layout-level element we decide to suppress) without
@@ -287,22 +304,39 @@ export function TreePageClient({
       // and reset the user's local edits (e.g. an in-flight
       // drag on a node that hasn't round-tripped yet).
       const currentIds = new Set(current.map((n) => n.id));
-      const serverIds = new Set(initialNodes.map((n) => n.id));
-      if (currentIds.size === serverIds.size) {
-        let same = true;
-        for (const id of currentIds) {
-          if (!serverIds.has(id)) {
-            same = false;
-            break;
-          }
+      const serverById = new Map(initialNodes.map((n) => [n.id, n]));
+
+      // v0.11.0 — the server is authoritative for STRUCTURAL fields
+      // (numericPath, displayOrder, depth, parentId). After a mutation
+      // (add / delete / merge / split / expand) the service recomputes
+      // numbering, so on the next router.refresh() we must ADOPT those
+      // fresh values onto nodes we already hold — otherwise the tree keeps
+      // showing stale (or missing) numbers. We still preserve locally-added
+      // nodes the server hasn't seen yet (they live in `recentlyAdded`).
+      const reconciled = current.map((local) => {
+        const server = serverById.get(local.id);
+        if (!server) return local; // local-only node (freshly created)
+        if (
+          server.numericPath === local.numericPath &&
+          server.displayOrder === local.displayOrder &&
+          server.depth === local.depth &&
+          server.parentId === local.parentId
+        ) {
+          return local; // no structural drift
         }
-        if (same) return current;
-      }
-      // Server has rows the client doesn't (e.g. a freshly
-      // completed pipeline). Merge them in: keep the local
-      // nodes as-is, append the new server-side ones that
-      // aren't already in the local list.
-      const merged = [...current];
+        return {
+          ...local,
+          numericPath: server.numericPath,
+          displayOrder: server.displayOrder,
+          depth: server.depth,
+          parentId: server.parentId,
+          orderIndex: server.orderIndex,
+        };
+      });
+
+      // Append server rows the client doesn't have yet (e.g. a freshly
+      // completed pipeline or an expansion round-trip).
+      const merged = [...reconciled];
       for (const node of initialNodes) {
         if (!currentIds.has(node.id)) {
           merged.push(node);
@@ -346,8 +380,13 @@ export function TreePageClient({
         }
         return next;
       });
+      // v0.11.0 — a structural mutation (delete / merge / split) recomputed
+      // numbering server-side. Refresh so the server component re-runs and the
+      // reconciliation effect adopts the fresh numericPath onto surviving
+      // nodes (otherwise the tree shows stale/missing numbers until reload).
+      router.refresh();
     },
-    []
+    [router]
   );
 
   const handleSelection = useCallback(
@@ -369,7 +408,7 @@ export function TreePageClient({
       setAddingNode(true);
       try {
         const data: AddTreeNodeInput = {
-          name: NEW_NODE_PLACEHOLDER_NAME,
+          name: t("tree.newNode"),
           summary: null,
         };
         const result =
@@ -377,9 +416,10 @@ export function TreePageClient({
             ? await addTreeNodeAction(courseId, null, data)
             : await addTreeNodeAction(courseId, parentId ?? null, data);
         if (!result.ok) {
+          console.error("[tree] add node failed:", result.error);
           toast({
-            title: "Error al añadir nodo",
-            description: result.error,
+            title: t("tree.errors.addNode"),
+            description: t("tree.errors.addNodeDescription"),
             variant: "error",
           });
           return;
@@ -396,25 +436,28 @@ export function TreePageClient({
           return next;
         });
         toast({
-          title: kind === "root" ? "Nueva raíz añadida" : "Nuevo hijo añadido",
+          title: kind === "root" ? t("tree.added.root") : t("tree.added.child"),
           description:
-            "Completa el nombre y la descripción del nuevo nodo.",
+            t("tree.added.description"),
           variant: "success",
         });
+        // v0.11.0 — adding a node recomputed numbering server-side; refresh so
+        // the reconciliation effect adopts the fresh numericPath. The inline
+        // name/summary edit is preserved (reconciliation only adopts structural
+        // fields, and `recentlyAdded` state survives the refresh).
+        router.refresh();
       } catch (err) {
+        console.error("[tree] add node threw:", err);
         toast({
-          title: "Error al añadir nodo",
-          description:
-            err instanceof Error
-              ? err.message
-              : "No se pudo crear el nodo.",
+          title: t("tree.errors.addNode"),
+          description: t("tree.errors.addNodeDescription"),
           variant: "error",
         });
       } finally {
         setAddingNode(false);
       }
     },
-    [addingNode, courseId, toast]
+    [addingNode, courseId, toast, router, t]
   );
 
   // F4.4 — the inline-edit save handler. Called by the TreeNode
@@ -434,14 +477,15 @@ export function TreePageClient({
       };
       const result = await updateTreeNodeAction(nodeId, update);
       if (!result.ok) {
+        console.error("[tree] inline node update failed:", result.error);
         toast({
-          title: "Error al guardar",
-          description: result.error,
+          title: t("tree.errors.save"),
+          description: t("common.unknownError"),
           variant: "error",
         });
         // Re-throw so the InlineTreeNodeEditor can show its own
         // error indicator and keep the editor open.
-        throw new Error(result.error);
+        throw new Error(t("common.unknownError"));
       }
       // Update the local node with the server-confirmed values
       // (so version bumps are reflected) and clear the "recently
@@ -458,7 +502,7 @@ export function TreePageClient({
         return next;
       });
     },
-    [toast]
+    [toast, t]
   );
 
   // F4.3 — refactored to take an explicit `ids` argument so both
@@ -509,22 +553,23 @@ export function TreePageClient({
           }
         }
         toast({
-          title: "Diapositivas generadas",
-          description: `Se crearon ${created.length} diapositiva${created.length !== 1 ? "s" : ""}.`,
+          title: t("tree.slides.generated"),
+          description: t(created.length === 1 ? "tree.slides.generatedOne" : "tree.slides.generatedMany", { count: created.length }),
           variant: "success",
         });
       } catch (err) {
+        console.error("[tree] slide generation failed:", err);
         toast({
-          title: "Error al generar",
+          title: t("tree.errors.generate"),
           description:
-            err instanceof Error ? err.message : "No se pudieron crear las diapositivas.",
+            t("tree.errors.generateSlidesDescription"),
           variant: "error",
         });
       } finally {
         setGenerating(false);
       }
     },
-    [courseId, nodes, toast]
+    [courseId, nodes, toast, t]
   );
 
   // F4.3 — one-click bulk action. Calls handleGenerate with the
@@ -568,8 +613,8 @@ export function TreePageClient({
     // synchronous (zustand store), so the user sees the toast
     // even when the action is in flight.
     toast({
-      title: `Generando ${ids.length} diapositiva${ids.length !== 1 ? "s" : ""}...`,
-      description: "Creando el esquema inicial desde el árbol conceptual.",
+      title: t(ids.length === 1 ? "tree.slides.generatingOne" : "tree.slides.generatingMany", { count: ids.length }),
+      description: t("tree.slides.creatingOutline"),
       variant: "info",
     });
     try {
@@ -581,25 +626,126 @@ export function TreePageClient({
       // also shows feedback.
       router.push(`/courses/${courseId}/slides`);
       toast({
-        title: "Diapositivas creadas",
-        description: `Se crearon ${created.length} diapositiva${created.length !== 1 ? "s" : ""} en blanco. Añade el contenido desde la lista.`,
+        title: t("tree.slides.created"),
+        description: t(created.length === 1 ? "tree.slides.createdOne" : "tree.slides.createdMany", { count: created.length }),
         variant: "success",
       });
-    } catch (err) {
+      } catch (err) {
+        console.error("[tree] slide creation failed:", err);
       toast({
-        title: "Error al generar diapositivas",
-        description:
-          err instanceof Error
-            ? err.message
-            : "No se pudieron crear las diapositivas.",
+        title: t("tree.errors.generateSlides"),
+          description: t("tree.errors.generateSlidesDescription"),
         variant: "error",
       });
     } finally {
       setGeneratingSlidesOnly(false);
     }
-  }, [courseId, nodes, router, toast]);
+  }, [courseId, nodes, router, toast, t]);
+
+  // Handler para expandir el árbol un nivel de profundidad.
+  // Genera un hijo para cada nodo hoja actual usando el LLM.
+  // Si hay nodos seleccionados, expande solo esos nodos; de lo contrario, expande todos los nodos hoja.
+  // RA1 — calcula las hojas objetivo y setea `expandingLeafIds` para que
+  // TreeViewer inyecte nodos fantasma durante la espera.
+  const handleExpandDepth = useCallback(async () => {
+    if (nodes.length === 0) return;
+
+    const selectedNodeIds = Array.from(selectedIds);
+    const isSelectiveExpansion = selectedNodeIds.length > 0;
+
+    // RA1 — calcular las hojas objetivo (seleccionadas, o las del
+    // nivel más profundo si no hay selección). Una hoja es un nodo
+    // sin hijos (no aparece como parentId de ningún otro nodo).
+    const childrenByParent = new Map<string, string[]>();
+    for (const node of nodes) {
+      if (!node.parentId) continue;
+      const sibs = childrenByParent.get(node.parentId) ?? [];
+      sibs.push(node.id);
+      childrenByParent.set(node.parentId, sibs);
+    }
+    const allLeaves = nodes.filter(n => !childrenByParent.has(n.id));
+    const targetLeaves = isSelectiveExpansion
+      ? allLeaves.filter(leaf => selectedNodeIds.includes(leaf.id))
+      : allLeaves;
+    const targetLeafIds = targetLeaves.map(n => n.id);
+
+    setExpandingLeafIds(targetLeafIds);
+    setGenerating(true);
+    toast({
+      title: t("tree.expanding"),
+      description: isSelectiveExpansion
+        ? t(selectedNodeIds.length === 1 ? "tree.expand.selectedOne" : "tree.expand.selectedMany", { count: selectedNodeIds.length })
+        : t("tree.expand.description"),
+      variant: "info",
+    });
+    try {
+      const result = isSelectiveExpansion
+        ? await expandSelectedNodesDepthAction(courseId, selectedNodeIds)
+        : await expandTreeDepthAction(courseId);
+
+      if (!result.ok) {
+        console.error("[tree] depth expansion failed:", result.error);
+        toast({
+          title: t("tree.errors.expand"),
+          description: t("tree.errors.expandDescription"),
+          variant: "error",
+        });
+        return;
+      }
+      // Actualizar los nodos locales con el árbol expandido
+      setNodes(result.nodes);
+      toast({
+          title: t("tree.expanded"),
+        description: t(result.addedCount === 1 ? "tree.expand.addedOne" : "tree.expand.addedMany", { count: result.addedCount }),
+        variant: "success",
+      });
+      } catch (err) {
+        console.error("[tree] depth expansion threw:", err);
+      toast({
+          title: t("tree.errors.expand"),
+          description: t("tree.errors.expandDescription"),
+        variant: "error",
+      });
+    } finally {
+      setExpandingLeafIds([]);
+      setGenerating(false);
+    }
+  }, [courseId, nodes, selectedIds, toast, t]);
+
+  const runPreflight = useCallback(async (): Promise<boolean> => {
+    // Fail early with an actionable message instead of allowing a long
+    // pipeline to fail after the first LLM/docling call. This callback is
+    // shared by the primary CTA and the retry action in the error panel.
+    setPreflightChecking(true);
+    try {
+      const connection = await testConnectionAction();
+      const failedChecks = [connection.openRouter, connection.docling].filter(
+        (check) => !check.ok
+      );
+      if (failedChecks.length > 0) {
+        setPreflightError(failedChecks.map((check) => check.message).join(" "));
+        toast({
+          title: t("tree.preflight.pending"),
+          description: t("tree.preflight.description"),
+          variant: "error",
+        });
+        return false;
+      }
+      setPreflightError(null);
+      return true;
+    } catch (err) {
+      setPreflightError(
+        t("tree.preflight.error")
+      );
+      return false;
+    } finally {
+      setPreflightChecking(false);
+    }
+  }, [toast, t]);
 
   const handleStartPipeline = useCallback(async () => {
+    if (!(await runPreflight())) return;
+
     // v1.8 / Issue 2.1 — flip BOTH flags synchronously, before
     // awaiting the server action. `startingPipeline` keeps the
     // button in its loading state; `generatingTree` mounts the
@@ -648,7 +794,7 @@ export function TreePageClient({
       phase: "segmentation",
       status: "pending",
       progress: 0,
-      currentStep: "Iniciando pipeline…",
+      currentStep: t("pipeline.status.starting"),
       startedAt: placeholderNow,
     });
 
@@ -664,10 +810,11 @@ export function TreePageClient({
       const store = usePipelineStore.getState();
 
       if (!result.ok) {
+        console.error("[tree] pipeline start failed:", result.error);
         store.removeJob(placeholderJobId);
         toast({
-          title: "Error al iniciar el pipeline",
-          description: result.error,
+          title: t("tree.errors.startPipeline"),
+          description: t("tree.errors.startPipelineDescription"),
           variant: "error",
         });
         return;
@@ -680,8 +827,8 @@ export function TreePageClient({
       if (result.empty) {
         store.removeJob(placeholderJobId);
         toast({
-          title: "Sin contenido que procesar",
-          description: result.message,
+          title: t("pipeline.noContent"),
+          description: t("pipeline.noContent"),
           variant: "info",
         });
         return;
@@ -694,18 +841,18 @@ export function TreePageClient({
       // in GlobalPipelineBanner), which removes it and shows live progress.
       router.refresh();
       toast({
-        title: "Pipeline iniciado",
-        description: "El árbol se está generando. Te avisaremos cuando termine.",
+        title: t("tree.pipeline.started"),
+        description: t("tree.pipeline.startedDescription"),
         variant: "success",
       });
     } catch (err) {
+      console.error("[tree] pipeline start threw:", err);
       // Remove the placeholder on failure too so the banner
       // doesn't linger forever after a thrown server action.
       usePipelineStore.getState().removeJob(placeholderJobId);
       toast({
-        title: "Error al iniciar el pipeline",
-        description:
-          err instanceof Error ? err.message : "No se pudo iniciar el pipeline.",
+        title: t("tree.errors.startPipeline"),
+        description: t("tree.errors.startPipelineDescription"),
         variant: "error",
       });
     } finally {
@@ -727,7 +874,7 @@ export function TreePageClient({
       // clean empty state with the error toast.
       setGeneratingTree(false);
     }
-  }, [courseId, courseName, router, toast]);
+  }, [courseId, courseName, router, runPreflight, toast, t]);
 
   const hasTree = nodes.length > 0;
 
@@ -769,12 +916,12 @@ export function TreePageClient({
           </Link>
           <h1 className="mt-1 flex items-center gap-2 text-2xl font-bold tracking-tight">
             <GitBranch className="h-6 w-6 text-primary" />
-            Árbol conceptual
+            {t("tree.title")}
           </h1>
           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             {hasTree
-              ? `${nodes.length} nodo${nodes.length !== 1 ? "s" : ""} · selección: ${selectedIds.length}`
-              : "Sin árbol todavía"}
+              ? t(nodes.length === 1 ? "tree.summaryOne" : "tree.summaryMany", { count: nodes.length, selected: selectedIds.length })
+              : t("tree.noTree")}
           </p>
         </div>
 
@@ -791,8 +938,8 @@ export function TreePageClient({
               <Sparkles className="h-4 w-4" />
             )}
             {generating
-              ? "Generando..."
-              : `Generar ${selectedIds.length} diapositiva${selectedIds.length !== 1 ? "s" : ""}`}
+              ? t("tree.status.generating")
+              : t(selectedIds.length === 1 ? "tree.slides.generateOne" : "tree.slides.generateMany", { count: selectedIds.length })}
           </Button>
         )}
         {hasTree && (
@@ -804,7 +951,7 @@ export function TreePageClient({
             aria-pressed={chatOpen}
           >
             <MessageSquare className="h-4 w-4" />
-            Asistente
+            {t("tree.chat.title")}
           </Button>
         )}
       </div>
@@ -837,10 +984,10 @@ export function TreePageClient({
           >
             <Spinner size="lg" />
             <p className="text-base font-semibold text-foreground">
-              Generando árbol conceptual
+              {t("tree.generatingTree")}
             </p>
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              Iniciando pipeline…
+              {t("pipeline.status.starting")}
             </p>
           </div>
         </div>
@@ -860,8 +1007,8 @@ export function TreePageClient({
         <div className="flex flex-1 items-center justify-center p-6" data-testid="empty-tree">
           <EmptyState
             icon={<GitBranch className="h-10 w-10" />}
-            title="El árbol está vacío"
-            description="Sube un material y ejecuta el pipeline para generar el árbol automáticamente, o crea una primera caja raíz manualmente."
+            title={t("tree.empty.title")}
+            description={t("tree.empty.bootstrapDescription")}
             action={
               <div className="flex flex-col items-center gap-4">
                 {/* v1.0 — granularity slider (0-300 target slides). Orients
@@ -870,7 +1017,7 @@ export function TreePageClient({
                 <div className="w-full max-w-sm" data-testid="slide-target-control">
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <label htmlFor="slide-target" className="font-medium text-foreground">
-                      Diapositivas objetivo
+                      {t("tree.slideTarget.label")}
                     </label>
                     <span className="tabular-nums text-muted-foreground" data-testid="slide-target-value">
                       {slideTarget}
@@ -890,18 +1037,66 @@ export function TreePageClient({
                     data-testid="slide-target-slider"
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Orientativo: más alto = más temas y diapositivas. No es un límite rígido.
+                    {t("tree.slideTarget.hint")}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center justify-center gap-2">
+                {/* User-provided context for LLM operations. Persisted on blur. */}
+                <div className="w-full max-w-sm" data-testid="llm-context-control">
+                  <label htmlFor="llm-context" className="mb-1 block text-sm font-medium text-foreground">
+                    {t("tree.context.label")}
+                  </label>
+                  <Textarea
+                    id="llm-context"
+                    value={llmContext}
+                    onChange={(e) => setLlmContext(e.target.value)}
+                    onBlur={() => void updateLlmContext(courseId, llmContext || null)}
+                    placeholder={t("tree.context.placeholder")}
+                    className="min-h-[80px] resize-y"
+                    data-testid="llm-context-textarea"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("tree.context.hint")}
+                  </p>
+                </div>
+                 {preflightError && (
+                   <div
+                     className="w-full max-w-md rounded-md border border-destructive/30 bg-destructive/5 p-3 text-left text-sm"
+                     role="alert"
+                     data-testid="tree-preflight-error"
+                   >
+                     <p className="font-medium text-destructive">
+                       {t("tree.preflight.cannotStart")}
+                     </p>
+                     <p className="mt-1 text-xs text-muted-foreground">
+                       {preflightError}
+                     </p>
+                      <Link
+                        href="/settings"
+                        className="mt-2 inline-flex text-xs font-medium text-primary underline underline-offset-2"
+                     >
+                         {t("tree.preflight.openSettings")}
+                      </Link>
+                      <Button
+                        onClick={() => void runPreflight()}
+                        loading={preflightChecking}
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        data-testid="retry-tree-preflight"
+                      >
+                         {t("tree.preflight.retry")}
+                      </Button>
+                    </div>
+                  )}
+                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <Button
                     onClick={handleStartPipeline}
-                    loading={startingPipeline}
+                    loading={startingPipeline || preflightChecking}
                     size="lg"
                     data-testid="generate-tree-button"
                   >
                     <FilePlus2 className="h-4 w-4" />
-                    Generar árbol
+                    {preflightChecking ? t("tree.preflight.checking") : t("tree.actions.generateTree")}
                   </Button>
                   <Button
                     onClick={() => handleAddRequest("root")}
@@ -909,10 +1104,10 @@ export function TreePageClient({
                     variant="outline"
                     size="lg"
                     data-testid="empty-state-add-root"
-                    aria-label="Añadir raíz"
+                    aria-label={t("tree.actions.addRoot")}
                   >
                     <Plus className="h-4 w-4" />
-                    Añadir raíz
+                    {t("tree.actions.addRoot")}
                   </Button>
                 </div>
               </div>
@@ -921,30 +1116,23 @@ export function TreePageClient({
         </div>
       )}
 
-      {/* Active pipeline progress (only if a job is running) */}
+      {/* v0.11.0 — while a tree pipeline job is active we still show the
+          TreeViewer full-width. Pipeline PROGRESS is no longer shown here (no
+          sidebar, no banner): the Jobs tab is the single source of truth for
+          process visibility (R5). */}
       {hasTree && !generatingTree && activeJobId && (
-        <div
-          className={cn(
-            "grid grid-cols-1 gap-3 lg:grid-cols-[1fr,320px]",
-            // v1.8 / Issue 2.3 — `h-full flex-1` so the grid row
-            // fills the flex column wrapper in fullscreen. Without
-            // this the auto-sized grid row collapses to its content
-            // height, and the TreeViewer's own `h-full` resolves
-            // to 0 → blank canvas.
-            isFullscreen && "h-full flex-1"
-          )}
-        >
+        <div className={cn("flex min-h-[60vh] flex-1 overflow-hidden", isFullscreen && "min-h-0")}>
           <div
             className={cn(
               "min-h-[60vh] flex-1 overflow-hidden rounded-lg border border-border bg-card",
-              isFullscreen &&
-                "min-h-0 rounded-none border-0 lg:col-span-2"
+              isFullscreen && "min-h-0 rounded-none border-0"
             )}
           >
             <TreeViewer
               nodes={nodes}
               onChange={handleTreeChange}
               onGenerateSlides={handleSelection}
+              onSelectionChange={setSelectedIds}
               // v1.9 / Issue 3+4 — the toolbar "Generar
               // diapositivas" button now invokes the dedicated
               // `handleGenerateSlidesOnly` handler (no LLM,
@@ -952,6 +1140,7 @@ export function TreePageClient({
               // The header button still uses `handleGenerateAll`
               // via the `onGenerateSlides` path.
               onGenerateAllSlides={handleGenerateSlidesOnly}
+              onExpandDepth={handleExpandDepth}
               onAddRequest={handleAddRequest}
               isNewNode={isNewNode}
               onSaveInlineEdit={handleSaveInlineEdit}
@@ -960,16 +1149,12 @@ export function TreePageClient({
               onToggleFullscreen={handleToggleFullscreen}
               // v1.9 / Issue 3 — disable the toolbar's button
               // while the in-flight server action runs.
-              busy={generatingSlidesOnly}
+              // RA1.2 — also disable during expansion (generating).
+              busy={generatingSlidesOnly || generating}
+              // RA1 — pass expanding leaf IDs for ghost placeholders
+              expandingLeafIds={expandingLeafIds}
             />
           </div>
-          {/* v1.5 / Task 3.2 — hide the PipelineProgress sidebar in
-              fullscreen so the tree canvas gets the full width. */}
-          {!isFullscreen && (
-            <aside className="lg:sticky lg:top-4 lg:self-start">
-              <PipelineProgress />
-            </aside>
-          )}
         </div>
       )}
 
@@ -991,17 +1176,20 @@ export function TreePageClient({
               nodes={nodes}
               onChange={handleTreeChange}
               onGenerateSlides={handleSelection}
+              onSelectionChange={setSelectedIds}
               // v1.9 / Issue 3+4 — same handler swap as the
               // active-job branch above. The toolbar button is the
               // entry point on every layout of the tree page.
               onGenerateAllSlides={handleGenerateSlidesOnly}
+              onExpandDepth={handleExpandDepth}
               onAddRequest={handleAddRequest}
               isNewNode={isNewNode}
               onSaveInlineEdit={handleSaveInlineEdit}
               onNodesChanged={handleNodesChanged}
               isFullscreen={isFullscreen}
               onToggleFullscreen={handleToggleFullscreen}
-              busy={generatingSlidesOnly}
+              busy={generatingSlidesOnly || generating}
+              expandingLeafIds={expandingLeafIds}
             />
           </div>
           {chatOpen && !isFullscreen && (

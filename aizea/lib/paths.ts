@@ -21,7 +21,7 @@
  *     lancedb-data/      ← LanceDB vector store
  */
 
-import { join } from "path";
+import { join } from "node:path";
 
 /** Root data directory — writable in all deployment modes. */
 export function getDataDir(): string {

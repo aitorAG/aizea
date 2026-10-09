@@ -65,6 +65,7 @@ import {
   getJobStatusAction,
   listActiveJobsAction,
   cancelPipelineAction,
+  retryPipelineAction,
 } from "@/lib/actions/pipeline";
 import {
   formatElapsed,
@@ -74,17 +75,18 @@ import type {
   PipelinePhase,
   ProcessingStatus,
 } from "@/lib/types/pipeline";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface PhaseDescriptor {
   id: PipelinePhase;
-  label: string;
+  labelKey: `pipeline.phases.${"segmentation" | "extraction" | "integration" | "treeBuilding"}.label`;
 }
 
 const PHASES: PhaseDescriptor[] = [
-  { id: "segmentation", label: "Segmentando" },
-  { id: "extraction", label: "Extrayendo" },
-  { id: "integration", label: "Integrando" },
-  { id: "tree-building", label: "Jerarquizando" },
+  { id: "segmentation", labelKey: "pipeline.phases.segmentation.label" },
+  { id: "extraction", labelKey: "pipeline.phases.extraction.label" },
+  { id: "integration", labelKey: "pipeline.phases.integration.label" },
+  { id: "tree-building", labelKey: "pipeline.phases.treeBuilding.label" },
 ];
 
 // v1.8 / Issue 2.2 — poll more aggressively. 1.5s halves the worst
@@ -100,7 +102,7 @@ const BANNER_GAP_PX = 72;
 /** Distance from the bottom of the viewport to the first banner. */
 const BANNER_BASE_OFFSET_PX = 12;
 
-type PhaseStatus = "pending" | "active" | "completed" | "failed";
+type PhaseStatus = "pending" | "active" | "completed" | "failed" | "stuck";
 
 // v1.8 / Issue 2.2 — root-cause fix. The previous signature only
 // considered the live `current` phase, so when a job flipped to
@@ -115,10 +117,12 @@ function statusFor(
   phase: PhaseDescriptor,
   current: PipelinePhase | null,
   hasFailed: boolean,
-  isComplete: boolean
+  isComplete: boolean,
+  isStuck: boolean
 ): PhaseStatus {
   if (isComplete) return "completed";
   if (hasFailed && phase.id === current) return "failed";
+  if (isStuck && phase.id === current) return "stuck";
   if (!current) return "pending";
   const order = PHASES.map((p) => p.id);
   const currentIdx = order.indexOf(current);
@@ -153,29 +157,38 @@ function PipelineJobBanner({
   group,
   onDismissGroup,
   onRetryGroup,
+  retrying,
   onStopActive,
   index,
 }: {
   group: BannerGroup;
   onDismissGroup: (groupKey: string) => void;
   onRetryGroup?: (groupKey: string) => void;
+  retrying?: boolean;
   onStopActive?: (jobId: string) => void;
   index: number;
 }) {
+  const t = useTranslations();
   const job = group.representative;
-  const isComplete = job.isComplete;
+  // v0.12.0 / RA2.2: Use group-level aggregates for completion/failure/stuck
+  // instead of just the representative. This prevents the "stuck-red latch"
+  // bug: when a stuck job completes, the banner correctly turns green because
+  // groupIsComplete = true and groupHasFailed = false (stuck ≠ failed).
+  const isComplete = group.groupIsComplete;
   const isCancelled = job.status === "cancelled";
-  const hasFailed = job.hasFailed || job.isStuck;
-  // When stuck, treat the displayed status as "failed" so the UI
-  // surfaces the retry CTA.
-  const displayError = job.isStuck && !job.hasFailed
-    ? `El trabajo lleva más de ${Math.round(STUCK_THRESHOLD_MS / 60_000)} minutos sin avanzar. Posible fallo.`
+  const hasFailed = group.groupHasFailed;
+  const isStuck = group.groupIsStuck;
+  // When stuck (but not failed), show a warning message instead of treating
+  // it as a hard error. The user can still retry if needed, but the banner
+  // is orange/amber, not red.
+  const displayError = isStuck
+    ? t("pipeline.stuckDescription", { minutes: Math.round(STUCK_THRESHOLD_MS / 60_000) })
     : job.error;
 
   const elapsedMs = job.startedAt ? Math.max(0, Date.now() - job.startedAt) : 0;
   const elapsedText = formatElapsed(elapsedMs);
   const etaText =
-    isComplete || hasFailed || isCancelled ? null : calculateETA(elapsedMs, job.progress);
+    isComplete || hasFailed || isCancelled || isStuck ? null : calculateETA(elapsedMs, job.progress);
 
   return (
     <div
@@ -184,14 +197,16 @@ function PipelineJobBanner({
         ? "cancelled"
         : hasFailed
           ? "failed"
-          : isComplete
-            ? "completed"
-            : "active"}
+          : isStuck
+            ? "stuck"
+            : isComplete
+              ? "completed"
+              : "active"}
       data-job-id={job.jobId}
       data-group-key={group.groupKey}
       data-group-size={group.jobIds.length}
       data-banner-index={index}
-      data-stuck={job.isStuck ? "true" : undefined}
+      data-stuck={isStuck ? "true" : undefined}
       role="status"
       aria-live="polite"
       className={cn(
@@ -201,9 +216,11 @@ function PipelineJobBanner({
           ? "border-amber-300 bg-amber-50/95 text-amber-900"
           : hasFailed
             ? "border-red-300 bg-red-50/95 text-red-900"
-            : isComplete
-              ? "border-emerald-300 bg-emerald-50/95 text-emerald-900"
-              : "border-border bg-white/95 text-foreground"
+            : isStuck
+              ? "border-orange-300 bg-orange-50/95 text-orange-900"
+              : isComplete
+                ? "border-emerald-300 bg-emerald-50/95 text-emerald-900"
+                : "border-border bg-white/95 text-foreground"
       )}
     >
       <div className="relative mx-auto flex max-w-6xl items-center gap-4 px-4 py-2.5 sm:px-6">
@@ -213,6 +230,8 @@ function PipelineJobBanner({
             <Check className="h-4 w-4 text-emerald-600" />
           ) : hasFailed ? (
             <AlertTriangle className="h-4 w-4 text-red-600" />
+          ) : isStuck ? (
+            <AlertTriangle className="h-4 w-4 text-orange-600" />
           ) : (
             <Sparkles className="h-4 w-4 text-primary" />
           )}
@@ -222,23 +241,28 @@ function PipelineJobBanner({
               data-testid="banner-title"
             >
               {isCancelled
-                ? "Trabajo cancelado"
+                 ? t("pipeline.banner.cancelled")
                 : isComplete
-                  ? "Árbol conceptual listo"
+                   ? t("pipeline.banner.ready")
                   : hasFailed
-                    ? "Falló la generación del árbol"
-                    : job.courseName
-                      ? `Generando árbol de «${job.courseName}»`
-                      : "Generando árbol conceptual"}
+                     ? t("pipeline.banner.failed")
+                    : isStuck
+                       ? t("pipeline.banner.stuck")
+                      : job.courseName
+                         ? t("pipeline.banner.generatingCourse", { course: job.courseName })
+                         : t("pipeline.banner.generating")}
             </p>
             <p className="hidden font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:block">
               {job.currentStep ??
-                (job.phase ? "Procesando…" : "En espera")}
+                 (job.phase ? t("pipeline.status.processing") : t("pipeline.status.waiting"))}
             </p>
             {displayError && (
               <p
                 data-testid="banner-error"
-                className="mt-0.5 line-clamp-1 max-w-md text-[10px] text-red-700"
+                className={cn(
+                  "mt-0.5 line-clamp-1 max-w-md text-[10px]",
+                  hasFailed ? "text-red-700" : "text-orange-700"
+                )}
                 title={displayError}
               >
                 {displayError}
@@ -251,10 +275,10 @@ function PipelineJobBanner({
         <div className="hidden min-w-0 flex-1 items-center gap-2 lg:flex">
           <ol
             className="flex items-center gap-1.5"
-            aria-label="Fases del pipeline"
+             aria-label={t("pipeline.phases.ariaLabel")}
           >
             {PHASES.map((p) => {
-              const s = statusFor(p, job.phase, hasFailed, isComplete);
+              const s = statusFor(p, job.phase, hasFailed, isComplete, isStuck);
               return (
                 <li
                   key={p.id}
@@ -269,6 +293,8 @@ function PipelineJobBanner({
                       "border-primary/40 bg-primary/10 text-primary",
                     s === "failed" &&
                       "border-red-300 bg-red-50 text-red-700",
+                    s === "stuck" &&
+                      "border-orange-300 bg-orange-50 text-orange-700",
                     s === "pending" &&
                       "border-border bg-muted/50 text-muted-foreground"
                   )}
@@ -279,10 +305,12 @@ function PipelineJobBanner({
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : s === "failed" ? (
                     <AlertTriangle className="h-3 w-3" />
+                  ) : s === "stuck" ? (
+                    <AlertTriangle className="h-3 w-3" />
                   ) : (
                     <Circle className="h-3 w-3" />
                   )}
-                  <span>{p.label}</span>
+                   <span>{t(p.labelKey)}</span>
                 </li>
               );
             })}
@@ -300,7 +328,7 @@ function PipelineJobBanner({
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(job.progress)}
-              aria-label="Progreso del pipeline"
+               aria-label={t("pipeline.ariaLabel")}
             >
               <div
                 className={cn(
@@ -309,7 +337,9 @@ function PipelineJobBanner({
                     ? "bg-emerald-500"
                     : hasFailed
                       ? "bg-red-500"
-                      : "bg-primary"
+                      : isStuck
+                        ? "bg-orange-500"
+                        : "bg-primary"
                 )}
                 style={{ width: `${Math.min(100, Math.max(0, job.progress))}%` }}
               />
@@ -324,52 +354,58 @@ function PipelineJobBanner({
 
           {/* Elapsed + ETA */}
           <div className="hidden items-center gap-2 font-mono text-[11px] tabular-nums text-muted-foreground md:flex">
-            <span data-testid="elapsed-time" title="Tiempo transcurrido">
+            <span data-testid="elapsed-time" title={t("pipeline.elapsed")}>
               {elapsedText}
             </span>
             {etaText && (
               <>
                 <span aria-hidden>·</span>
-                <span data-testid="eta-time" title="Estimación restante">
+                <span data-testid="eta-time" title={t("pipeline.eta")}>
                   ~{etaText}
                 </span>
               </>
             )}
           </div>
 
-          {/* Retry button — only shown for failed/stuck jobs. v1.9:
-              retrying dismisses the entire group (the user can
-              re-trigger from the tree page) so the operation
-              mirrors the dismiss path. */}
-          {hasFailed && onRetryGroup && (
+          {/* Retry button — shown for failed/stuck jobs. v0.12.0 / RA2.2:
+              stuck jobs also get a retry button (orange), not just failed
+              (red). Retrying dismisses the entire group (the user can
+              re-trigger from the tree page) so the operation mirrors
+              the dismiss path. */}
+          {(hasFailed || isStuck) && onRetryGroup && (
             <button
               type="button"
               onClick={() => onRetryGroup(group.groupKey)}
+              disabled={retrying}
+              aria-busy={retrying || undefined}
               data-testid="banner-retry"
               className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium",
-                "border-red-300 text-red-700 transition-colors",
-                "hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 disabled:cursor-wait disabled:opacity-60",
+                hasFailed
+                  ? "border-red-300 text-red-700 hover:bg-red-100 focus-visible:ring-red-400"
+                  : "border-orange-300 text-orange-700 hover:bg-orange-100 focus-visible:ring-orange-400"
               )}
             >
               <RefreshCcw className="h-3 w-3" />
-              <span className="hidden sm:inline">Reintentar</span>
+               <span className="hidden sm:inline">{t("common.retry")}</span>
             </button>
           )}
 
-          {/* Stop button — only shown for running jobs. ROOT-CAUSE
-              FIX for "Banner has no Stop button". Clicking it calls
-              cancelPipelineAction on the active (representative)
-              job, which marks that ProcessingJob's status as
-              `cancelled` in the DB; the polling loop picks up the
-              new status on the next tick. */}
-          {!isComplete && !hasFailed && !isCancelled && onStopActive && (
+          {/* Stop button — only shown for running jobs (not stuck, not
+              failed, not completed, not cancelled). ROOT-CAUSE FIX for
+              "Banner has no Stop button". Clicking it calls
+              cancelPipelineAction on the active (representative) job,
+              which marks that ProcessingJob's status as `cancelled` in
+              the DB; the polling loop picks up the new status on the
+              next tick. */}
+          {!isComplete && !hasFailed && !isCancelled && !isStuck && onStopActive && (
             <button
               type="button"
               onClick={() => onStopActive(job.jobId)}
               data-testid="banner-stop"
-              aria-label="Detener trabajo"
-              title="Detener trabajo"
+               aria-label={t("pipeline.stop")}
+               title={t("pipeline.stop")}
               className={cn(
                 "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium",
                 "border-amber-300 text-amber-800 transition-colors",
@@ -377,7 +413,7 @@ function PipelineJobBanner({
               )}
             >
               <Square className="h-3 w-3" fill="currentColor" aria-hidden="true" />
-              <span className="hidden sm:inline">Detener</span>
+               <span className="hidden sm:inline">{t("common.stop")}</span>
             </button>
           )}
         </div>
@@ -393,7 +429,7 @@ function PipelineJobBanner({
         <button
           type="button"
           onClick={() => onDismissGroup(group.groupKey)}
-          aria-label="Cerrar banner"
+           aria-label={t("common.close")}
           data-testid="banner-close"
           className={cn(
             "absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md",
@@ -424,7 +460,9 @@ function extractCourseIdFromPath(pathname: string | null): string | null {
 }
 
 export function GlobalPipelineBanner() {
+  const t = useTranslations();
   const { toast } = useToast();
+  const [retryingGroup, setRetryingGroup] = useState<string | null>(null);
   // We deliberately subscribe to the full Map so any change (e.g.
   // add/update/dismiss) re-renders the banner stack. For typical
   // pipelines (≤ 4 jobs) this is cheap; if the map grew large we
@@ -447,7 +485,10 @@ export function GlobalPipelineBanner() {
     [pathname]
   );
 
-  const [hydrated, setHydrated] = useState(false);
+  const [hydratedCourseId, setHydratedCourseId] = useState<string | null | undefined>(undefined);
+  const hydrated = hydratedCourseId === currentCourseId;
+  // Responses started before a retry cannot reconcile the newly accepted run.
+  const retryGenerationRef = useRef(0);
   const completionAnnouncedRef = useRef<Set<string>>(new Set());
 
   // Drive the elapsed counter at 1s granularity.
@@ -468,12 +509,13 @@ export function GlobalPipelineBanner() {
   // store change.
   useEffect(() => {
     let cancelled = false;
+    const retryGeneration = retryGenerationRef.current;
     (async () => {
       try {
         const result = await listActiveJobsAction(
           currentCourseId ? { courseId: currentCourseId } : {}
         );
-        if (cancelled) return;
+        if (cancelled || retryGeneration !== retryGenerationRef.current) return;
         if (result.ok && result.jobs.length > 0) {
           hydrateJobs(
             result.jobs.map((j) => ({
@@ -501,7 +543,7 @@ export function GlobalPipelineBanner() {
           err instanceof Error ? err.message : err
         );
       } finally {
-        if (!cancelled) setHydrated(true);
+        if (!cancelled) setHydratedCourseId(currentCourseId);
       }
     })();
     return () => {
@@ -542,32 +584,36 @@ export function GlobalPipelineBanner() {
     if (!hasInflight) return;
     if (!currentCourseId) return;
     let cancelled = false;
+    let listing = false;
     const relist = async () => {
-      if (cancelled) return;
+      if (cancelled || listing) return;
+      listing = true;
+      const retryGeneration = retryGenerationRef.current;
+      const courseJobs = Array.from(usePipelineStore.getState().jobs.values()).filter(
+        (job) => !job.dismissed && job.courseId === currentCourseId &&
+          (job.status === "pending" || job.status === "running")
+      );
+      const inheritedRunId = courseJobs.find((job) => job.jobId.startsWith("pending:") && job.runId)?.runId
+        ?? courseJobs.find((job) => job.runId)?.runId;
+      const placeholders = courseJobs.filter((job) =>
+        job.jobId.startsWith("pending:") && job.runId === (inheritedRunId ?? null)
+      );
       try {
         const result = await listActiveJobsAction({
           courseId: currentCourseId,
         });
-        if (cancelled || !result.ok || result.jobs.length === 0) return;
+        if (cancelled || retryGeneration !== retryGenerationRef.current ||
+          !result.ok || result.jobs.length === 0) return;
         // Inherit the runId of the placeholder (or any in-flight job)
         // for this course so the discovered real phase rows collapse
         // into the SAME banner group as the placeholder. Without this
         // the placeholder groups under `run:${runId}` while the
         // server rows (no runId) group under `course:${courseId}`,
         // producing two stacked banners for one run.
-        let inheritedRunId: string | null = null;
-        for (const job of usePipelineStore.getState().jobs.values()) {
-          if (job.dismissed) continue;
-          if (job.courseId !== currentCourseId) continue;
-          if (job.runId) {
-            inheritedRunId = job.runId;
-            break;
-          }
-        }
-        hydrateJobs(
-          result.jobs.map((j) => ({
+        const discoveredJobs = result.jobs.filter((job) => job.courseId === currentCourseId);
+        const discoveredRows = discoveredJobs.map((j) => ({
             jobId: j.jobId,
-            runId: inheritedRunId,
+            runId: usePipelineStore.getState().jobs.get(j.jobId)?.runId ?? inheritedRunId,
             courseId: j.courseId,
             courseName: j.courseName,
             phase: j.phase as PipelinePhase,
@@ -577,17 +623,21 @@ export function GlobalPipelineBanner() {
             error: j.error,
             startedAt: j.startedAt,
             lastProgressAt: j.updatedAt,
-          }))
-        );
+          }));
+        hydrateJobs(discoveredRows);
         // Once real phase rows have been discovered, drop the
         // synthetic placeholder so the banner stops showing a
         // stalled "Iniciando pipeline…" row alongside the real one.
         const store = usePipelineStore.getState();
-        for (const [jobId] of store.jobs) {
-          if (jobId.startsWith("pending:")) store.removeJob(jobId);
+        if (discoveredRows.some((job) => (job.runId ?? null) === (inheritedRunId ?? null))) {
+          for (const placeholder of placeholders) {
+            if (store.jobs.get(placeholder.jobId) === placeholder) store.removeJob(placeholder.jobId);
+          }
         }
       } catch {
         // best-effort; the per-job poll loop still runs
+      } finally {
+        listing = false;
       }
     };
     const id = setInterval(relist, POLL_INTERVAL_MS);
@@ -666,38 +716,42 @@ export function GlobalPipelineBanner() {
   // toasts. Now we fire exactly ONE toast per pipeline run, keyed
   // on the groupKey so concurrent runs in different courses don't
   // collide.
+  // v0.12.0 / RA2.2: Use group-level aggregates (groupIsComplete,
+  // groupHasFailed) instead of just the representative, so the toast
+  // fires when the WHOLE group reaches a terminal state, not just
+  // when the representative does.
   useEffect(() => {
     const groups = getBannerGroups({ jobs });
     for (const group of groups) {
       const rep = group.representative;
       const terminalKey = `${group.groupKey}:${rep.status}`;
       if (completionAnnouncedRef.current.has(terminalKey)) continue;
-      if (rep.isComplete) {
+      if (group.groupIsComplete) {
         completionAnnouncedRef.current.add(terminalKey);
         toast({
-          title: "Árbol conceptual generado",
-          description: "El árbol está listo. Revisa la página del curso.",
+          title: t("pipeline.toast.completed"),
+          description: t("pipeline.toast.completedDescription"),
           variant: "success",
         });
       } else if (rep.status === "cancelled") {
         completionAnnouncedRef.current.add(terminalKey);
         toast({
-          title: "Trabajo cancelado",
-          description: "Has detenido el trabajo en curso.",
+          title: t("pipeline.toast.cancelled"),
+          description: t("pipeline.toast.cancelledDescription"),
           variant: "info",
         });
-      } else if (rep.hasFailed) {
+      } else if (group.groupHasFailed) {
         completionAnnouncedRef.current.add(terminalKey);
         toast({
-          title: "El pipeline falló",
+          title: t("pipeline.toast.failed"),
           description:
             rep.error ??
-            "Se produjo un error al generar el árbol conceptual.",
+            t("pipeline.toast.failedDescription"),
           variant: "error",
         });
       }
     }
-  }, [jobs, toast]);
+  }, [jobs, toast, t]);
 
   // Group active jobs by runId (or courseId as a fallback). The
   // banner renders ONE row per group, collapsing the 4 phase jobs
@@ -716,14 +770,15 @@ export function GlobalPipelineBanner() {
     usePipelineStore.getState().updateJob(jobId, {
       status: "cancelled",
       progress: 0,
-      currentStep: "Cancelando...",
+      currentStep: t("cancelling"),
     });
     try {
       const result = await cancelPipelineAction(jobId);
       if (!result.ok) {
+        console.error("[pipeline] stop action failed:", result.error);
         toast({
-          title: "No se pudo detener",
-          description: result.error,
+          title: t("stopJobError"),
+          description: t("unknownError"),
           variant: "error",
         });
         // Force a poll to restore the canonical state.
@@ -742,10 +797,11 @@ export function GlobalPipelineBanner() {
         }
       }
     } catch (err) {
+      console.error("[pipeline] stop action threw:", err);
       toast({
-        title: "No se pudo detener",
+        title: t("stopJobError"),
         description:
-          err instanceof Error ? err.message : "Error desconocido",
+          t("unknownError"),
         variant: "error",
       });
     }
@@ -770,21 +826,74 @@ export function GlobalPipelineBanner() {
             index={idx}
             onDismissGroup={(groupKey) => dismissByGroupKey(groupKey)}
             onStopActive={(jobId) => handleStop(jobId)}
+            retrying={retryingGroup === group.groupKey}
             onRetryGroup={(groupKey) => {
-              // For the root-cause fix, the "Reintentar" button
-              // simply dismisses the stuck/failed banner for the
-              // whole pipeline run. A real retry would call
-              // startPipelineAction again, but that requires a
-              // courseId which the banner may not have. Marking
-              // the group as dismissed is the safest default —
-              // the user can re-trigger from the tree page.
-              usePipelineStore.getState().removeByGroupKey(groupKey);
-              toast({
-                title: "Trabajo descartado",
-                description:
-                  "Puedes volver a iniciar el pipeline desde la página del curso.",
-                variant: "success",
-              });
+              if (retryingGroup !== null) return;
+
+              const retryGroup = groups.find((candidate) => candidate.groupKey === groupKey);
+              if (!retryGroup) return;
+
+               completionAnnouncedRef.current.add(
+                 `${groupKey}:${retryGroup.representative.status}`
+               );
+               setRetryingGroup(groupKey);
+               retryGenerationRef.current += 1;
+              void retryPipelineAction(retryGroup.representative.jobId)
+                .then((result) => {
+                  if (!result.ok) {
+                    console.error("[pipeline] retry action failed:", result.error);
+                    toast({
+                      title: t("retryJobError"),
+                      description: t("unknownError"),
+                      variant: "error",
+                    });
+                    return;
+                  }
+
+                  if (result.empty) {
+                    toast({
+                      title: t("pipeline.noContent"),
+                      description: t("pipeline.noContent"),
+                      variant: "info",
+                    });
+                    return;
+                  }
+
+                  // Keep a visual row for the accepted run until discovery
+                  // finds its real phase jobs. The discriminated union keeps
+                  // runId inaccessible in the empty branch above.
+                   const placeholderJobId = `pending:${result.runId}`;
+                   retryGenerationRef.current += 1;
+                  const representative = retryGroup.representative;
+                  const store = usePipelineStore.getState();
+                  store.addJob({
+                    jobId: placeholderJobId,
+                    runId: result.runId,
+                    courseId: representative.courseId,
+                    courseName: representative.courseName,
+                    phase: "segmentation",
+                    status: "pending",
+                    progress: 0,
+                    currentStep: t("pipeline.status.starting"),
+                    startedAt: Date.now(),
+                  });
+                  store.removeByGroupKey(groupKey);
+                  toast({
+                    title: t("pipeline.toast.retryStarted"),
+                    description: t("pipeline.toast.retryDescription"),
+                    variant: "success",
+                  });
+                })
+                .catch((err: unknown) => {
+                  console.error("[pipeline] retry action threw:", err);
+                  toast({
+                    title: t("retryJobError"),
+                    description:
+                      t("unknownError"),
+                    variant: "error",
+                  });
+                })
+                .finally(() => setRetryingGroup(null));
             }}
           />
         </div>

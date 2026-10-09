@@ -15,6 +15,7 @@ import { treeAgentChatAction } from "@/lib/actions/agent";
 import type { AgentTurn } from "@/lib/application/AgentService";
 import type { TopicNode } from "@/lib/types/pipeline";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface TreeAgentChatProps {
   courseId: string;
@@ -32,6 +33,7 @@ export function TreeAgentChat({ courseId, onTreeUpdated }: TreeAgentChatProps) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useTranslations();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const send = useCallback(async () => {
@@ -54,12 +56,13 @@ export function TreeAgentChat({ courseId, onTreeUpdated }: TreeAgentChatProps) {
     try {
       const result = await treeAgentChatAction(courseId, history);
       if (!result.ok) {
-        setError(result.error);
+        console.error("[tree-agent-chat] agent action failed:", result.error);
+        setError(t("tree.chat.agentError"));
         return;
       }
       const note =
         result.appliedCount > 0
-          ? `${result.appliedCount} cambio${result.appliedCount !== 1 ? "s" : ""} aplicado${result.appliedCount !== 1 ? "s" : ""}`
+           ? t(result.appliedCount === 1 ? "tree.chat.changeAppliedOne" : "tree.chat.changeAppliedMany", { count: result.appliedCount })
           : undefined;
       setMessages((prev) => [
         ...prev,
@@ -72,11 +75,11 @@ export function TreeAgentChat({ courseId, onTreeUpdated }: TreeAgentChatProps) {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
       });
     } catch {
-      setError("No se pudo contactar con el agente. Inténtalo de nuevo.");
+      setError(t("tree.chat.agentError"));
     } finally {
       setBusy(false);
     }
-  }, [input, busy, messages, courseId, onTreeUpdated]);
+  }, [input, busy, messages, courseId, onTreeUpdated, t]);
 
   return (
     <div
@@ -85,14 +88,13 @@ export function TreeAgentChat({ courseId, onTreeUpdated }: TreeAgentChatProps) {
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Bot className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium">Asistente del árbol</span>
+         <span className="text-sm font-medium">{t("tree.chat.title")}</span>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-3">
         {messages.length === 0 && (
           <p className="text-xs text-muted-foreground">
-            Pídeme cambios en el árbol: “crea una hoja Termodinámica bajo Física”,
-            “elimina el nodo X”, “fusiona A y B en Ondas”…
+             {t("tree.chat.emptyHint")}
           </p>
         )}
         {messages.map((m, i) => (
@@ -128,7 +130,7 @@ export function TreeAgentChat({ courseId, onTreeUpdated }: TreeAgentChatProps) {
         ))}
         {busy && (
           <p className="text-xs text-muted-foreground" data-testid="agent-busy">
-            Pensando…
+             {t("tree.chat.thinking")}
           </p>
         )}
         {error && <p className="text-xs text-destructive">{error}</p>}
@@ -146,7 +148,7 @@ export function TreeAgentChat({ courseId, onTreeUpdated }: TreeAgentChatProps) {
               }
             }}
             rows={2}
-            placeholder="Escribe una instrucción…"
+             placeholder={t("tree.chat.placeholder")}
             className="flex-1 resize-none"
             disabled={busy}
             data-testid="agent-input"
@@ -155,7 +157,7 @@ export function TreeAgentChat({ courseId, onTreeUpdated }: TreeAgentChatProps) {
             onClick={() => void send()}
             disabled={busy || input.trim().length === 0}
             size="default"
-            aria-label="Enviar"
+             aria-label={t("common.send")}
             data-testid="agent-send"
           >
             <Send className="h-4 w-4" />

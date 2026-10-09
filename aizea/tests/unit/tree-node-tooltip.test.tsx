@@ -20,7 +20,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
+import { screen, cleanup, act, fireEvent } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import userEvent from "@testing-library/user-event";
 
 import { TreeNodeTooltip } from "@/components/TreeViewer/TreeNodeTooltip";
@@ -94,13 +95,13 @@ describe("<TreeNodeTooltip /> (presentational)", () => {
     expect(screen.queryByText("F")).not.toBeInTheDocument();
     expect(screen.queryByText("G")).not.toBeInTheDocument();
     // The overflow indicator must be there.
-    expect(screen.getByText(/…|\.\.\./)).toBeInTheDocument();
+    expect(screen.getByTestId("tree-node-tooltip-overflow")).toHaveTextContent(/\+2 m[áa]s/i);
   });
 
   it("brief mode shows an empty-state hint when the node has no children", () => {
     const data = getData({ childNames: [], isLeaf: true });
     render(<TreeNodeTooltip data={data} mode="brief" />);
-    expect(screen.getByText(/sin sub-conceptos/i)).toBeInTheDocument();
+    expect(screen.getByText(/sin subconceptos/i)).toBeInTheDocument();
   });
 
   it("renders full mode with the node's corpus (summary)", () => {

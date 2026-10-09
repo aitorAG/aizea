@@ -9,6 +9,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } fr
 import { useState } from "react";
 import { revalidateDashboard } from "@/lib/actions/revalidate";
 import { useCourseAdapter } from "@/lib/adapters/useCourseAdapter";
+import { useLocale, useTranslations } from "@/components/LocaleProvider";
 
 interface CourseCardProps {
   id: string;
@@ -22,6 +23,8 @@ function CourseCard({ id, name, slideCount, materialCount, updatedAt }: CourseCa
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const courseAdapter = useCourseAdapter();
+  const t = useTranslations();
+  const locale = useLocale();
 
   async function handleDelete() {
     setDeleting(true);
@@ -33,7 +36,7 @@ function CourseCard({ id, name, slideCount, materialCount, updatedAt }: CourseCa
     }
   }
 
-  const dateStr = new Date(updatedAt).toLocaleDateString("es-ES", {
+  const dateStr = new Date(updatedAt).toLocaleDateString(locale === "es" ? "es-ES" : "en-US", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -50,17 +53,17 @@ function CourseCard({ id, name, slideCount, materialCount, updatedAt }: CourseCa
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="gap-1">
                 <Layers className="h-3 w-3" />
-                {slideCount} diapositivas
+                {t(slideCount === 1 ? "slideCountOne" : "slidesCount", { count: slideCount })}
               </Badge>
               <Badge variant="outline" className="gap-1">
                 <FileText className="h-3 w-3" />
-                {materialCount} materiales
+                {t(materialCount === 1 ? "materialCountOne" : "materialsCount", { count: materialCount })}
               </Badge>
             </div>
           </CardContent>
         </Link>
         <CardFooter className="flex items-center justify-between pt-0">
-          <span className="text-xs text-muted-foreground">{dateStr}</span>
+          <span className="text-xs text-muted-foreground">{t("updatedOn", { date: dateStr })}</span>
           <Button
             variant="ghost"
             size="sm"
@@ -72,23 +75,24 @@ function CourseCard({ id, name, slideCount, materialCount, updatedAt }: CourseCa
             }}
           >
             <Trash2 className="h-3.5 w-3.5" />
+            <span className="sr-only">{t("delete")}</span>
           </Button>
         </CardFooter>
       </Card>
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogHeader>
-          <DialogTitle>Eliminar curso</DialogTitle>
+          <DialogTitle>{t("deleteCourse")}</DialogTitle>
           <DialogDescription>
-            ¿Estás seguro de que quieres eliminar &quot;{name}&quot;? Esta acción no se puede deshacer.
+            {t("deleteCourseDescription", { name })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={deleting}>
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button variant="destructive" onClick={handleDelete} loading={deleting}>
-            Eliminar
+            {t("delete")}
           </Button>
         </DialogFooter>
       </Dialog>

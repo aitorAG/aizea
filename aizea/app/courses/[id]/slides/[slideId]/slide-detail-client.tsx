@@ -35,13 +35,14 @@ import { useSlideAdapter } from "@/lib/adapters/useSlideAdapter";
 import { BoxType } from "@/lib/types";
 import { SlideNavigator, type SlideNavItem } from "@/components/slides/SlideNavigator";
 import { SlideTitleField } from "@/components/slides/SlideTitleField";
+import { useTranslations } from "@/components/LocaleProvider";
 
-const boxConfig: Record<BoxType, { icon: string; label: string }> = {
-  [BoxType.SCRIPT]: { icon: "🎯", label: "Guion" },
-  [BoxType.RELEVANCE]: { icon: "💡", label: "Relevancia" },
-  [BoxType.NARRATIVE]: { icon: "📖", label: "Narrativa" },
-  [BoxType.EXERCISE_1]: { icon: "✏️", label: "Ejercicio 1" },
-  [BoxType.EXERCISE_2]: { icon: "✏️", label: "Ejercicio 2" },
+const boxConfig: Record<BoxType, { icon: string; label: "slides.script" | "slides.relevance" | "slides.narrative" | "slides.exerciseOne" | "slides.exerciseTwo" }> = {
+  [BoxType.SCRIPT]: { icon: "🎯", label: "slides.script" },
+  [BoxType.RELEVANCE]: { icon: "💡", label: "slides.relevance" },
+  [BoxType.NARRATIVE]: { icon: "📖", label: "slides.narrative" },
+  [BoxType.EXERCISE_1]: { icon: "✏️", label: "slides.exerciseOne" },
+  [BoxType.EXERCISE_2]: { icon: "✏️", label: "slides.exerciseTwo" },
 };
 
 const boxOrder: BoxType[] = [
@@ -59,6 +60,9 @@ interface SlideDetailClientProps {
   slideTitle: string;
   slideDescription: string;
   slideOrder: number;
+  /** v1.0 — hierarchical number (e.g. "1.2.3") of the current slide.
+   *  Rendered as a small muted label near the title. */
+  slideHierarchicalNumber: string | null;
   htmlDesign: string | null;
   boxIds: Record<string, string | null>;
   boxContents: Record<string, string>;
@@ -73,11 +77,13 @@ function SlideDetailClient({
   slideTitle,
   slideDescription,
   slideOrder,
+  slideHierarchicalNumber,
   htmlDesign: initialHtmlDesign,
   boxIds: initialBoxIds,
   boxContents: initialContents,
   siblingSlides,
 }: SlideDetailClientProps) {
+  const t = useTranslations();
   const { toast } = useToast();
   const router = useRouter();
   const [boxes, setBoxes] = useState(initialContents);
@@ -114,6 +120,23 @@ function SlideDetailClient({
     setDescription(slideDescription);
   }, [slideId, slideTitle, slideDescription]);
 
+  // v0.14.0 — dirty-guard: hay edición de boxes pendiente si el usuario está
+  // editando una caja o algún draft difiere del contenido guardado. Aviso al
+  // cerrar/recargar la pestaña para no perder cambios silenciosamente.
+  const hasUnsavedBoxEdits =
+    editingBox !== null ||
+    boxOrder.some((type) => (drafts[type] ?? "") !== (boxes[type] ?? ""));
+
+  useEffect(() => {
+    if (!hasUnsavedBoxEdits) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasUnsavedBoxEdits]);
+
   // F5.2: jump to a sibling slide. We use router.push (not
   // router.replace) so the browser back button takes the user to the
   // previous slide — they expect that.
@@ -143,20 +166,18 @@ function SlideDetailClient({
         });
         await revalidateSlide(courseId, slideId);
         toast({
-          title: "Título guardado",
-          description: "Los cambios se han guardado correctamente.",
+          title: t("slides.titleSaved"),
+          description: t("slides.changesSavedDescription"),
           variant: "success",
         });
       } catch (err) {
+        console.error("[slide-detail] title save failed:", err);
         // Roll back the optimistic update on failure.
         setTitle(slideTitle);
         setDescription(slideDescription);
         toast({
-          title: "Error al guardar",
-          description:
-            err instanceof Error
-              ? err.message
-              : "No se pudo guardar el título.",
+          title: t("slides.saveError"),
+          description: t("slides.titleSaveFailed"),
           variant: "error",
         });
         throw err;
@@ -164,7 +185,7 @@ function SlideDetailClient({
         setSavingTitle(false);
       }
     },
-    [courseId, slideId, slideTitle, slideDescription, toast]
+    [courseId, slideId, slideTitle, slideDescription, toast, t]
   );
 
   // F1.5: build a UTF-8-safe HTML document for the iframe preview.
@@ -234,22 +255,22 @@ function SlideDetailClient({
         [BoxType.EXERCISE_2]: result.exercise2 ?? "",
       });
       toast({
-        title: "Contenido generado",
-        description: "Se ha generado el contenido con IA.",
+        title: t("slides.contentGenerated"),
+        description: t("slides.contentGeneratedDescription"),
         variant: "success",
       });
       await revalidateSlide(courseId, slideId);
     } catch (err) {
+      console.error("[slide-detail] content generation failed:", err);
       toast({
-        title: "Error al generar",
-        description:
-          err instanceof Error ? err.message : "No se pudo generar el contenido.",
+        title: t("slides.generateError"),
+        description: t("slides.contentGenerateFailed"),
         variant: "error",
       });
     } finally {
       setGenerating(false);
     }
-  }, [slideId, toast, courseId, slideAdapter]);
+  }, [slideId, toast, courseId, slideAdapter, t]);
 
   const handleRegenerateHtml = useCallback(async () => {
     setRegeneratingHtml(true);
@@ -257,22 +278,22 @@ function SlideDetailClient({
       const html = await slideAdapter.regenerateHtmlDesign(slideId, designInstructions);
       setHtmlDesign(html);
       toast({
-        title: "HTML regenerado",
-        description: "El diseño de la diapositiva se ha actualizado.",
+        title: t("slides.htmlRegenerated"),
+        description: t("slides.designUpdated"),
         variant: "success",
       });
       await revalidateSlide(courseId, slideId);
     } catch (err) {
+      console.error("[slide-detail] HTML regeneration failed:", err);
       toast({
-        title: "Error al regenerar HTML",
-        description:
-          err instanceof Error ? err.message : "No se pudo regenerar el diseño.",
+        title: t("slides.htmlRegenerateError"),
+        description: t("slides.designRegenerateFailed"),
         variant: "error",
       });
     } finally {
       setRegeneratingHtml(false);
     }
-  }, [slideId, designInstructions, toast, courseId, slideAdapter]);
+  }, [slideId, designInstructions, toast, courseId, slideAdapter, t]);
 
   const handleOpenSlideInNewTab = useCallback(() => {
     if (!htmlDesign) return;
@@ -306,23 +327,21 @@ function SlideDetailClient({
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast({
-        title: "HTML exportado",
-        description: `Se ha descargado ${filename}`,
+        title: t("slides.htmlExported"),
+        description: t("slides.downloadedFile", { filename }),
         variant: "success",
       });
     } catch (err) {
+      console.error("[slide-detail] HTML export failed:", err);
       toast({
-        title: "Error al exportar HTML",
-        description:
-          err instanceof Error
-            ? err.message
-            : "No se pudo exportar la diapositiva.",
+        title: t("slides.htmlExportError"),
+        description: t("slides.exportFailed"),
         variant: "error",
       });
     } finally {
       setExportingHtml(false);
     }
-  }, [slideId, exportingHtml, toast]);
+  }, [slideId, exportingHtml, toast, t]);
 
   const handleSaveAll = useCallback(async () => {
     setSaving(true);
@@ -338,20 +357,20 @@ function SlideDetailClient({
       await Promise.all(savePromises);
       setBoxes(drafts);
       toast({
-        title: "Cambios guardados",
-        description: "Todo el contenido se ha guardado correctamente.",
+        title: t("slides.changesSaved"),
+        description: t("slides.allContentSaved"),
         variant: "success",
       });
     } catch {
       toast({
-        title: "Error al guardar",
-        description: "No se pudieron guardar los cambios.",
+        title: t("slides.saveError"),
+        description: t("slides.changesSaveFailed"),
         variant: "error",
       });
     } finally {
       setSaving(false);
     }
-  }, [boxIds, drafts, boxes, toast]);
+  }, [boxIds, drafts, boxes, toast, t]);
 
   const handleEditBox = useCallback((type: BoxType) => {
     setDrafts((prev) => ({ ...prev, [type]: boxes[type] }));
@@ -370,9 +389,9 @@ function SlideDetailClient({
       }
       setBoxes((prev) => ({ ...prev, [type]: drafts[type] }));
       setEditingBox(null);
-      toast({ title: "Contenido guardado", variant: "success" });
+      toast({ title: t("slides.contentSaved"), variant: "success" });
     },
-    [boxIds, drafts, toast]
+    [boxIds, drafts, toast, t]
   );
 
   return (
@@ -384,7 +403,7 @@ function SlideDetailClient({
           className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          {courseName} / Gestión de Diapositivas
+          {courseName} / {t("slides.heading")}
         </Link>
       </div>
 
@@ -403,6 +422,15 @@ function SlideDetailClient({
             {slideOrder + 1}
           </Badge>
           <div className="min-w-0 flex-1">
+            {slideHierarchicalNumber && (
+              <p
+                data-testid="slide-detail-number"
+                className="mb-0.5 font-mono text-[11px] tabular-nums text-muted-foreground"
+                title={t("slides.hierarchyNumber", { number: slideHierarchicalNumber })}
+              >
+                {slideHierarchicalNumber}
+              </p>
+            )}
             <SlideTitleField
               title={title}
               description={description}
@@ -423,11 +451,11 @@ function SlideDetailClient({
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            {generating ? "Generando..." : "Generar Contenido"}
+            {generating ? t("slides.generating") : t("slides.generateContent")}
           </Button>
           <Button onClick={handleSaveAll} disabled={saving} size="sm">
             {saving ? <Spinner size="sm" className="mr-1" /> : <Save className="h-4 w-4" />}
-            Guardar
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -438,14 +466,14 @@ function SlideDetailClient({
         <div className="min-w-0 space-y-4 overflow-hidden">
           <Card className="min-w-0 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <h2 className="text-sm font-semibold">Vista previa HTML</h2>
+              <h2 className="text-sm font-semibold">{t("slides.htmlPreview")}</h2>
               {htmlDesign && (
                 <div className="flex items-center gap-1">
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={handleOpenSlideInNewTab}
-                    title="Abrir en nueva pestaña"
+                    title={t("slides.openNewTab")}
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
@@ -454,7 +482,7 @@ function SlideDetailClient({
                     size="sm"
                     onClick={handleExportHtml}
                     disabled={exportingHtml}
-                    title="Exportar diapositiva a HTML"
+                    title={t("slides.exportHtml")}
                     data-testid="export-html-button"
                   >
                     {exportingHtml ? (
@@ -494,7 +522,7 @@ function SlideDetailClient({
                       border: "none",
                     }}
                     sandbox="allow-same-origin allow-scripts allow-popups"
-                    title="Vista previa de la diapositiva"
+                    title={t("slides.previewTitle")}
                   />
                 </div>
               ) : (
@@ -505,14 +533,13 @@ function SlideDetailClient({
                   <Sparkles className="h-8 w-8 text-muted-foreground/60" />
                   <div className="text-center">
                     <p className="text-sm font-medium text-foreground">
-                      Esta diapositiva aún no tiene diseño HTML
+                      {t("slides.noHtmlDesign")}
                     </p>
                     <p
                       data-testid="generar-slide-helper"
                       className="mt-1 text-xs text-muted-foreground"
                     >
-                      Genera el diseño HTML con IA a partir del contenido
-                      y las instrucciones de diseño.
+                      {t("slides.noHtmlDesignHint")}
                     </p>
                   </div>
                   <Button
@@ -527,7 +554,7 @@ function SlideDetailClient({
                     ) : (
                       <Sparkles className="mr-1 h-4 w-4" />
                     )}
-                    {regeneratingHtml ? "Generando..." : "Generar slide"}
+                    {regeneratingHtml ? t("slides.generating") : t("slides.generateSlide")}
                   </Button>
                 </div>
               )}
@@ -537,10 +564,9 @@ function SlideDetailClient({
           {/* Design Instructions */}
           <Card>
             <CardHeader className="pb-3">
-              <h2 className="text-sm font-semibold">Instrucciones de diseño</h2>
+              <h2 className="text-sm font-semibold">{t("slides.designInstructions")}</h2>
               <p className="text-xs text-muted-foreground">
-                Describe cómo quieres el diseño HTML. Se enviará junto con todo el
-                contenido a la IA.
+                {t("slides.designInstructionsHint")}
               </p>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -548,7 +574,7 @@ function SlideDetailClient({
                 value={designInstructions}
                 onChange={(e) => setDesignInstructions(e.target.value)}
                 rows={4}
-                placeholder="Ej: Usa dos columnas, con el título arriba. Incluye las fórmulas destacadas en tarjetas azules..."
+                placeholder={t("slides.designInstructionsPlaceholder")}
               />
               <Button
                 onClick={handleRegenerateHtml}
@@ -562,7 +588,7 @@ function SlideDetailClient({
                 ) : (
                   <RefreshCw className="h-4 w-4" />
                 )}
-                {regeneratingHtml ? "Regenerando..." : "Regenerar HTML"}
+                {regeneratingHtml ? t("slides.regenerating") : t("slides.regenerateHtml")}
               </Button>
             </CardContent>
           </Card>
@@ -573,7 +599,7 @@ function SlideDetailClient({
             className="max-w-[90vw] w-[90vw]"
           >
             <DialogHeader>
-              <DialogTitle>Vista previa HTML</DialogTitle>
+              <DialogTitle>{t("slides.htmlPreview")}</DialogTitle>
             </DialogHeader>
             <DialogContent className="mt-4">
               <div
@@ -599,7 +625,7 @@ function SlideDetailClient({
                     border: "none",
                   }}
                   sandbox="allow-same-origin allow-scripts allow-popups"
-                  title="Vista previa de la diapositiva"
+                  title={t("slides.previewTitle")}
                 />
               </div>
             </DialogContent>
@@ -616,7 +642,7 @@ function SlideDetailClient({
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
                   <h3 className="text-sm font-semibold leading-none">
                     <span className="mr-1.5">{config.icon}</span>
-                    {config.label}
+                    {t(config.label)}
                   </h3>
                   {!isEditing && (
                     <Button
@@ -626,7 +652,7 @@ function SlideDetailClient({
                       onClick={() => handleEditBox(type)}
                     >
                       <Edit className="h-3 w-3" />
-                      Editar
+                      {t("common.edit")}
                     </Button>
                   )}
                 </CardHeader>
@@ -648,11 +674,11 @@ function SlideDetailClient({
                           size="sm"
                           onClick={() => handleCancelEdit(type)}
                         >
-                          Cancelar
+                          {t("common.cancel")}
                         </Button>
                         <Button size="sm" onClick={() => handleSaveBox(type)}>
                           <Save className="h-3.5 w-3.5" />
-                          Guardar
+                          {t("common.save")}
                         </Button>
                       </div>
                     </div>
@@ -662,7 +688,7 @@ function SlideDetailClient({
                         <MarkdownKatex content={boxes[type]} />
                       ) : (
                         <p className="text-xs text-muted-foreground">
-                          Sin contenido. Genera o edita para añadir.
+                          {t("slides.noContent")}
                         </p>
                       )}
                     </div>

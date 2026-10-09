@@ -4,14 +4,12 @@ import { useState, useCallback, useRef } from "react";
 import { useMaterialAdapter } from "@/lib/adapters/useMaterialAdapter";
 import { useToast } from "@/components/toast";
 import { Upload, FileText, Loader2 } from "lucide-react";
+import { isTauri } from "@/lib/client/tauri";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface UploadZoneProps {
   courseId: string;
   onUploadComplete: () => void;
-}
-
-function isTauri() {
-  return typeof window !== "undefined" && !!(window as any).__TAURI__;
 }
 
 function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
@@ -19,6 +17,7 @@ function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const t = useTranslations();
   const materialAdapter = useMaterialAdapter(courseId);
 
   const uploadFile = useCallback(
@@ -28,19 +27,19 @@ function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
         formData.append("file", file);
         await materialAdapter.uploadMaterial(formData);
         toast({
-          title: "Archivo subido",
-          description: `"${file.name}" se ha subido correctamente.`,
+          title: t("materials.uploaded"),
+          description: t("materials.uploadedDescription", { filename: file.name }),
           variant: "success",
         });
       } catch (err) {
         toast({
-          title: "Error al subir",
-          description: `No se pudo subir "${file.name}": ${err instanceof Error ? err.message : "Error desconocido"}`,
+          title: t("materials.errors.upload"),
+          description: t("materials.errors.uploadDescription", { filename: file.name }),
           variant: "error",
         });
       }
     },
-    [toast, materialAdapter]
+    [t, toast, materialAdapter]
   );
 
   const handleFiles = useCallback(
@@ -52,7 +51,11 @@ function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
       );
 
       if (pdfFiles.length === 0) {
-        toast({ title: "Formato no válido", description: "Solo se aceptan archivos PDF.", variant: "error" });
+        toast({
+          title: t("materials.errors.invalidFormat"),
+          description: t("materials.errors.invalidFormatDescription"),
+          variant: "error",
+        });
         return;
       }
 
@@ -65,7 +68,7 @@ function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
       setUploading(false);
       onUploadComplete();
     },
-    [onUploadComplete, toast, uploadFile]
+    [onUploadComplete, t, toast, uploadFile]
   );
 
   async function handleTauriOpen() {
@@ -91,8 +94,8 @@ function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
     } catch (err) {
       setUploading(false);
       toast({
-        title: "Error al abrir archivo",
-        description: err instanceof Error ? err.message : "Error desconocido",
+        title: t("common.error"),
+        description: t("common.unknownError"),
         variant: "error",
       });
     }
@@ -143,8 +146,8 @@ function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
       {uploading ? (
         <>
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="mt-3 text-sm font-medium text-foreground">Subiendo archivo...</p>
-          <p className="mt-1 text-xs text-muted-foreground">Por favor, espera</p>
+          <p className="mt-3 text-sm font-medium text-foreground">{t("materials.uploading")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("common.pleaseWait")}</p>
         </>
       ) : (
         <>
@@ -152,14 +155,14 @@ function UploadZone({ courseId, onUploadComplete }: UploadZoneProps) {
             <Upload className="h-5 w-5 text-muted-foreground" />
           </div>
           <p className="mt-3 text-sm font-medium text-foreground">
-            Arrastra archivos PDF aquí
+            {t("materials.dropFiles")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            o haz clic para seleccionar archivos
+            {t("materials.selectFiles")}
           </p>
           <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
             <FileText className="h-3.5 w-3.5" />
-            Solo archivos PDF
+            {t("materials.acceptedTypes")}
           </div>
         </>
       )}

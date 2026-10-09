@@ -59,8 +59,10 @@ import {
   Pencil,
   Maximize2,
   Minimize2,
+  ChevronsDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface TreeControlsProps {
   selectedCount: number;
@@ -112,6 +114,12 @@ interface TreeControlsProps {
    */
   onGenerateAllSlides?: () => void;
   /**
+   * v1.6 / Task 6 — expand the tree by one level depth, generating
+   * child nodes for all current leaf nodes. Optional: when omitted,
+   * the "Bajar nivel" button is not rendered.
+   */
+  onExpandDepth?: () => void;
+  /**
    * v1.5 / Task 3.2 — when `true`, the parent (tree-client.tsx) has
    * already hidden the page header and the CheckpointBar. The
    * toolbar button shows the inverse icon (Minimize2) so the user
@@ -138,10 +146,12 @@ export function TreeControls({
   onToggleSelectAll,
   onClearSelection,
   onGenerateAllSlides,
+  onExpandDepth,
   isFullscreen = false,
   onToggleFullscreen,
   busy = false,
 }: TreeControlsProps) {
+  const t = useTranslations();
   const hasSelection = selectedCount > 0;
   const singleSelection = selectedCount === 1;
   // F4.1 — "all selected" means every node in the tree is in the
@@ -164,7 +174,7 @@ export function TreeControls({
   return (
     <div
       role="toolbar"
-      aria-label="Acciones del árbol"
+      aria-label={t("tree.controls.ariaLabel")}
       data-testid="tree-controls"
       className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/95 p-2 shadow-sm backdrop-blur-sm"
     >
@@ -175,8 +185,8 @@ export function TreeControls({
           data-testid="selection-count"
         >
           {hasSelection
-            ? `${selectedCount} seleccionado${selectedCount !== 1 ? "s" : ""}`
-            : "Sin selección"}
+             ? t(selectedCount === 1 ? "tree.selection.selectedOne" : "tree.selection.selectedMany", { count: selectedCount })
+             : t("tree.selection.none")}
         </span>
       </div>
 
@@ -192,16 +202,16 @@ export function TreeControls({
         variant={allSelected ? "default" : "outline"}
         size="sm"
         onClick={toggleSelectAll}
-        aria-label={allSelected ? "Deseleccionar todas" : "Seleccionar todas"}
+         aria-label={allSelected ? t("tree.actions.deselectAll") : t("tree.actions.selectAll")}
         title={
           allSelected
-            ? "Desmarcar todas las cajas del árbol"
-            : "Marcar todas las cajas del árbol"
+             ? t("tree.actions.deselectAllTitle")
+             : t("tree.actions.selectAllTitle")
         }
         data-testid="select-all"
       >
         <ListChecks className="h-3.5 w-3.5" />
-        {allSelected ? "Deseleccionar todas" : "Seleccionar todas"}
+         {allSelected ? t("tree.actions.deselectAll") : t("tree.actions.selectAll")}
       </Button>
 
       <Button
@@ -210,12 +220,12 @@ export function TreeControls({
         size="sm"
         onClick={onClearSelection}
         disabled={!hasSelection || busy}
-        aria-label="Limpiar selección"
-        title="Desmarcar todas las cajas seleccionadas"
+         aria-label={t("tree.actions.clearSelection")}
+         title={t("tree.actions.clearSelectionTitle")}
         data-testid="clear-selection"
       >
         <XCircle className="h-3.5 w-3.5" />
-        Limpiar
+         {t("common.clear")}
       </Button>
 
       <Button
@@ -224,11 +234,11 @@ export function TreeControls({
         size="sm"
         onClick={onPrune}
         disabled={!hasSelection || busy}
-        aria-label="Podar seleccionados"
-        title="Eliminar nodos sin hijos (Podar)"
+         aria-label={t("tree.actions.pruneSelected")}
+         title={t("tree.actions.pruneTitle")}
       >
         <Scissors className="h-3.5 w-3.5" />
-        Podar
+         {t("tree.actions.prune")}
       </Button>
 
       <Button
@@ -237,11 +247,11 @@ export function TreeControls({
         size="sm"
         onClick={onMerge}
         disabled={selectedCount < 2 || busy}
-        aria-label="Unir seleccionados"
-        title="Combinar varios nodos en uno (Unir)"
+         aria-label={t("tree.actions.mergeSelected")}
+         title={t("tree.actions.mergeTitle")}
       >
         <GitMerge className="h-3.5 w-3.5" />
-        Unir
+         {t("tree.actions.merge")}
       </Button>
 
       <Button
@@ -250,11 +260,11 @@ export function TreeControls({
         size="sm"
         onClick={onSplit}
         disabled={!singleSelection || busy}
-        aria-label="Dividir nodo"
-        title="Dividir el nodo en dos (Dividir)"
+         aria-label={t("tree.actions.splitNode")}
+         title={t("tree.actions.splitTitle")}
       >
         <Scissors className="h-3.5 w-3.5 rotate-90" />
-        Dividir
+         {t("tree.actions.split")}
       </Button>
 
       {/* v1.5 / Task 3.1 — open the edit modal for the single
@@ -268,12 +278,12 @@ export function TreeControls({
         size="sm"
         onClick={onEdit}
         disabled={!singleSelection || busy}
-        aria-label="Editar nodo seleccionado"
-        title="Editar el nombre o la descripción del nodo (Editar)"
+         aria-label={t("tree.actions.editSelected")}
+         title={t("tree.actions.editTitle")}
         data-testid="edit-selected"
       >
         <Pencil className="h-3.5 w-3.5" />
-        Editar
+         {t("common.edit")}
       </Button>
 
       <Button
@@ -282,11 +292,11 @@ export function TreeControls({
         size="sm"
         onClick={onAddChild}
         disabled={!singleSelection || busy}
-        aria-label="Añadir hijo"
-        title="Añadir un nodo hijo al seleccionado"
+         aria-label={t("tree.actions.addChild")}
+         title={t("tree.actions.addChildTitle")}
       >
         <Plus className="h-3.5 w-3.5" />
-        Añadir hijo
+         {t("tree.actions.addChild")}
       </Button>
 
       <Button
@@ -295,11 +305,11 @@ export function TreeControls({
         size="sm"
         onClick={onDelete}
         disabled={!hasSelection || busy}
-        aria-label="Eliminar seleccionados"
-        title="Eliminar los nodos seleccionados"
+         aria-label={t("tree.actions.deleteSelected")}
+         title={t("tree.actions.deleteSelectedTitle")}
       >
         <Trash2 className="h-3.5 w-3.5" />
-        Eliminar
+         {t("common.delete")}
       </Button>
 
       <div className="ml-auto flex items-center gap-1.5">
@@ -312,12 +322,32 @@ export function TreeControls({
             disabled={
               busy || (totalNodeCount ?? selectedCount) === 0
             }
-            aria-label="Generar todas las diapositivas"
-            title="Generar diapositivas para todas las cajas del árbol"
+            aria-label={t("tree.actions.generateAllSlides")}
+            title={t("tree.actions.generateAllSlidesTitle")}
             data-testid="generate-all-slides"
           >
             <Layers className="h-3.5 w-3.5" />
-Generar diapositivas
+            {t("tree.actions.generateSlides")}
+          </Button>
+        )}
+        {/* v1.6 / Task 6 — expand tree depth globally. Generates child
+            nodes for all current leaf nodes, growing the tree by one
+            level. Disabled when there are no nodes or when busy. */}
+        {onExpandDepth && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onExpandDepth}
+            disabled={
+              busy || (totalNodeCount ?? selectedCount) === 0
+            }
+            aria-label={t("tree.actions.expandDepth")}
+            title={t("tree.actions.expandDepthTitle")}
+            data-testid="expand-depth"
+          >
+            <ChevronsDown className="h-3.5 w-3.5" />
+            {t("tree.actions.expandDepthShort")}
           </Button>
         )}
         <Button
@@ -326,11 +356,11 @@ Generar diapositivas
           size="sm"
           onClick={onAddRoot}
           disabled={busy}
-          aria-label="Añadir raíz"
-          title="Añadir un nuevo capítulo raíz"
+          aria-label={t("tree.actions.addRoot")}
+          title={t("tree.actions.addRootTitle")}
         >
           <Plus className="h-3.5 w-3.5" />
-          Añadir raíz
+          {t("tree.actions.addRoot")}
         </Button>
         {/* v1.5 / Task 3.2 — fullscreen toggle. Sits next to
             "Añadir raíz" so it lives in the right-hand cluster of
@@ -347,13 +377,13 @@ Generar diapositivas
             onClick={onToggleFullscreen}
             aria-label={
               isFullscreen
-                ? "Salir de pantalla completa"
-                : "Pantalla completa"
+                 ? t("tree.actions.exitFullscreen")
+                 : t("tree.actions.fullscreen")
             }
             title={
               isFullscreen
-                ? "Volver a la vista normal (mostrar cabecera y barra de fases)"
-                : "Ocultar la cabecera y la barra de fases para ver el árbol en pantalla completa"
+                 ? t("tree.actions.exitFullscreenTitle")
+                 : t("tree.actions.fullscreenTitle")
             }
             data-testid="toggle-fullscreen"
             aria-pressed={isFullscreen}

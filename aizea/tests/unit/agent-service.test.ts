@@ -12,6 +12,7 @@ function node(id: string, parentId: string | null = null): TopicNode {
     summary: null,
     depth: parentId ? 1 : 0,
     orderIndex: 0,
+    sourceMaterialIds: [],
     isLeaf: true,
     version: 1,
     sourceMaterialId: null,
@@ -44,7 +45,7 @@ describe("AgentService", () => {
       reply: "Hecho: creé una hoja.",
       actions: [{ type: "addLeaf", parentId: "root", name: "Nueva" }],
     });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
 
     expect(result.reply).toBe("Hecho: creé una hoja.");
     expect(result.actions).toEqual([
@@ -57,7 +58,7 @@ describe("AgentService", () => {
       reply: "ok",
       actions: [{ type: "addLeaf", parentId: "ghost", name: "X" }],
     });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
     expect(result.actions[0]).toMatchObject({ type: "addLeaf", parentId: null });
   });
 
@@ -69,7 +70,7 @@ describe("AgentService", () => {
         { type: "deleteNode", nodeId: "a" },
       ],
     });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
     expect(result.actions).toEqual([{ type: "deleteNode", nodeId: "a" }]);
   });
 
@@ -81,7 +82,7 @@ describe("AgentService", () => {
         { type: "mergeNodes", parentId: "root", childIds: ["a", "b"], name: "Dos" },
       ],
     });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
     expect(result.actions).toEqual([
       { type: "mergeNodes", parentId: "root", childIds: ["a", "b"], name: "Dos" },
     ]);
@@ -95,7 +96,7 @@ describe("AgentService", () => {
         { type: "renameNode", nodeId: "b", name: "Beta" },
       ],
     });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
     expect(result.actions).toEqual([
       { type: "renameNode", nodeId: "b", name: "Beta", summary: undefined },
     ]);
@@ -106,13 +107,13 @@ describe("AgentService", () => {
       reply: "ok",
       actions: [{ type: "nuke", nodeId: "a" }, { type: "splitNode", nodeId: "a" }],
     });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
     expect(result.actions).toEqual([{ type: "splitNode", nodeId: "a" }]);
   });
 
   it("returns no actions when the envelope has none (pure conversation)", async () => {
     const { llm } = makeLlm({ reply: "El árbol ya está bien equilibrado.", actions: [] });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: 100 });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: 100, llmContext: null });
     expect(result.actions).toEqual([]);
     expect(result.reply).toContain("equilibrado");
   });
@@ -124,14 +125,14 @@ describe("AgentService", () => {
       chat: vi.fn(),
       name: "fake",
     };
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
     expect(result.actions).toEqual([]);
     expect(result.reply.length).toBeGreaterThan(0);
   });
 
   it("falls back to a default reply when reply is missing", async () => {
     const { llm } = makeLlm({ actions: [] });
-    const result = await new AgentService(llm).run({ tree, history, slideTarget: null });
+    const result = await new AgentService(llm).run({ tree, history, slideTarget: null, llmContext: null });
     expect(result.reply).toBe("Hecho.");
   });
 
@@ -142,7 +143,7 @@ describe("AgentService", () => {
       { role: "assistant", content: "¿qué necesitas?" },
       { role: "user", content: "crea una hoja" },
     ];
-    await new AgentService(llm).run({ tree, history: multi, slideTarget: null });
+    await new AgentService(llm).run({ tree, history: multi, slideTarget: null, llmContext: null });
 
     const messages = chatJSON.mock.calls[0][0] as Array<{ role: string; content: string }>;
     // system + 3 history turns + the framing user message

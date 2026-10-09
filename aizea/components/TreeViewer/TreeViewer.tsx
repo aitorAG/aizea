@@ -53,6 +53,7 @@ import "reactflow/dist/style.css";
 import dagre from "dagre";
 import { GitBranch } from "lucide-react";
 import TreeNode from "./TreeNode";
+import GhostNode from "./GhostNode";
 import { TreeControls } from "./TreeControls";
 import { InlineTreeNodeEditor } from "./InlineTreeNodeEditor";
 import {
@@ -64,19 +65,27 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { useTreeAdapter, type TreeFlowNode } from "@/lib/adapters/useTreeAdapter";
 import type { TopicNode } from "@/lib/types/pipeline";
+import { useTranslations } from "@/components/LocaleProvider";
 
 const NODE_WIDTH = 240;
 const NODE_HEIGHT = 110;
 const RANK_SEP = 80;
 const NODE_SEP = 40;
 
-const nodeTypes = { topic: TreeNode };
+const nodeTypes = { topic: TreeNode, ghost: GhostNode };
 
 interface TreeViewerProps {
   nodes: TopicNode[];
   onChange: (nodes: TopicNode[]) => void;
   /** Called when the user picks a node and triggers "Generar slides". */
   onGenerateSlides?: (selectedIds: string[]) => void;
+  /**
+   * v0.11.0 — fires whenever the live node selection changes, so the parent
+   * always knows the current selection (needed for "Bajar nivel" to respect
+   * the checkboxes). Distinct from `onGenerateSlides`, which only fires on the
+   * floating "Generar N" button.
+   */
+  onSelectionChange?: (selectedIds: string[]) => void;
   /**
    * F4.3 — called when the user clicks the "Generar todas las
    * diapositivas" toolbar button. The parent is responsible for
@@ -85,6 +94,12 @@ interface TreeViewerProps {
    * not rendered.
    */
   onGenerateAllSlides?: () => void;
+  /**
+   * Called when the user clicks the "Bajar nivel" toolbar button.
+   * The parent is responsible for expanding the tree by generating
+   * one child for each current leaf node.
+   */
+  onExpandDepth?: () => void;
   /** Optional enrichment map of nodeId → { concepts, slides }. */
   counts?: Map<string, { concepts: number; slides: number }>;
   /**
@@ -159,6 +174,15 @@ interface TreeViewerProps {
   busy?: boolean;
   /** v1.5 / Task 3.2 — toggles the parent's fullscreen state. */
   onToggleFullscreen?: () => void;
+  /**
+   * RA1 — IDs of leaf nodes currently being expanded. For each ID,
+   * this component injects a ghost placeholder node (punteado gris,
+   * "Generando…") under the leaf so the user sees that children are
+   * being created before the server action returns. Owned by the
+   * parent (tree-client.tsx) which sets it at the start of
+   * `handleExpandDepth` and clears it when the new nodes arrive.
+   */
+  expandingLeafIds?: string[];
 }
 
 /**
@@ -197,7 +221,9 @@ export function TreeViewer({
   nodes,
   onChange,
   onGenerateSlides,
+  onSelectionChange,
   onGenerateAllSlides,
+  onExpandDepth,
   counts,
   onAddRequest,
   isNewNode,
@@ -208,7 +234,10 @@ export function TreeViewer({
   // v1.9 / Issue 3 — see the prop doc above. Defaults to `false`
   // so older callers (e.g. tests) keep working unchanged.
   busy = false,
+  // RA1 — leaf IDs currently being expanded. Defaults to empty.
+  expandingLeafIds = [],
 }: TreeViewerProps) {
+  const t = useTranslations();
   const adapter = useTreeAdapter(nodes, {
     counts,
     isNew: isNewNode,
@@ -268,6 +297,18 @@ export function TreeViewer({
     });
   }, []);
 
+  // v0.11.0 — surface the live selection to the parent so "Bajar nivel" can
+  // respect the checkboxes. Emits a sorted, comma-joined key comparison to
+  // avoid firing (and re-rendering the parent) when the set is unchanged.
+  useEffect(() => {
+    if (!onSelectionChange) return;
+    onSelectionChange(Array.from(selectedNodeIds));
+    // Effect depends on the selection identity; onSelectionChange is stable
+    // (a useCallback in the parent). Serialised key keeps it firing only on
+    // real selection changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Array.from(selectedNodeIds).sort().join(",")]);
+
   // v1.5 / Task 3.1 — single-node edit modal. The id of the node
   // currently being edited in the modal, or `null` when the modal
   // is closed. The toolbar's "Editar" button sets this to the
@@ -319,18 +360,55 @@ export function TreeViewer({
   // `pendingNodeIds`. The selection-vs-pending axes are independent
   // (a node can be selected AND pending at the same time, e.g. a
   // single-node Eliminar that the user has just confirmed).
+  //
+  // RA1 — injects ghost placeholder nodes under each expanding leaf.
+  // For each ID in `expandingLeafIds`, we create a synthetic
+  // ReactFlow node of type `ghost` positioned under the leaf. The
+  // ghost nodes + edges are appended to the base graph BEFORE layout
+  // so dagre positions them correctly in the hierarchy.
   const laidOutNodes = useMemo(() => {
-    const base = layoutWithDagre(adapter.reactFlowNodes, adapter.reactFlowEdges);
-    return base.map((n) => ({
-      ...n,
-      selected: selectedNodeIds.has(n.id),
-      data: {
-        ...n.data,
+    let baseNodes: Node[] = adapter.reactFlowNodes;
+    let baseEdges = adapter.reactFlowEdges;
+
+    // RA1 — inject ghost nodes for expanding leaves
+    if (expandingLeafIds.length > 0) {
+      const ghostNodes: Node[] = [];
+      const ghostEdges: Edge[] = [];
+      expandingLeafIds.forEach((leafId) => {
+        const ghostId = `ghost-${leafId}`;
+        ghostNodes.push({
+          id: ghostId,
+          type: "ghost",
+          position: { x: 0, y: 0 }, // layout fills this
+           data: { label: t("tree.status.generating") },
+        });
+        ghostEdges.push({
+          id: `e-${leafId}-${ghostId}`,
+          source: leafId,
+          target: ghostId,
+          type: "default",
+        });
+      });
+      baseNodes = [...baseNodes, ...ghostNodes];
+      baseEdges = [...baseEdges, ...ghostEdges];
+    }
+
+    const base = layoutWithDagre(baseNodes, baseEdges);
+    return base.map((n) => {
+      // Ghost nodes don't get selection/pending/toggle logic — they're
+      // not interactive. Only apply the selection model to real nodes.
+      if (n.type === "ghost") return n;
+      return {
+        ...n,
         selected: selectedNodeIds.has(n.id),
-        pending: pendingNodeIds.has(n.id),
-        onSelectToggle: () => toggleNodeSelection(n.id),
-      },
-    }));
+        data: {
+          ...n.data,
+          selected: selectedNodeIds.has(n.id),
+          pending: pendingNodeIds.has(n.id),
+          onSelectToggle: () => toggleNodeSelection(n.id),
+        },
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     adapter.reactFlowNodes,
@@ -338,6 +416,8 @@ export function TreeViewer({
     selectedNodeIds,
     pendingNodeIds,
     toggleNodeSelection,
+    expandingLeafIds,
+    t,
   ]);
 
   // ReactFlow's onNodesChange can produce position/dimension/remove
@@ -554,8 +634,8 @@ export function TreeViewer({
       <div className="flex h-full min-h-[400px] items-center justify-center p-6">
         <EmptyState
           icon={<GitBranch className="h-10 w-10" />}
-          title="El árbol está vacío"
-          description="Sube un material al curso para generar el árbol conceptual automáticamente."
+           title={t("tree.empty.title")}
+           description={t("tree.empty.description")}
         />
       </div>
     );
@@ -592,6 +672,7 @@ export function TreeViewer({
           onToggleSelectAll={handleToggleSelectAll}
           onClearSelection={clearSelection}
           onGenerateAllSlides={onGenerateAllSlides}
+          onExpandDepth={onExpandDepth}
           isFullscreen={isFullscreen}
           onToggleFullscreen={onToggleFullscreen}
           // v1.9 / Issue 3 — propagate the in-flight flag down
@@ -631,7 +712,9 @@ export function TreeViewer({
             onClick={() => onGenerateSlides(Array.from(selectedNodeIds))}
             className="font-mono text-xs font-semibold uppercase tracking-wider text-primary hover:underline"
           >
-            Generar {selectedNodeIds.size} diapositiva{selectedNodeIds.size !== 1 ? "s" : ""} →
+            {t(selectedNodeIds.size === 1 ? "tree.slides.generateOne" : "tree.slides.generateMany", {
+              count: selectedNodeIds.size,
+            })} →
           </button>
         </div>
       )}
@@ -648,10 +731,9 @@ export function TreeViewer({
           they're editing the right box. */}
       <Dialog open={editingNode !== null} onClose={handleCloseEdit}>
         <DialogHeader>
-          <DialogTitle>Editar nodo</DialogTitle>
-          <DialogDescription>
-            Cambia el nombre y la descripción del nodo. Enter o
-            Tab guardan los cambios.
+            <DialogTitle>{t("tree.edit.title")}</DialogTitle>
+            <DialogDescription>
+              {t("tree.edit.description")}
           </DialogDescription>
         </DialogHeader>
         {editingNode && (
@@ -660,7 +742,7 @@ export function TreeViewer({
               className="mb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
               data-testid="edit-node-current-name"
             >
-              Editando: {editingNode.name}
+              {t("tree.edit.currentNode", { name: editingNode.name })}
             </p>
             <InlineTreeNodeEditor
               key={editingNode.id}

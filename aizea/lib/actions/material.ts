@@ -44,7 +44,19 @@ export async function getCourseMaterials(courseId: string) {
 export async function deleteMaterial(id: string): Promise<void> {
   const material = await container.materials.findById(id);
   if (!material) return;
-  // The repository deletes the material + dependent TextChunks atomically.
+  // v0.14.0 — purgar los vectores LanceDB ANTES de borrar las filas: sin
+  // esto quedaban huérfanos y contaminaban búsquedas RAG. Best-effort: un
+  // fallo del almacén vectorial no impide el borrado lógico.
+  try {
+    await container.artifactCleaner.deleteMaterialVectors(id);
+  } catch (err) {
+    console.warn(
+      "[deleteMaterial] limpieza de vectores falló:",
+      err instanceof Error ? err.message : err
+    );
+  }
+  // The repository deletes the material + dependent TextChunks atomically,
+  // and (v0.14.0) removes the uploaded PDF from disk best-effort.
   await container.materials.delete(id);
   revalidatePath(`/courses/${material.courseId}`);
   revalidatePath(`/courses/${material.courseId}/materials`);

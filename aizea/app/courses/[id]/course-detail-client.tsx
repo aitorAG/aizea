@@ -18,6 +18,7 @@ import { revalidateCourse } from "@/lib/actions/revalidate";
 import { useCourseAdapter } from "@/lib/adapters/useCourseAdapter";
 import { useSlideAdapter } from "@/lib/adapters/useSlideAdapter";
 import type { SlideOutline } from "@/lib/types";
+import { useLocale, useTranslations } from "@/components/LocaleProvider";
 
 interface MaterialSummary {
   id: string;
@@ -50,6 +51,8 @@ function CourseDetailClient({
   figures,
 }: CourseDetailClientProps) {
   const { toast } = useToast();
+  const t = useTranslations();
+  const locale = useLocale();
   const [slides, setSlides] = useState(initialSlides);
   const [exportOpen, setExportOpen] = useState(false);
   const [addSlideOpen, setAddSlideOpen] = useState(false);
@@ -67,11 +70,11 @@ function CourseDetailClient({
           reordered.map((s) => s.id)
         );
       } catch (err) {
-        toast({ title: "Error al reordenar", description: "No se pudo guardar el nuevo orden.", variant: "error" });
+        toast({ title: t("course.errors.reorder"), description: t("course.errors.reorderDescription"), variant: "error" });
         setSlides(initialSlides);
       }
     },
-    [courseId, initialSlides, toast, slideAdapter]
+    [courseId, initialSlides, toast, slideAdapter, t]
   );
 
   const handleEditSlide = useCallback(
@@ -109,20 +112,20 @@ function CourseDetailClient({
       setAddSlideOpen(false);
       setNewTitle("");
       setNewDesc("");
-      toast({ title: "Diapositiva añadida", variant: "success" });
+       toast({ title: t("course.slides.added"), variant: "success" });
     } catch (err) {
-      toast({ title: "Error", description: "No se pudo añadir la diapositiva.", variant: "error" });
+       toast({ title: t("common.error"), description: t("course.errors.addSlide"), variant: "error" });
     } finally {
       setAdding(false);
     }
-  }, [courseId, newTitle, newDesc, toast, slideAdapter]);
+  }, [courseId, newTitle, newDesc, toast, slideAdapter, t]);
 
   const handleFigureUpdate = useCallback(
     async (id: string, data: { caption?: string; tags?: string[] }) => {
       await updateFigure(id, data);
-      toast({ title: "Figura actualizada", variant: "success" });
+       toast({ title: t("course.figures.updated"), variant: "success" });
     },
-    [toast]
+    [toast, t]
   );
 
   return (
@@ -135,14 +138,14 @@ function CourseDetailClient({
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver al inicio
+             {t("common.backHome")}
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">{courseName}</h1>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setExportOpen(true)}>
             <FileDown className="h-4 w-4" />
-            Exportar
+             {t("common.export")}
           </Button>
         </div>
       </div>
@@ -151,7 +154,7 @@ function CourseDetailClient({
       <section>
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
           <FileText className="h-5 w-5 text-primary" />
-          Materiales
+           {t("course.materials.title")}
         </h2>
         <UploadZone courseId={courseId} onUploadComplete={async () => await revalidateCourse(courseId)} />
         {materials.length > 0 && (
@@ -166,12 +169,12 @@ function CourseDetailClient({
                   <span className="text-sm font-medium truncate">{m.filename}</span>
                   {m.pageCount > 0 && (
                     <Badge variant="secondary" className="text-[10px]">
-                      {m.pageCount} págs.
+                       {t(m.pageCount === 1 ? "course.materials.pageOne" : "course.materials.pageMany", { count: m.pageCount })}
                     </Badge>
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">
-                  {new Date(m.createdAt).toLocaleDateString("es-ES")}
+                   {new Date(m.createdAt).toLocaleDateString(locale)}
                 </span>
               </div>
             ))}
@@ -184,7 +187,7 @@ function CourseDetailClient({
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Layers className="h-5 w-5 text-primary" />
-            Esquema de Diapositivas
+             {t("course.slides.outline")}
           </h2>
           <div className="flex gap-2">
             <Button
@@ -193,7 +196,7 @@ function CourseDetailClient({
               onClick={() => setAddSlideOpen(true)}
             >
               <Plus className="h-4 w-4" />
-              Añadir Diapositiva
+               {t("course.slides.add")}
             </Button>
           </div>
         </div>
@@ -201,8 +204,8 @@ function CourseDetailClient({
         {slides.length === 0 ? (
 <EmptyState
             icon={<Layers className="h-8 w-8" />}
-            title="Sin diapositivas"
-            description="Genera un esquema con IA o añade diapositivas manualmente."
+             title={t("course.slides.emptyTitle")}
+             description={t("course.slides.emptyDescription")}
           />
         ) : (
           <SlideList
@@ -215,7 +218,7 @@ function CourseDetailClient({
 
         {slides.length > 0 && (
           <div className="mt-4">
-            <h3 className="text-sm font-medium text-muted-foreground mb-2">Ir a diapositiva:</h3>
+             <h3 className="text-sm font-medium text-muted-foreground mb-2">{t("course.slides.goTo")}</h3>
             <div className="flex flex-wrap gap-2">
               {slides.map((slide) => (
                 <Link key={slide.id} href={`/courses/${courseId}/slides/${slide.id}`}>
@@ -234,21 +237,21 @@ function CourseDetailClient({
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Image className="h-5 w-5 text-primary" />
-            Figuras
+             {t("course.figures.title")}
           </h2>
           <Link href={`/courses/${courseId}/figures`}>
             <Button variant="outline" size="sm">
-              Ver galería
+               {t("course.figures.viewGallery")}
             </Button>
           </Link>
         </div>
         {figures.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No hay figuras extraídas aún. Ve a la galería para extraerlas del PDF.
+             {t("course.figures.empty")}
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            {figures.length} figura{figures.length !== 1 ? "s" : ""} disponible{figures.length !== 1 ? "s" : ""} en la galería.
+             {t(figures.length === 1 ? "course.figures.availableOne" : "course.figures.availableMany", { count: figures.length })}
           </p>
         )}
       </section>
@@ -256,33 +259,33 @@ function CourseDetailClient({
       {/* Add Slide Dialog */}
       <Dialog open={addSlideOpen} onClose={() => setAddSlideOpen(false)}>
         <DialogHeader>
-          <DialogTitle>Añadir diapositiva</DialogTitle>
+           <DialogTitle>{t("course.slides.addTitle")}</DialogTitle>
           <DialogDescription>
-            Crea una nueva diapositiva manualmente.
+             {t("course.slides.addDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4 space-y-4">
           <Input
             id="new-slide-title"
-            label="Título"
-            placeholder="Título de la diapositiva"
+             label={t("common.title")}
+             placeholder={t("course.slides.titlePlaceholder")}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
           />
           <Input
             id="new-slide-desc"
-            label="Descripción"
-            placeholder="Descripción breve (opcional)"
+             label={t("common.description")}
+             placeholder={t("course.slides.descriptionPlaceholder")}
             value={newDesc}
             onChange={(e) => setNewDesc(e.target.value)}
           />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setAddSlideOpen(false)} disabled={adding}>
-            Cancelar
+             {t("common.cancel")}
           </Button>
           <Button onClick={handleAddSlide} loading={adding} disabled={!newTitle.trim()}>
-            Añadir
+             {t("common.add")}
           </Button>
         </DialogFooter>
       </Dialog>

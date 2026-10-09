@@ -78,6 +78,7 @@ function createFakeRepo() {
       vi.fn<(courseId: string) => Promise<MergeTopicNodeRow[]>>(),
     findLatestVersion: vi.fn<(courseId: string) => Promise<number | null>>(),
     createNode: vi.fn<(data: MergeCreateNodeInput) => Promise<MergeTopicNodeRow>>(),
+    updateNodeSourceMaterials: vi.fn<(nodeId: string, sourceMaterialIds: string[]) => Promise<void>>(),
   } satisfies IIncrementalMergerRepository;
 }
 
@@ -97,6 +98,7 @@ function makeNodeRow(
     isLeaf: false,
     version: 1,
     sourceMaterialId: null,
+    sourceMaterialIds: null,
     pageStart: null,
     pageEnd: null,
     createdAt: new Date(),

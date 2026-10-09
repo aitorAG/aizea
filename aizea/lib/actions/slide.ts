@@ -54,3 +54,8 @@ export async function createMinimalSlides(
   revalidatePath(`/courses/${courseId}/slides`);
   return created;
 }
+
+// v0.12.0 (RC3) — persist slide generation status to DB for recovery after navigation
+export async function updateSlideStatusAction(slideId: string, status: string) {
+  await container.slides.updateStatus(slideId, status);
+}

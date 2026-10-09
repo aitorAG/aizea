@@ -30,6 +30,7 @@ import { X, Maximize2, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { JobsPanelContent } from "@/components/JobsPanelContent";
 import { useJobsUIStore } from "@/lib/stores/useJobsUIStore";
+import { useTranslations } from "@/components/LocaleProvider";
 
 export function JobsSidebar() {
   const isOpen = useJobsUIStore((s) => s.isOpen);
@@ -38,6 +39,7 @@ export function JobsSidebar() {
   const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const t = useTranslations();
 
   // Body scroll lock when open — same pattern the Dialog uses.
   useEffect(() => {
@@ -79,7 +81,7 @@ export function JobsSidebar() {
       className="fixed inset-0 z-50"
       role="dialog"
       aria-modal="true"
-      aria-label="Panel de trabajos"
+      aria-label={t("jobsPanel")}
     >
       {/* Backdrop — clicking it closes the drawer. Pointer events
           are isolated to the backdrop layer so clicks inside the
@@ -96,7 +98,7 @@ export function JobsSidebar() {
         ref={panelRef}
         data-testid="jobs-sidebar"
         className={cn(
-          "absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl",
+          "absolute right-0 top-0 flex h-full w-full max-w-lg flex-col border-l border-border bg-card shadow-2xl",
           "animate-in slide-in-from-right duration-300 ease-out"
         )}
       >
@@ -105,7 +107,7 @@ export function JobsSidebar() {
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold tracking-tight text-foreground">
-              Trabajos
+              {t("jobs")}
             </h2>
           </div>
           <div className="flex items-center gap-1">
@@ -113,8 +115,8 @@ export function JobsSidebar() {
               type="button"
               onClick={openFullPage}
               data-testid="jobs-sidebar-open-page"
-              title="Abrir página completa"
-              aria-label="Abrir página completa"
+              title={t("openJobsPage")}
+              aria-label={t("openJobsPage")}
               className={cn(
                 "inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground",
                 "transition-colors hover:bg-muted hover:text-foreground",
@@ -122,7 +124,7 @@ export function JobsSidebar() {
               )}
             >
               <Maximize2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Ver todo</span>
+              <span className="hidden sm:inline">{t("viewAll")}</span>
             </button>
             <Link
               href="/jobs"
@@ -136,8 +138,8 @@ export function JobsSidebar() {
               type="button"
               onClick={close}
               data-testid="jobs-sidebar-close"
-              title="Cerrar"
-              aria-label="Cerrar"
+              title={t("close")}
+              aria-label={t("close")}
               className={cn(
                 "inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground",
                 "transition-colors hover:bg-muted hover:text-foreground",

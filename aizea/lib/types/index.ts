@@ -15,6 +15,7 @@ export interface SlideOutline {
   title: string;
   description: string;
   order: number;
+  numericPath?: string;
 }
 
 export interface SlideContent {

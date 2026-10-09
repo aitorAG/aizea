@@ -21,6 +21,8 @@ export interface MergeCreateNodeInput {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  /** Lista de IDs de materiales fuente que contribuyeron a este nodo. */
+  sourceMaterialIds?: string[];
 }
 
 /** Fila de TopicNode devuelta tras persistir / cargar. */
@@ -35,6 +37,7 @@ export interface MergeTopicNodeRow {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  sourceMaterialIds?: string | null;
   pageStart: number | null;
   pageEnd: number | null;
   createdAt: Date;
@@ -50,4 +53,7 @@ export interface IIncrementalMergerRepository {
 
   /** Persiste un TopicNode (raíz o hijo) y devuelve la fila resultante. */
   createNode(data: MergeCreateNodeInput): Promise<MergeTopicNodeRow>;
+
+  /** Actualiza sourceMaterialIds de un nodo existente (para kind="same"). */
+  updateNodeSourceMaterials(nodeId: string, sourceMaterialIds: string[]): Promise<void>;
 }

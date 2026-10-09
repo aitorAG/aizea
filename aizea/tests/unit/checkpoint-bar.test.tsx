@@ -12,7 +12,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { screen, cleanup, within } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import React from "react";
 
 // Mock next/navigation so `usePathname` returns whatever the test
@@ -70,7 +71,7 @@ describe("<CheckpointBar /> — structure", () => {
     const bar = screen.getByTestId("checkpoint-bar");
     expect(within(bar).getByText("Carga")).toBeInTheDocument();
     expect(within(bar).getByText("Árbol")).toBeInTheDocument();
-    expect(within(bar).getByText("Slides")).toBeInTheDocument();
+    expect(within(bar).getByText("Diapositivas")).toBeInTheDocument();
     expect(within(bar).getByText("Detalle")).toBeInTheDocument();
   });
 

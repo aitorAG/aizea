@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { FigureCard } from "@/components/figure-card";
 import { useToast } from "@/components/toast";
 import { extractFigureRefs, updateFigure } from "@/lib/actions/figure";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface FigureData {
   id: string;
@@ -26,6 +27,7 @@ interface FigureGalleryClientProps {
 
 function FigureGalleryClient({ courseId, courseName, figures: initialFigures }: FigureGalleryClientProps) {
   const { toast } = useToast();
+  const t = useTranslations();
   const [figures, setFigures] = useState(initialFigures);
   const [extracting, setExtracting] = useState(false);
 
@@ -33,18 +35,19 @@ function FigureGalleryClient({ courseId, courseName, figures: initialFigures }: 
     setExtracting(true);
     try {
       await extractFigureRefs(courseId);
-      toast({ title: "Figuras extraídas", description: "Se han extraído las referencias del PDF.", variant: "success" });
+       toast({ title: t("figures.extracted"), description: t("figures.extractedDescription"), variant: "success" });
       window.location.reload();
     } catch (err) {
+      console.error("[figures] extraction failed:", err);
       toast({
-        title: "Error al extraer",
-        description: err instanceof Error ? err.message : "No se pudieron extraer las figuras.",
+         title: t("figures.errors.extract"),
+         description: t("figures.errors.extractDescription"),
         variant: "error",
       });
     } finally {
       setExtracting(false);
     }
-  }, [courseId, toast]);
+  }, [courseId, toast, t]);
 
   const handleUpdate = useCallback(
     async (id: string, data: { caption?: string; tags?: string[] }) => {
@@ -67,11 +70,11 @@ function FigureGalleryClient({ courseId, courseName, figures: initialFigures }: 
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          Volver al curso
+           {t("common.backToCourse")}
         </Link>
         <div className="flex items-start justify-between mt-2">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Galería de Figuras</h1>
+             <h1 className="text-2xl font-bold tracking-tight">{t("figures.title")}</h1>
             <p className="text-sm text-muted-foreground">{courseName}</p>
           </div>
           <Button onClick={handleExtract} disabled={extracting}>
@@ -80,7 +83,7 @@ function FigureGalleryClient({ courseId, courseName, figures: initialFigures }: 
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            {extracting ? "Extrayendo..." : "Extraer Figuras del PDF"}
+             {extracting ? t("figures.extracting") : t("figures.extract")}
           </Button>
         </div>
       </div>
@@ -89,12 +92,12 @@ function FigureGalleryClient({ courseId, courseName, figures: initialFigures }: 
       {figures.length === 0 ? (
         <EmptyState
           icon={<Image className="h-8 w-8" />}
-          title="Sin figuras"
-          description="Extrae las figuras del PDF subido para verlas aquí."
+           title={t("figures.emptyTitle")}
+           description={t("figures.emptyDescription")}
           action={
             <Button onClick={handleExtract} disabled={extracting}>
               <Sparkles className="h-4 w-4" />
-              Extraer figuras
+               {t("figures.extractShort")}
             </Button>
           }
         />

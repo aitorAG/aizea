@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { screen, cleanup, act } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import userEvent from "@testing-library/user-event";
 import { GlobalPipelineBanner } from "@/components/PipelineProgress/GlobalPipelineBanner";
 import {

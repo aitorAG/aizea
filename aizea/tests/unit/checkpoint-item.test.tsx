@@ -12,7 +12,8 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { screen, cleanup } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import { Network } from "lucide-react";
 
 import {

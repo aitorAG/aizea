@@ -23,11 +23,18 @@
  */
 
 import { db } from "@/lib/db";
+import { container } from "@/lib/composition/container";
 import { BoxType } from "@/lib/types";
 import {
   PdfRenderService,
   PlaywrightUnavailableError,
 } from "@/lib/infrastructure/pdf/pdf-render.service";
+import { NativePptExportService } from "@/lib/infrastructure/ppt/native-ppt-export.service";
+import {
+  finishPptExportJobAction,
+  startPptExportJobAction,
+  updatePptExportJobAction,
+} from "@/lib/actions/slide-jobs";
 import {
   BOX_LABELS,
   buildStandaloneSlideHtml,
@@ -107,12 +114,22 @@ export async function exportAllSlidesPdfAction(
 
   const slides = await db.slide.findMany({
     where: { courseId },
-    orderBy: { order: "asc" },
     include: { boxes: true },
   });
   if (slides.length === 0) {
     throw new Error("El curso no tiene diapositivas para exportar.");
   }
+
+  // Sort by hierarchical number (natural order: 1, 1.1, 1.2, 1.10, 2, ...)
+  // Fallback to order field for slides without numericPath
+  const { comparenumericPaths } = await import("@/lib/domain/tree/tree-numbering");
+  slides.sort((a, b) => {
+    if (a.numericPath && b.numericPath) {
+      return comparenumericPaths(a.numericPath, b.numericPath);
+    }
+    // Fallback to order if numericPath is missing
+    return (a.order ?? 0) - (b.order ?? 0);
+  });
 
   // v2.0 — TWO pages per slide:
   //   Page 1 (A4 LANDSCAPE): the slide design in the SHARED frame→fit→content
@@ -242,6 +259,76 @@ ${SLIDE_FIT_SCRIPT}
     throw err;
   }
 }
+/**
+ * v0.12.0 (RD1/RD3) — Export a PowerPoint editable desde datos estructurados.
+ *
+ * El diseño HTML sigue siendo el formato de visualización del producto; el
+ * fichero PPT se genera con shapes/text nativos de pptxgenjs. Las cajas
+ * pedagógicas se conservan en las notas del orador y el progreso se publica
+ * como un ProcessingJob visible en Jobs.
+ */
+export async function exportAllSlidesPptAction(
+  courseId: string
+): Promise<ExportSlidesPptResult> {
+  const course = await db.course.findUnique({
+    where: { id: courseId },
+    select: { name: true },
+  });
+  if (!course) throw new Error("Curso no encontrado");
+
+  const slides = await db.slide.findMany({
+    where: { courseId },
+    include: { boxes: true },
+  });
+  if (slides.length === 0) {
+    throw new Error("El curso no tiene diapositivas para exportar.");
+  }
+
+  const { comparenumericPaths } = await import(
+    "@/lib/domain/tree/tree-numbering"
+  );
+  slides.sort((a, b) => {
+    if (a.numericPath && b.numericPath) {
+      return comparenumericPaths(a.numericPath, b.numericPath);
+    }
+    return (a.order ?? 0) - (b.order ?? 0);
+  });
+
+  const { jobId } = await startPptExportJobAction(courseId, slides.length);
+
+  try {
+    const pptService = new NativePptExportService();
+    const pptBuffer = await pptService.generatePptx({
+      courseName: course.name,
+      courseId,
+      slides: slides.map((slide) => {
+        const boxes: Record<string, string> = {};
+        for (const box of slide.boxes) {
+          boxes[box.type] = stripBom(box.content);
+        }
+        return {
+          numericPath: slide.numericPath ?? "",
+          title: slide.title,
+          boxes,
+          figureRefs: slide.figureRefs,
+        };
+      }),
+      onProgress: async (completed, total) => {
+        await updatePptExportJobAction(jobId, completed, total);
+      },
+    });
+
+    await finishPptExportJobAction(jobId, "completed", slides.length);
+    return {
+      pptx: pptBuffer.toString("base64"),
+      filename: `${sanitizeFilename(course.name)}_slides.pptx`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Error desconocido";
+    await finishPptExportJobAction(jobId, "failed", slides.length, message);
+    throw error;
+  }
+}
 
 /**
  * Local escape helper. Kept private (not exported) because Next.js
@@ -273,4 +360,89 @@ function renderTextBlock(input: string): string {
     .replace(/\*(.+?)\*/g, "$1")
     .replace(/_(.+?)_/g, "$1");
   return escapeHtml(cleaned).replace(/\n/g, "<br/>");
+}
+
+/**
+ * Export all slides to PowerPoint (.pptx).
+ * Each slide is rendered as a PNG image and placed in a PPT slide.
+ */
+export interface ExportSlidesPptResult {
+  pptx: string; // base64-encoded PPTX file
+  filename: string;
+  error?: string;
+}
+
+export async function exportSlidesPptAction(
+  courseId: string
+): Promise<ExportSlidesPptResult> {
+  const course = await db.course.findUnique({
+    where: { id: courseId },
+    select: { name: true },
+  });
+  if (!course) {
+    return {
+      pptx: "",
+      filename: "",
+      error: "Curso no encontrado",
+    };
+  }
+
+  const slides = await db.slide.findMany({
+    where: { courseId },
+    orderBy: { numericPath: "asc" },
+    select: { id: true, title: true, htmlDesign: true, numericPath: true },
+  });
+
+  if (slides.length === 0) {
+    return {
+      pptx: "",
+      filename: "",
+      error: "No hay diapositivas para exportar",
+    };
+  }
+
+  const slidesWithoutHtml = slides.filter((s) => !s.htmlDesign);
+  if (slidesWithoutHtml.length > 0) {
+    return {
+      pptx: "",
+      filename: "",
+      error: `${slidesWithoutHtml.length} diapositivas sin diseño HTML generado`,
+    };
+  }
+
+  try {
+    const { PptExportService } = await import("@/lib/services/PptExportService");
+    const pptService = new PptExportService();
+
+    const slideData = slides.map((s) => {
+      const html = buildStandaloneSlideHtml({
+        title: s.title,
+        htmlDesign: s.htmlDesign!,
+      });
+      return {
+        id: s.id,
+        html: stripBom(html),
+      };
+    });
+
+    const pptxBase64 = await pptService.generatePptFromSlides(slideData, {
+      courseName: course.name,
+      imageWidth: 10,
+      imageHeight: 5.625,
+    });
+
+    const filename = `${sanitizeFilename(course.name)}_slides.pptx`;
+
+    return {
+      pptx: pptxBase64,
+      filename,
+    };
+  } catch (error) {
+    console.error("Error generating PPT:", error);
+    return {
+      pptx: "",
+      filename: "",
+      error: error instanceof Error ? error.message : "Error desconocido al generar PPT",
+    };
+  }
 }

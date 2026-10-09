@@ -18,6 +18,7 @@ const {
   mockProcessingJobUpdate,
   mockProcessingJobFindUnique,
   mockProcessingJobFindMany,
+  mockCourseFindUnique,
   mockSemanticUnitFindMany,
   mockConceptIntegratorIntegrate,
   mockTreeBuilderBuild,
@@ -30,6 +31,7 @@ const {
   mockProcessingJobUpdate: vi.fn(),
   mockProcessingJobFindUnique: vi.fn(),
   mockProcessingJobFindMany: vi.fn(),
+  mockCourseFindUnique: vi.fn(),
   mockSemanticUnitFindMany: vi.fn(),
   mockConceptIntegratorIntegrate: vi.fn(),
   mockTreeBuilderBuild: vi.fn(),
@@ -81,6 +83,12 @@ vi.mock("@/lib/db", () => ({
     },
     topicNode: {
       count: mockTopicNodeCount,
+      findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn(),
+    },
+    $transaction: vi.fn().mockResolvedValue([]),
+    course: {
+      findUnique: mockCourseFindUnique,
     },
   },
 }));
@@ -132,6 +140,10 @@ describe("PipelineService (infrastructure layer)", () => {
       return createdJobs.find((j) => j.id === where.id) ?? null;
     });
     mockProcessingJobFindMany.mockImplementation(async () => createdJobs);
+    mockCourseFindUnique.mockResolvedValue({
+      generationInstructions: null,
+      llmContext: null,
+    });
 
     mockSegmenterSegment.mockResolvedValue([
       {
@@ -254,7 +266,9 @@ describe("PipelineService (infrastructure layer)", () => {
       const cancellingService = new PipelineService({
         isJobCancelled: async () => {
           extractionChecks++;
-          return extractionChecks >= 2; // cancel arrives before the 2nd unit
+          // One check happens before extraction starts, then one per unit.
+          // Cancel before the second unit, not before the first.
+          return extractionChecks >= 3;
         },
       });
 

@@ -1,9 +1,20 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import fs from "node:fs";
 import path from "path";
-import { ExportService, NotImplementedError } from "@/lib/application/ExportService";
+import { ExportService } from "@/lib/application/ExportService";
 import { BoxType } from "@/lib/types";
+
+// PPTX rendering normally uses Playwright/Chromium. Keep this service unit
+// test deterministic and focused on ExportService's contract; the renderer
+// has its own integration coverage.
+vi.mock("@/lib/infrastructure/ppt/ppt-export.service", () => ({
+  PptExportService: class MockPptExportService {
+    async generatePptx(): Promise<Buffer> {
+      return Buffer.from("PK\\x03\\x04alpha-pptx");
+    }
+  },
+}));
 
 const TEST_DB_PATH = path.resolve(process.cwd(), "prisma/test-export-service.db");
 const TEST_DB_URL = "file:" + TEST_DB_PATH;
@@ -197,10 +208,32 @@ describe("ExportService", () => {
   });
 
   describe("exportToPptx", () => {
-    it("throws NotImplementedError", async () => {
+    it("returns a non-empty PPTX buffer for an existing course", async () => {
+      const course = await testDb.course.create({
+        data: { name: "PPTX Course" },
+      });
+      await testDb.slide.create({
+        data: {
+          courseId: course.id,
+          title: "Intro",
+          description: "Desc",
+          order: 0,
+          htmlDesign: "<h1>Intro</h1>",
+        },
+      });
+
+      const service = createService();
+      const result = await service.exportToPptx(course.id);
+
+      expect(Buffer.isBuffer(result)).toBe(true);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.subarray(0, 2).toString()).toBe("PK");
+    });
+
+    it("throws when the course is not found", async () => {
       const service = createService();
       await expect(service.exportToPptx("any-id")).rejects.toThrow(
-        NotImplementedError
+        "Curso no encontrado"
       );
     });
   });

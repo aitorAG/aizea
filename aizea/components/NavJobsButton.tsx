@@ -25,11 +25,13 @@ import { cn } from "@/lib/utils";
 import { useJobsUIStore } from "@/lib/stores/useJobsUIStore";
 import { listActiveJobsAction } from "@/lib/actions/pipeline";
 import { JobsPreview } from "@/components/JobsPreview";
+import { useTranslations } from "@/components/LocaleProvider";
 
 const POLL_INTERVAL_MS = 3_000;
 const HIDE_DELAY_MS = 120;
 
 export function NavJobsButton() {
+  const t = useTranslations();
   const activeCount = useJobsUIStore((s) => s.activeCount);
   const setActiveCount = useJobsUIStore((s) => s.setActiveCount);
   const open = useJobsUIStore((s) => s.open);
@@ -94,7 +96,7 @@ export function NavJobsButton() {
         type="button"
         onClick={open}
         data-testid="nav-jobs"
-        aria-label="Abrir panel de trabajos"
+         aria-label={t("openJobs")}
         className={cn(
           "relative flex items-center gap-1.5 rounded-md px-1.5 py-1 text-muted-foreground",
           "transition-colors hover:text-foreground focus-visible:outline-none",
@@ -102,7 +104,7 @@ export function NavJobsButton() {
         )}
       >
         <Briefcase className="h-4 w-4" />
-        <span className="hidden sm:inline">Trabajos</span>
+         <span className="hidden sm:inline">{t("jobs")}</span>
         {activeCount > 0 && (
           <span
             data-testid="nav-jobs-badge"

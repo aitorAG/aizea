@@ -4,6 +4,7 @@ import { PromptManager } from "@/lib/domain/prompts/PromptManager";
 import type { SubcontentProposal } from "@/lib/domain/prompts/templates/split-subcontents.template";
 import type { TopicNode } from "@/lib/types/pipeline";
 import type { PrismaClient } from "@prisma/client";
+import { assignnumericPaths } from "@/lib/domain/tree/tree-numbering";
 
 /**
  * TreeService — responsabilidad ÚNICA: manipulación del árbol de TopicNode de
@@ -49,6 +50,9 @@ function toTopicNode(row: {
   summary: string | null;
   depth: number;
   orderIndex: number;
+  numericPath?: string | null;
+  displayOrder?: number | null;
+  sourceMaterialIds?: string;
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
@@ -65,6 +69,9 @@ function toTopicNode(row: {
     summary: row.summary,
     depth: row.depth,
     orderIndex: row.orderIndex,
+    numericPath: row.numericPath ?? undefined,
+    displayOrder: row.displayOrder ?? undefined,
+    sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds) : [],
     isLeaf: row.isLeaf,
     version: row.version,
     sourceMaterialId: row.sourceMaterialId,
@@ -79,6 +86,15 @@ function toTopicNode(row: {
 // The LLM is asked for 2-5 but we clamp defensively in case it returns more.
 const SPLIT_MIN_CHILDREN = 1;
 const SPLIT_MAX_CHILDREN = 5;
+
+// v0.11.0 — Incremental expansion ("Bajar nivel"):
+// - A leaf is only expanded when the LLM proposes at least this many distinct
+//   subcontents. Below the threshold the leaf is LEFT INTACT (never cloned to
+//   itself), so an expansion never produces meaningless duplicate nodes.
+const EXPAND_MIN_CHILDREN = 2;
+// - Hard safety ceiling on tree depth. A leaf already at this depth is skipped
+//   (not an error for the whole operation), so expansion degrades gracefully.
+const MAX_TREE_DEPTH = 6;
 
 /**
  * Normalise a single sub-content entry coming back from the LLM.
@@ -244,6 +260,11 @@ export class TreeService {
       });
     });
 
+    // v0.11.0 — keep hierarchical numbering current after a structural change
+    // (R2.2). Deleting a node shifts sibling indices, so numericPath must be
+    // recomputed for the whole course.
+    await this.recalculateTreeNumbering(target.courseId);
+
     return { ok: true, courseId: target.courseId };
   }
 
@@ -306,6 +327,9 @@ export class TreeService {
       return created;
     });
 
+    // v0.11.0 — recompute numbering after merge (R2.2).
+    await this.recalculateTreeNumbering(parent.courseId);
+
     return { ok: true, node: toTopicNode(newNode), courseId: parent.courseId };
   }
 
@@ -320,7 +344,11 @@ export class TreeService {
     if (!target) {
       return { ok: false, error: "Nodo no encontrado." };
     }
-    if (target.depth >= 3) {
+    // v0.11.0 — unify the depth ceiling with the "Bajar nivel" expansion
+    // (MAX_TREE_DEPTH). Previously "Dividir" capped at depth 3 while expansion
+    // allowed 6, an inconsistency where a node reachable by expansion could
+    // not be split.
+    if (target.depth >= MAX_TREE_DEPTH) {
       return {
         ok: false,
         error: "No se puede dividir un nodo en el nivel máximo de profundidad.",
@@ -356,6 +384,10 @@ export class TreeService {
         orderBy: { createdAt: "asc" },
       });
     });
+
+    // v0.11.0 — recompute numbering after split (R2.2). New children need
+    // numericPath, and the parent transitions from leaf to branch.
+    await this.recalculateTreeNumbering(target.courseId);
 
     return { ok: true, nodes: created.map(toTopicNode), courseId: target.courseId };
   }
@@ -402,6 +434,222 @@ export class TreeService {
         sourceMaterialId: null,
       },
     });
-    return { ok: true, node: toTopicNode(created), courseId: parentCourseId };
+
+    // v0.11.0 — recompute numbering so the newly added node (and any siblings
+    // whose index shifted) get a correct numericPath immediately (R2.2).
+    await this.recalculateTreeNumbering(parentCourseId);
+    const numbered = await this.database.topicNode.findUnique({ where: { id: created.id } });
+
+    return { ok: true, node: toTopicNode(numbered ?? created), courseId: parentCourseId };
+  }
+
+  /**
+   * Recalculates hierarchical numbering for all TopicNodes in a course.
+   * Assigns numericPath (e.g., "1.2.3") and displayOrder (DFS pre-order index).
+   * 
+   * Should be called after:
+   * - Tree construction (pipeline)
+   * - Adding/deleting/moving nodes
+   * - Any operation that changes tree structure
+   * 
+   * @returns Number of nodes updated
+   */
+  async recalculateTreeNumbering(courseId: string): Promise<number> {
+    const nodes = await this.database.topicNode.findMany({
+      where: { courseId },
+      select: {
+        id: true,
+        parentId: true,
+        orderIndex: true,
+      },
+    });
+
+    if (nodes.length === 0) return 0;
+
+    const numbering = assignnumericPaths(nodes);
+
+    // Batch update all nodes with their new hierarchical numbers
+    await this.database.$transaction(
+      numbering.map((n) =>
+        this.database.topicNode.update({
+          where: { id: n.id },
+          data: {
+            numericPath: n.numericPath,
+            displayOrder: n.displayOrder,
+          },
+        })
+      )
+    );
+
+    return numbering.length;
+  }
+
+  /**
+   * v0.11.0 — Incremental leaf expansion (shared core for "Bajar nivel").
+   *
+   * STRICTLY ADDITIVE: for each provided leaf, asks the LLM for subcontents and
+   * creates them as children, flipping the leaf to a branch. It NEVER deletes,
+   * rebuilds, moves or clones existing nodes, so the user's prior work is always
+   * preserved.
+   *
+   * A leaf is only expanded when the LLM proposes at least EXPAND_MIN_CHILDREN
+   * distinct subcontents. Otherwise the leaf is left intact (no self-clone).
+   * A leaf already at MAX_TREE_DEPTH is skipped (graceful degradation).
+   *
+   * @returns number of nodes actually created.
+   */
+  private async expandLeaves(
+    leaves: {
+      id: string;
+      courseId: string;
+      name: string;
+      summary: string | null;
+      depth: number;
+      version: number;
+      sourceMaterialId: string | null;
+    }[]
+  ): Promise<number> {
+    let addedCount = 0;
+
+    // Sequential to avoid overwhelming the LLM provider.
+    for (const leaf of leaves) {
+      if (leaf.depth >= MAX_TREE_DEPTH) {
+        // Already at the safety ceiling — skip, don't abort the whole run.
+        continue;
+      }
+
+      const proposed = await this.proposeSubcontents(leaf.name, leaf.summary);
+
+      // Anti-clone guard: only expand when the LLM proposes a meaningful
+      // subdivision. Below the threshold the leaf stays a leaf.
+      if (proposed.length < EXPAND_MIN_CHILDREN) {
+        continue;
+      }
+
+      const childData = proposed.map((child) => ({
+        courseId: leaf.courseId,
+        parentId: leaf.id,
+        name: child.name,
+        summary: child.summary.length > 0 ? child.summary : null,
+        depth: leaf.depth + 1,
+        isLeaf: true,
+        version: 1,
+        sourceMaterialId: leaf.sourceMaterialId,
+      }));
+
+      await this.database.$transaction(async (tx) => {
+        await tx.topicNode.createMany({ data: childData });
+        await tx.topicNode.update({
+          where: { id: leaf.id },
+          data: { isLeaf: false, version: leaf.version + 1 },
+        });
+      });
+
+      addedCount += childData.length;
+    }
+
+    return addedCount;
+  }
+
+  /**
+   * v0.11.0 — "Bajar nivel" with NO selection: expand every leaf at the
+   * DEEPEST level of the tree (the leaves of the leaves). For each such leaf,
+   * generate as many child sub-leaves as the content warrants.
+   *
+   * Incremental and additive — existing nodes are never removed. Returns the
+   * FULL updated tree (not just the new nodes) so the client can render the
+   * complete state without losing the user's prior work.
+   */
+  async expandTreeDepth(
+    courseId: string
+  ): Promise<{ ok: true; nodes: TopicNode[]; courseId: string; addedCount: number } | { ok: false; error: string }> {
+    const course = await this.database.course.findUnique({ where: { id: courseId } });
+    if (!course) {
+      return { ok: false, error: "Curso no encontrado." };
+    }
+
+    const leafNodes = await this.database.topicNode.findMany({
+      where: { courseId, isLeaf: true },
+    });
+
+    if (leafNodes.length === 0) {
+      return { ok: false, error: "No hay nodos hoja para expandir." };
+    }
+
+    // Expand ONLY the leaves at the deepest level (the most granular row).
+    const maxDepth = Math.max(...leafNodes.map((n) => n.depth));
+    const deepestLeaves = leafNodes.filter((n) => n.depth === maxDepth);
+
+    if (maxDepth >= MAX_TREE_DEPTH) {
+      return {
+        ok: false,
+        error: "El árbol ya alcanzó la profundidad máxima permitida.",
+      };
+    }
+
+    const addedCount = await this.expandLeaves(deepestLeaves);
+
+    if (addedCount === 0) {
+      return {
+        ok: false,
+        error:
+          "No se pudieron generar subniveles significativos para las hojas actuales.",
+      };
+    }
+
+    // Recompute hierarchical numbering so new nodes are numbered correctly.
+    await this.recalculateTreeNumbering(courseId);
+
+    // Return the FULL updated tree (additive merge on the client).
+    const rows = await this.database.topicNode.findMany({ where: { courseId } });
+    return { ok: true, nodes: rows.map(toTopicNode), courseId, addedCount };
+  }
+
+  /**
+   * v0.11.0 — "Bajar nivel" with a SELECTION: expand only the selected leaves.
+   * For each selected leaf, generate as many child sub-leaves as warranted.
+   *
+   * Incremental and additive. Returns the FULL updated tree.
+   */
+  async expandSelectedNodesDepth(
+    courseId: string,
+    selectedNodeIds: string[]
+  ): Promise<{ ok: true; nodes: TopicNode[]; courseId: string; addedCount: number } | { ok: false; error: string }> {
+    if (selectedNodeIds.length === 0) {
+      return { ok: false, error: "No hay nodos seleccionados para expandir." };
+    }
+
+    const course = await this.database.course.findUnique({ where: { id: courseId } });
+    if (!course) {
+      return { ok: false, error: "Curso no encontrado." };
+    }
+
+    // Only leaf nodes among the selected IDs can be expanded.
+    const leafNodes = await this.database.topicNode.findMany({
+      where: {
+        courseId,
+        id: { in: selectedNodeIds },
+        isLeaf: true,
+      },
+    });
+
+    if (leafNodes.length === 0) {
+      return { ok: false, error: "Ninguno de los nodos seleccionados es una hoja." };
+    }
+
+    const addedCount = await this.expandLeaves(leafNodes);
+
+    if (addedCount === 0) {
+      return {
+        ok: false,
+        error:
+          "No se pudieron generar subniveles significativos para las hojas seleccionadas.",
+      };
+    }
+
+    await this.recalculateTreeNumbering(courseId);
+
+    const rows = await this.database.topicNode.findMany({ where: { courseId } });
+    return { ok: true, nodes: rows.map(toTopicNode), courseId, addedCount };
   }
 }

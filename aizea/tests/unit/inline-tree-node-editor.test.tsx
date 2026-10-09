@@ -25,7 +25,8 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { screen, cleanup, waitFor } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import userEvent from "@testing-library/user-event";
 import { InlineTreeNodeEditor } from "@/components/TreeViewer/InlineTreeNodeEditor";
 
@@ -66,7 +67,7 @@ describe("<InlineTreeNodeEditor />", () => {
     const summaryInput = screen.getByTestId("inline-tree-node-summary-input");
     expect(summaryInput).toHaveAttribute(
       "placeholder",
-      "Describe el contenido de esta caja"
+      "Descripción opcional"
     );
   });
 

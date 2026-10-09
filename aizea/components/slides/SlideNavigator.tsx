@@ -28,11 +28,16 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useLocale, useTranslations } from "@/components/LocaleProvider";
 
 export interface SlideNavItem {
   id: string;
   title: string;
   order: number;
+  /** v1.0 — hierarchical number (e.g. "1.2.3"). Shown as a muted
+   *  prefix in the dropdown so the user can jump by the same
+   *  numbering scheme used across the tree and exports. */
+  numericPath?: string | null;
 }
 
 interface SlideNavigatorProps {
@@ -50,6 +55,9 @@ export function SlideNavigator({
   onNavigate,
   className,
 }: SlideNavigatorProps) {
+  const t = useTranslations();
+  const locale = useLocale();
+  const number = (value: number) => new Intl.NumberFormat(locale).format(value);
   // Sort by `order` so the dropdown matches the on-disk order even if
   // the caller passed the list in a different order (e.g. by id).
   const ordered = [...slides].sort((a, b) => a.order - b.order);
@@ -63,6 +71,11 @@ export function SlideNavigator({
 
   const position = hasCurrent ? currentIndex + 1 : 0;
   const total = ordered.length;
+  // v1.0 — the current slide's hierarchical number, shown next to the
+  // position counter when available (non-invasive, muted).
+  const currentNumber = hasCurrent
+    ? ordered[currentIndex].numericPath ?? null
+    : null;
 
   return (
     <div
@@ -75,7 +88,7 @@ export function SlideNavigator({
         className
       )}
       role="group"
-      aria-label="Navegación entre diapositivas"
+      aria-label={t("slides.navigation")}
     >
       <Button
         type="button"
@@ -85,19 +98,19 @@ export function SlideNavigator({
         disabled={!hasPrev}
         aria-label={
           prevSlide
-            ? `Anterior: ${prevSlide.title}`
-            : "Anterior (no hay diapositiva anterior)"
+            ? t("slides.previousTarget", { title: prevSlide.title })
+            : t("slides.noPrevious")
         }
         data-testid="slide-navigator-prev"
         className="gap-1"
       >
         <ChevronLeft className="h-4 w-4" />
-        <span className="hidden sm:inline">Anterior</span>
+        <span className="hidden sm:inline">{t("slides.previous")}</span>
       </Button>
 
       <div className="flex flex-1 items-center gap-2">
         <label htmlFor="slide-navigator-select" className="sr-only">
-          Saltar a diapositiva
+          {t("slides.jumpTo")}
         </label>
         <select
           id="slide-navigator-select"
@@ -116,25 +129,36 @@ export function SlideNavigator({
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "disabled:cursor-not-allowed disabled:opacity-50"
           )}
-          aria-label="Saltar a diapositiva"
+          aria-label={t("slides.jumpTo")}
         >
           {ordered.length === 0 ? (
-            <option value="">(sin diapositivas)</option>
+            <option value="">{t("slides.noneOption")}</option>
           ) : (
             ordered.map((s) => (
               <option key={s.id} value={s.id}>
-                {`${s.order + 1}. ${s.title}`}
+                {s.numericPath
+                  ? `${s.numericPath} · ${s.title}`
+                  : `${number(s.order + 1)}. ${s.title}`}
               </option>
             ))
           )}
         </select>
 
+        {currentNumber && (
+          <span
+            data-testid="slide-navigator-number"
+            className="shrink-0 rounded-md bg-muted/60 px-2 py-1 text-xs font-mono tabular-nums text-muted-foreground"
+            title={t("slides.hierarchyNumber", { number: currentNumber })}
+          >
+            {currentNumber}
+          </span>
+        )}
         <span
           data-testid="slide-navigator-counter"
           aria-live="polite"
           className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-mono tabular-nums text-muted-foreground"
         >
-          {position} / {total}
+          {number(position)} / {number(total)}
         </span>
       </div>
 
@@ -146,13 +170,13 @@ export function SlideNavigator({
         disabled={!hasNext}
         aria-label={
           nextSlide
-            ? `Siguiente: ${nextSlide.title}`
-            : "Siguiente (no hay diapositiva siguiente)"
+            ? t("slides.nextTarget", { title: nextSlide.title })
+            : t("slides.noNext")
         }
         data-testid="slide-navigator-next"
         className="gap-1"
       >
-        <span className="hidden sm:inline">Siguiente</span>
+        <span className="hidden sm:inline">{t("slides.next")}</span>
         <ChevronRight className="h-4 w-4" />
       </Button>
     </div>

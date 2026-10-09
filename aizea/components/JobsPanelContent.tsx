@@ -61,6 +61,7 @@ import {
   type ActiveJob,
 } from "@/lib/actions/pipeline";
 import type { ProcessingStatus } from "@/lib/types/pipeline";
+import { useLocale, useTranslations } from "@/components/LocaleProvider";
 
 type Tab = "active" | "finished";
 
@@ -98,7 +99,10 @@ const POLL_INTERVAL_MS = 1_500;
  *  are bucketed as "Sin curso" so orphan rows (e.g. from a deleted
  *  course) never get silently lost. */
 function groupByCourse(
-  rows: ActiveJob[]
+  rows: ActiveJob[],
+  locale: string,
+  noCourseLabel: string,
+  courseFallbackLabel: string,
 ): Array<{ courseId: string | null; courseName: string; rows: ActiveJob[] }> {
   const buckets = new Map<string, ActiveJob[]>();
   for (const row of rows) {
@@ -121,7 +125,7 @@ function groupByCourse(
     // an empty header.
     const courseName =
       members.find((m) => m.courseName)?.courseName ??
-      (key === "orphan" ? "Sin curso" : "Curso");
+      (key === "orphan" ? noCourseLabel : courseFallbackLabel);
     out.push({
       courseId: key === "orphan" ? null : key,
       courseName,
@@ -130,7 +134,7 @@ function groupByCourse(
   }
   // Sort courses alphabetically by name so the order is stable
   // across re-renders. Within a course, sort newest first.
-  out.sort((a, b) => a.courseName.localeCompare(b.courseName, "es"));
+  out.sort((a, b) => a.courseName.localeCompare(b.courseName, locale));
   for (const group of out) {
     group.rows.sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -140,7 +144,7 @@ function groupByCourse(
 /** Render a small status pill on each row. Drives the row's color
  *  (red for failed, amber for cancelled, emerald for completed,
  *  primary for running). */
-function StatusPill({ status }: { status: ProcessingStatus }) {
+function StatusPill({ status, labels }: { status: ProcessingStatus; labels: { ready: string; failed: string; cancelled: string; inProgress: string } }) {
   if (status === "completed") {
     return (
       <span
@@ -149,7 +153,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
         className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-700"
       >
         <CheckCircle2 className="h-3 w-3" />
-        Listo
+        {labels.ready}
       </span>
     );
   }
@@ -161,7 +165,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
         className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-red-700"
       >
         <AlertTriangle className="h-3 w-3" />
-        Falló
+        {labels.failed}
       </span>
     );
   }
@@ -173,7 +177,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
         className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-amber-800"
       >
         <StopCircle className="h-3 w-3" />
-        Cancelado
+        {labels.cancelled}
       </span>
     );
   }
@@ -184,7 +188,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
       className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-primary"
     >
       <Loader2 className="h-3 w-3 animate-spin" />
-      En curso
+      {labels.inProgress}
     </span>
   );
 }
@@ -196,6 +200,24 @@ export function JobsPanelContent({
   disableActivePolling = false,
 }: JobsPanelContentProps) {
   const { toast } = useToast();
+  const locale = useLocale();
+  const t = useTranslations();
+  const jobLabel = (phase: string | null | undefined) => {
+    const keys = {
+      segmentation: "jobSegmentation",
+      extraction: "jobExtraction",
+      integration: "jobIntegration",
+      "tree-building": "jobTreeBuilding",
+      merge: "jobMerge",
+      "material-upload": "jobMaterialUpload",
+      "slide-generation": "jobSlideGeneration",
+      "slide-content": "jobSlideContent",
+      "slide-html": "jobSlideHtml",
+      "ppt-export": "jobPptExport",
+    } as const;
+    const key = phase ? keys[phase as keyof typeof keys] : undefined;
+    return key ? t(key) : t("jobUnknown");
+  };
   const [tab, setTab] = useState<Tab>("active");
   const [activeRows, setActiveRows] = useState<ActiveJob[]>([]);
   const [finishedRows, setFinishedRows] = useState<ActiveJob[]>([]);
@@ -256,8 +278,30 @@ export function JobsPanelContent({
     [finishedRows, dismissed]
   );
 
-  const activeGroups = useMemo(() => groupByCourse(visibleActive), [visibleActive]);
-  const finishedGroups = useMemo(() => groupByCourse(visibleFinished), [visibleFinished]);
+  const noCourseLabel = t("noCourse");
+  const courseFallbackLabel = t("courseFallback");
+  const statusLabels = {
+    ready: t("ready"),
+    failed: t("failed"),
+    cancelled: t("cancelled"),
+    inProgress: t("inProgress"),
+  };
+  const actionLabels = {
+    stop: t("stop"),
+    stopJob: t("stopJob"),
+    retry: t("retry"),
+    retryPipeline: t("retryPipeline"),
+    remove: t("removeFromList"),
+    progress: t("progress"),
+  };
+  const activeGroups = useMemo(
+    () => groupByCourse(visibleActive, locale, noCourseLabel, courseFallbackLabel),
+    [visibleActive, locale, noCourseLabel, courseFallbackLabel]
+  );
+  const finishedGroups = useMemo(
+    () => groupByCourse(visibleFinished, locale, noCourseLabel, courseFallbackLabel),
+    [visibleFinished, locale, noCourseLabel, courseFallbackLabel]
+  );
 
   const activeCount = activeRows.filter((r) => !dismissed.has(r.jobId)).length;
   const finishedCount = finishedRows.filter((r) => !dismissed.has(r.jobId)).length;
@@ -277,7 +321,7 @@ export function JobsPanelContent({
           ? {
               ...r,
               status: "cancelled" as ProcessingStatus,
-              currentStep: "Cancelando…",
+              currentStep: t("cancelling"),
             }
           : r
       )
@@ -285,9 +329,10 @@ export function JobsPanelContent({
     try {
       const result = await cancelPipelineAction(jobId);
       if (!result.ok) {
+        console.error("[jobs] stop action failed:", result.error);
         toast({
-          title: "No se pudo detener",
-          description: result.error,
+          title: t("stopJobError"),
+          description: t("unknownError"),
           variant: "error",
         });
         // Refresh from the source of truth so the row doesn't get
@@ -314,9 +359,10 @@ export function JobsPanelContent({
         }
       }
     } catch (err) {
+      console.error("[jobs] stop action threw:", err);
       toast({
-        title: "No se pudo detener",
-        description: err instanceof Error ? err.message : "Error desconocido",
+        title: t("stopJobError"),
+        description: t("unknownError"),
         variant: "error",
       });
     } finally {
@@ -338,6 +384,7 @@ export function JobsPanelContent({
     try {
       const result = await retryPipelineAction(jobId);
       if (!result.ok) {
+        console.error("[jobs] retry action failed:", result.error);
         // Roll back the optimistic dismiss so the user can try again.
         setDismissed((s) => {
           if (!s.has(jobId)) return s;
@@ -346,24 +393,25 @@ export function JobsPanelContent({
           return next;
         });
         toast({
-          title: "No se pudo reintentar",
-          description: result.error,
+          title: t("retryJobError"),
+           description: t("unknownError"),
           variant: "error",
         });
       } else if ("empty" in result && result.empty) {
         toast({
-          title: "Sin trabajo que hacer",
-          description: result.message,
+          title: t("noWork"),
+          description: t("noWork"),
           variant: "info",
         });
       } else {
         toast({
-          title: "Pipeline re-iniciado",
-          description: "El trabajo se ha vuelto a poner en cola.",
+          title: t("pipelineRestarted"),
+          description: t("pipelineQueued"),
           variant: "success",
         });
       }
     } catch (err) {
+      console.error("[jobs] retry action threw:", err);
       setDismissed((s) => {
         if (!s.has(jobId)) return s;
         const next = new Set(s);
@@ -371,8 +419,8 @@ export function JobsPanelContent({
         return next;
       });
       toast({
-        title: "No se pudo reintentar",
-        description: err instanceof Error ? err.message : "Error desconocido",
+        title: t("retryJobError"),
+        description: t("unknownError"),
         variant: "error",
       });
     } finally {
@@ -400,7 +448,7 @@ export function JobsPanelContent({
       {/* Tab bar */}
       <div
         role="tablist"
-        aria-label="Pestañas de trabajos"
+        aria-label={t("jobsTabs")}
         className={cn(
           "flex shrink-0 items-center gap-1 border-b border-border bg-muted/30 px-2 py-2"
         )}
@@ -412,7 +460,7 @@ export function JobsPanelContent({
           count={activeCount}
           testid="tab-active"
           icon={<Activity className="h-3.5 w-3.5" />}
-          label="Activos"
+          label={t("activeJobs")}
         />
         <TabButton
           active={tab === "finished"}
@@ -420,7 +468,7 @@ export function JobsPanelContent({
           count={finishedCount}
           testid="tab-finished"
           icon={<Inbox className="h-3.5 w-3.5" />}
-          label="Finalizados"
+          label={t("finishedJobs")}
         />
       </div>
 
@@ -436,7 +484,7 @@ export function JobsPanelContent({
         {loading ? (
           <EmptyState
             icon={<Loader2 className="h-5 w-5 animate-spin" />}
-            title="Cargando…"
+            title={t("loading")}
             variant={variant}
           />
         ) : visibleRows.length === 0 ? (
@@ -448,11 +496,11 @@ export function JobsPanelContent({
                 <Inbox className="h-5 w-5" />
               )
             }
-            title={tab === "active" ? "Sin trabajos activos" : "Sin trabajos finalizados"}
+            title={tab === "active" ? t("noActiveJobs") : t("noFinishedJobs")}
             description={
               tab === "active"
-                ? "Cuando inicies un trabajo aparecerá aquí."
-                : "Los trabajos completados o fallidos recientes aparecerán aquí."
+                ? t("noActiveJobsDescription")
+                : t("noFinishedJobsDescription")
             }
             variant={variant}
           />
@@ -462,6 +510,9 @@ export function JobsPanelContent({
               <CourseGroup
                 key={group.courseId ?? "orphan"}
                 group={group}
+                jobLabel={jobLabel}
+                labels={statusLabels}
+                actionLabels={actionLabels}
                 variant={variant}
                 tab={tab}
                 pendingAction={pendingAction}
@@ -528,6 +579,9 @@ interface CourseGroupProps {
   onStop: (jobId: string) => void;
   onRetry: (jobId: string) => void;
   onRemove: (jobId: string) => void;
+  jobLabel: (phase: string | null | undefined) => string;
+  labels: { ready: string; failed: string; cancelled: string; inProgress: string };
+  actionLabels: { stop: string; stopJob: string; retry: string; retryPipeline: string; remove: string; progress: string };
 }
 
 function CourseGroup({
@@ -538,6 +592,9 @@ function CourseGroup({
   onStop,
   onRetry,
   onRemove,
+  jobLabel,
+  labels,
+  actionLabels,
 }: CourseGroupProps) {
   const isSidebar = variant === "sidebar";
   return (
@@ -566,6 +623,9 @@ function CourseGroup({
             onStop={onStop}
             onRetry={onRetry}
             onRemove={onRemove}
+            jobLabel={jobLabel}
+            labels={labels}
+            actionLabels={actionLabels}
           />
         ))}
       </ul>
@@ -581,6 +641,9 @@ interface JobRowProps {
   onStop: (jobId: string) => void;
   onRetry: (jobId: string) => void;
   onRemove: (jobId: string) => void;
+  jobLabel: (phase: string | null | undefined) => string;
+  labels: { ready: string; failed: string; cancelled: string; inProgress: string };
+  actionLabels: { stop: string; stopJob: string; retry: string; retryPipeline: string; remove: string; progress: string };
 }
 
 function JobRow({
@@ -591,6 +654,9 @@ function JobRow({
   onStop,
   onRetry,
   onRemove,
+  jobLabel,
+  labels,
+  actionLabels,
 }: JobRowProps) {
   const meta = getJobTypeMeta(row.phase);
   const Icon = meta.icon;
@@ -638,9 +704,9 @@ function JobRow({
               <p
                 className="truncate text-xs font-semibold text-foreground"
                 data-testid="job-type"
-                title={meta.label}
+                title={jobLabel(row.phase)}
               >
-                {meta.label}
+                {jobLabel(row.phase)}
               </p>
               <p
                 className="mt-0.5 truncate text-[11px] text-muted-foreground"
@@ -649,7 +715,7 @@ function JobRow({
                 {row.currentStep ?? "—"}
               </p>
             </div>
-            <StatusPill status={row.status as ProcessingStatus} />
+            <StatusPill status={row.status as ProcessingStatus} labels={labels} />
           </div>
 
           {/* Progress + meta */}
@@ -661,7 +727,7 @@ function JobRow({
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(progress)}
-                aria-label="Progreso"
+                aria-label={actionLabels.progress}
               >
                 <div
                   className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
@@ -711,10 +777,10 @@ function JobRow({
                 disabled={pending}
                 variant="stop"
                 testid="action-stop"
-                title="Detener trabajo"
+                title={actionLabels.stopJob}
                 icon={<Square className="h-3 w-3" fill="currentColor" />}
               >
-                Detener
+                {actionLabels.stop}
               </IconButton>
             )}
             {isRetryable && row.courseId && (
@@ -723,10 +789,10 @@ function JobRow({
                 disabled={pending}
                 variant="retry"
                 testid="action-retry"
-                title="Volver a ejecutar el pipeline"
+                title={actionLabels.retryPipeline}
                 icon={<RefreshCcw className="h-3 w-3" />}
               >
-                Reintentar
+                {actionLabels.retry}
               </IconButton>
             )}
             <IconButton
@@ -734,9 +800,9 @@ function JobRow({
               disabled={pending}
               variant="remove"
               testid="action-remove"
-              title="Quitar de la lista"
+               title={actionLabels.remove}
               icon={<X className="h-3 w-3" />}
-              srLabel="Quitar de la lista"
+               srLabel={actionLabels.remove}
             />
           </div>
         </div>

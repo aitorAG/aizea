@@ -19,6 +19,7 @@
 //   - "slide-generation" → generating one or more slides (batch)
 //   - "slide-content"    → generating the content of a single slide
 //   - "slide-html"       → rendering a single slide's HTML
+//   - "ppt-export"       → exporting an editable PowerPoint presentation
 //   - "merge"            → merging two trees (rare, admin-only)
 //
 // Anything unknown falls through to a "Trabajo en curso" placeholder
@@ -33,10 +34,11 @@ import {
   CircleDashed,
   type LucideIcon,
 } from "lucide-react";
+import { DEFAULT_LOCALE, dictionaries, type Locale, type TranslationKey } from "@/lib/i18n";
 
 export interface JobTypeMeta {
   /** Short human label, e.g. "Generación de árbol". */
-  label: string;
+  label: TranslationKey;
   /** Lucide icon for the job type. Stable across renders. */
   icon: LucideIcon;
   /** True for the four "phase" jobs of a pipeline run — these are
@@ -48,54 +50,59 @@ export interface JobTypeMeta {
 
 const TABLE: Record<string, JobTypeMeta> = {
   segmentation: {
-    label: "Segmentación",
+    label: "jobSegmentation",
     icon: CircleDashed,
     isPipelinePhase: true,
   },
   extraction: {
-    label: "Extracción",
+    label: "jobExtraction",
     icon: FileText,
     isPipelinePhase: true,
   },
   integration: {
-    label: "Integración",
+    label: "jobIntegration",
     icon: Sparkles,
     isPipelinePhase: true,
   },
   "tree-building": {
-    label: "Generación de árbol",
+    label: "jobTreeBuilding",
     icon: GitMerge,
     isPipelinePhase: true,
   },
   merge: {
-    label: "Fusión de árboles",
+    label: "jobMerge",
     icon: GitMerge,
     isPipelinePhase: false,
   },
   "material-upload": {
-    label: "Carga de archivos",
+    label: "jobMaterialUpload",
     icon: Upload,
     isPipelinePhase: false,
   },
   "slide-generation": {
-    label: "Generación de diapositivas",
+    label: "jobSlideGeneration",
     icon: Presentation,
     isPipelinePhase: false,
   },
   "slide-content": {
-    label: "Generación individual",
+    label: "jobSlideContent",
     icon: FileText,
     isPipelinePhase: false,
   },
   "slide-html": {
-    label: "Renderizado HTML",
+    label: "jobSlideHtml",
+    icon: Presentation,
+    isPipelinePhase: false,
+  },
+  "ppt-export": {
+    label: "jobPptExport",
     icon: Presentation,
     isPipelinePhase: false,
   },
 };
 
 const FALLBACK: JobTypeMeta = {
-  label: "Trabajo en curso",
+  label: "jobUnknown",
   icon: CircleDashed,
   isPipelinePhase: false,
 };
@@ -109,8 +116,12 @@ export function getJobTypeMeta(type: string | null | undefined): JobTypeMeta {
 }
 
 /** Convenience accessor used in places that only need the label. */
-export function getJobTypeLabel(type: string | null | undefined): string {
-  return getJobTypeMeta(type).label;
+export function getJobTypeLabel(
+  type: string | null | undefined,
+  locale: Locale = DEFAULT_LOCALE
+): string {
+  const key = getJobTypeMeta(type).label;
+  return dictionaries[locale][key] ?? dictionaries[DEFAULT_LOCALE][key];
 }
 
 /** Convenience accessor used in places that only need the icon. */

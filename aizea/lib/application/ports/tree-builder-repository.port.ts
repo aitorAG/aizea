@@ -46,6 +46,7 @@ export interface CreatedTopicNodeRow {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  sourceMaterialIds?: string | null;
   pageStart: number | null;
   pageEnd: number | null;
   createdAt: Date;

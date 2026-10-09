@@ -16,8 +16,8 @@ import type { LucideIcon } from "lucide-react";
 export interface CheckpointDescriptor {
   /** Stable numeric id of the phase, 1-indexed. */
   phase: number;
-  /** Short, human-readable label shown under the icon. */
-  label: string;
+  /** Translation key for the short label shown under the icon. */
+  labelKey: `course.checkpoints.${"upload" | "tree" | "slides" | "detail"}`;
   /** Lucide icon component for the inactive/upcoming state. */
   icon: LucideIcon;
   /**
@@ -39,7 +39,7 @@ export interface CheckpointDescriptor {
 export const CHECKPOINTS: readonly CheckpointDescriptor[] = [
   {
     phase: 1,
-    label: "Carga",
+    labelKey: "course.checkpoints.upload",
     icon: Upload,
     matches: (pathname, courseId) =>
       pathname === `/courses/${courseId}/materials`,
@@ -47,7 +47,7 @@ export const CHECKPOINTS: readonly CheckpointDescriptor[] = [
   },
   {
     phase: 2,
-    label: "Árbol",
+    labelKey: "course.checkpoints.tree",
     icon: Network,
     matches: (pathname, courseId) => pathname === `/courses/${courseId}/tree`,
     href: (courseId) => `/courses/${courseId}/tree`,
@@ -58,7 +58,7 @@ export const CHECKPOINTS: readonly CheckpointDescriptor[] = [
     // chain. The "matches" predicate deliberately does NOT match
     // /slides/[slideId] — that one belongs to phase 4 below.
     phase: 3,
-    label: "Slides",
+    labelKey: "course.checkpoints.slides",
     icon: Presentation,
     matches: (pathname, courseId) =>
       pathname === `/courses/${courseId}/slides`,
@@ -66,7 +66,7 @@ export const CHECKPOINTS: readonly CheckpointDescriptor[] = [
   },
   {
     phase: 4,
-    label: "Detalle",
+    labelKey: "course.checkpoints.detail",
     icon: PencilLine,
     matches: (pathname, courseId) =>
       pathname.startsWith(`/courses/${courseId}/slides/`),

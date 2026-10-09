@@ -45,4 +45,14 @@ export class PrismaSlideRepository implements ISlideRepository {
     });
     return result._max.order ?? -1;
   }
+
+  // v0.12.0 (RC3) — persist generation status for recovery after navigation
+  async updateStatus(id: string, status: string): Promise<void> {
+    await this.prisma.slide.update({ where: { id }, data: { status } });
+  }
+
+  // v0.12.0 (RC2) — finished jobs window needs all slides for grouping
+  async findAll(): Promise<SlideRow[]> {
+    return this.prisma.slide.findMany() as Promise<SlideRow[]>;
+  }
 }

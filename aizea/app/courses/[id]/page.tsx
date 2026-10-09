@@ -15,7 +15,7 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
       id: true,
       name: true,
       materials: { orderBy: { createdAt: "desc" }, select: { id: true, filename: true, pageCount: true, createdAt: true } },
-      slides: { orderBy: { order: "asc" }, select: { id: true, title: true, description: true, order: true } },
+      slides: { orderBy: { order: "asc" }, select: { id: true, title: true, description: true, order: true, numericPath: true } },
       figures: { orderBy: { createdAt: "asc" }, select: { id: true, filename: true, caption: true, pageNum: true, tags: true } },
     },
   });
@@ -24,12 +24,13 @@ export default async function CourseDetailPage({ params }: CourseDetailPageProps
     notFound();
   }
 
-  const slides: { id: string; title: string; description: string; order: number }[] =
+  const slides: { id: string; title: string; description: string; order: number; numericPath?: string }[] =
     course.slides.map((s) => ({
       id: s.id,
       title: s.title,
       description: s.description,
       order: s.order,
+      numericPath: s.numericPath ?? undefined,
     }));
 
   const materials = course.materials.map((m) => ({

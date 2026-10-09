@@ -268,7 +268,12 @@ export type CancelPipelineResult =
 // for the global banner, but a few minutes longer feels right for
 // the panel: the user may want to review / retry a job that finished
 // a couple of minutes ago.
-const FINISHED_JOB_WINDOW_MS = 5 * 60 * 1000;
+// v0.12.0 (RC2.1) — the finished tab was effectively always empty because a
+// 5-minute window drains completed jobs almost immediately. Widen it to 24h so
+// the user sees a meaningful recent history of finished jobs (grouped by course
+// in the panel). This is a read-only listing window; it does not affect the
+// active tab's tighter 30s terminal window.
+const FINISHED_JOB_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type RetryPipelineResult =
   | StartPipelineResult

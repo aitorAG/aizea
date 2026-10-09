@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { screen, cleanup } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import { PipelineProgress } from "@/components/PipelineProgress/PipelineProgress";
 import { usePipelineStore } from "@/lib/stores/usePipelineStore";
 

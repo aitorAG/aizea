@@ -21,7 +21,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { screen, cleanup } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import userEvent from "@testing-library/user-event";
 import { TreeControls } from "@/components/TreeViewer/TreeControls";
 
@@ -228,7 +229,7 @@ describe("<TreeControls /> — F4.3 'Generar todas las diapositivas' button", ()
     // Accessibility: the new button must be discoverable as part of
     // the existing toolbar landmark, not floating outside it.
     renderTreeControls({ onGenerateAllSlides: vi.fn() });
-    const toolbar = screen.getByRole("toolbar", { name: /acciones del [áa]rbol/i });
+    const toolbar = screen.getByRole("toolbar", { name: /controles del [áa]rbol conceptual/i });
     const btn = screen.getByRole("button", {
       name: /generar todas las diapositivas/i,
     });
@@ -245,7 +246,7 @@ describe("<TreeControls /> — F4.3 'Generar todas las diapositivas' button", ()
     expect(btn).toHaveAttribute("aria-label");
     expect(btn.getAttribute("aria-label")).toMatch(/generar todas/i);
     expect(btn).toHaveAttribute("title");
-    expect(btn.getAttribute("title")).toMatch(/todas las cajas|generar todas/i);
+    expect(btn.getAttribute("title")).toMatch(/diapositivas para todo el [áa]rbol/i);
   });
 
   it("clicking the button does NOT also fire unrelated callbacks (e.g. onAddRoot)", async () => {
@@ -440,20 +441,20 @@ describe("<TreeControls /> — v1.5 'Editar' button (single-node edit shortcut)"
   it("renders the button in the toolbar", () => {
     renderTreeControls();
     expect(
-      screen.getByRole("button", { name: /editar nodo seleccionado/i })
+      screen.getByRole("button", { name: /editar seleccionado/i })
     ).toBeInTheDocument();
   });
 
   it("is disabled when no node is selected", () => {
     renderTreeControls({ selectedCount: 0 });
     expect(
-      screen.getByRole("button", { name: /editar nodo seleccionado/i })
+      screen.getByRole("button", { name: /editar seleccionado/i })
     ).toBeDisabled();
   });
 
   it("is enabled when exactly one node is selected", () => {
     renderTreeControls({ selectedCount: 1 });
-    const btn = screen.getByRole("button", { name: /editar nodo seleccionado/i });
+    const btn = screen.getByRole("button", { name: /editar seleccionado/i });
     expect(btn).not.toBeDisabled();
   });
 
@@ -462,14 +463,14 @@ describe("<TreeControls /> — v1.5 'Editar' button (single-node edit shortcut)"
     // editing multiple nodes at once is out of scope.
     renderTreeControls({ selectedCount: 2 });
     expect(
-      screen.getByRole("button", { name: /editar nodo seleccionado/i })
+      screen.getByRole("button", { name: /editar seleccionado/i })
     ).toBeDisabled();
   });
 
   it("is disabled while a server action is in flight (busy=true)", () => {
     renderTreeControls({ selectedCount: 1, busy: true });
     expect(
-      screen.getByRole("button", { name: /editar nodo seleccionado/i })
+      screen.getByRole("button", { name: /editar seleccionado/i })
     ).toBeDisabled();
   });
 
@@ -477,7 +478,7 @@ describe("<TreeControls /> — v1.5 'Editar' button (single-node edit shortcut)"
     const stubs = renderTreeControls({ selectedCount: 1 });
     const user = userEvent.setup();
     await user.click(
-      screen.getByRole("button", { name: /editar nodo seleccionado/i })
+      screen.getByRole("button", { name: /editar seleccionado/i })
     );
     expect(stubs.onEdit).toHaveBeenCalledTimes(1);
   });
@@ -489,7 +490,7 @@ describe("<TreeControls /> — v1.5 'Editar' button (single-node edit shortcut)"
     const stubs = renderTreeControls({ selectedCount: 1 });
     const user = userEvent.setup();
     await user.click(
-      screen.getByRole("button", { name: /editar nodo seleccionado/i })
+      screen.getByRole("button", { name: /editar seleccionado/i })
     );
     expect(stubs.onPrune).not.toHaveBeenCalled();
     expect(stubs.onMerge).not.toHaveBeenCalled();
@@ -504,7 +505,7 @@ describe("<TreeControls /> — v1.5 'Editar' button (single-node edit shortcut)"
 
   it("carries an aria-label, a title, and a stable data-testid for E2E tests", () => {
     renderTreeControls({ selectedCount: 1 });
-    const btn = screen.getByRole("button", { name: /editar nodo seleccionado/i });
+    const btn = screen.getByRole("button", { name: /editar seleccionado/i });
     expect(btn).toHaveAttribute("aria-label");
     expect(btn.getAttribute("aria-label")).toMatch(/editar/i);
     expect(btn).toHaveAttribute("title");

@@ -69,7 +69,6 @@ export class ExportService {
       where: { id: courseId },
       include: {
         slides: {
-          orderBy: { order: "asc" },
           include: { boxes: true },
         },
       },
@@ -79,7 +78,18 @@ export class ExportService {
       throw new Error("Curso no encontrado");
     }
 
-    const slides: SlideWithData[] = course.slides.map((s) => ({
+    // Sort by hierarchical number (natural order: 1, 1.1, 1.2, 1.10, 2, ...)
+    // Fallback to order field for slides without numericPath
+    const { comparenumericPaths } = await import("@/lib/domain/tree/tree-numbering");
+    const sortedSlides = [...course.slides].sort((a, b) => {
+      if (a.numericPath && b.numericPath) {
+        return comparenumericPaths(a.numericPath, b.numericPath);
+      }
+      // Fallback to order if numericPath is missing
+      return (a.order ?? 0) - (b.order ?? 0);
+    });
+
+    const slides: SlideWithData[] = sortedSlides.map((s) => ({
       title: s.title,
       description: s.description,
       order: s.order,
@@ -147,7 +157,6 @@ export class ExportService {
       where: { id: courseId },
       include: {
         slides: {
-          orderBy: { order: "asc" },
           include: { boxes: true },
         },
       },
@@ -157,11 +166,22 @@ export class ExportService {
       throw new Error("Curso no encontrado");
     }
 
+    // Sort by hierarchical number (natural order: 1, 1.1, 1.2, 1.10, 2, ...)
+    // Fallback to order field for slides without numericPath
+    const { comparenumericPaths } = await import("@/lib/domain/tree/tree-numbering");
+    const sortedSlides = [...course.slides].sort((a, b) => {
+      if (a.numericPath && b.numericPath) {
+        return comparenumericPaths(a.numericPath, b.numericPath);
+      }
+      // Fallback to order if numericPath is missing
+      return (a.order ?? 0) - (b.order ?? 0);
+    });
+
     const lines: string[] = [];
     lines.push(`# ${course.name}`);
     lines.push("");
 
-    for (const slide of course.slides) {
+    for (const slide of sortedSlides) {
       const script = getBox(slide.boxes, BoxType.SCRIPT);
       const relevance = getBox(slide.boxes, BoxType.RELEVANCE);
       const narrative = getBox(slide.boxes, BoxType.NARRATIVE);
@@ -194,7 +214,42 @@ export class ExportService {
     return lines.join("\n");
   }
 
-  async exportToPptx(_courseId: string): Promise<never> {
-    throw new NotImplementedError("Exportación a PPTX no está implementada");
+  async exportToPptx(courseId: string): Promise<Buffer> {
+    const course = await this.db.course.findUnique({
+      where: { id: courseId },
+      include: {
+        slides: {
+          include: { boxes: true },
+        },
+      },
+    });
+
+    if (!course) {
+      throw new Error("Curso no encontrado");
+    }
+
+    // Sort by hierarchical number (natural order: 1, 1.1, 1.2, 1.10, 2, ...)
+    const { comparenumericPaths } = await import("@/lib/domain/tree/tree-numbering");
+    const sortedSlides = [...course.slides].sort((a, b) => {
+      if (a.numericPath && b.numericPath) {
+        return comparenumericPaths(a.numericPath, b.numericPath);
+      }
+      return (a.order ?? 0) - (b.order ?? 0);
+    });
+
+    // Preparar slides para exportación PPT
+    const { PptExportService } = await import("@/lib/infrastructure/ppt/ppt-export.service");
+    const pptService = new PptExportService();
+    
+    const pptSlides = sortedSlides.map((slide) => ({
+      numericPath: slide.numericPath || String(slide.order + 1),
+      title: slide.title,
+      htmlDesign: slide.htmlDesign || "",
+    }));
+
+    return pptService.generatePptx({
+      courseName: course.name,
+      slides: pptSlides,
+    });
   }
 }

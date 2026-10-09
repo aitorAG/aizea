@@ -89,6 +89,9 @@ export const useSlideGenerationStore = create<SlideGenerationState>(
       const existing = jobs.get(id);
       if (existing) {
         jobs.set(id, { ...existing, ...partial });
+      } else {
+        // v0.12.0 (RC3) — create job if it doesn't exist (for hydration from DB)
+        jobs.set(id, { slideId: id, status: "pending", retries: 0, phase: "content", ...partial });
       }
       set({ jobs });
     },

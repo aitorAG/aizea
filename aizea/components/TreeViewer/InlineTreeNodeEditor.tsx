@@ -43,6 +43,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface InlineTreeNodeEditorProps {
   initialName: string;
@@ -60,6 +61,7 @@ export function InlineTreeNodeEditor({
   initialSummary,
   onSave,
 }: InlineTreeNodeEditorProps) {
+  const t = useTranslations();
   const [name, setName] = useState(initialName);
   const [summary, setSummary] = useState(initialSummary ?? "");
   // `dirty` is true once the user has changed the name or summary
@@ -118,7 +120,7 @@ export function InlineTreeNodeEditor({
     // change. Defensive: the parent's UI also disables save when
     // the name is empty.
     if (trimmedName.length === 0) {
-      setError("El nombre no puede estar vacío.");
+      setError(t("tree.edit.nameRequired"));
       return false;
     }
     setError(null);
@@ -143,13 +145,13 @@ export function InlineTreeNodeEditor({
       return true;
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "No se pudo guardar el cambio."
+        e instanceof Error ? e.message : t("tree.edit.saveError")
       );
       return false;
     } finally {
       setSaving(false);
     }
-  }, [name, summary, onSave]);
+  }, [name, summary, onSave, t]);
 
   // Blur handler for the description input. Only commit when the
   // user has actually typed something (the `dirty` guard). This
@@ -219,8 +221,8 @@ export function InlineTreeNodeEditor({
         onChange={handleNameChange}
         onKeyDown={handleNameKeyDown}
         disabled={saving}
-        placeholder="Nombre del nodo"
-        aria-label="Nombre del nodo"
+        placeholder={t("tree.edit.namePlaceholder")}
+        aria-label={t("tree.edit.nameLabel")}
         data-testid="inline-tree-node-name-input"
         className={cn(
           "h-7 w-full rounded border border-input bg-background px-2 text-sm font-medium",
@@ -237,8 +239,8 @@ export function InlineTreeNodeEditor({
         onKeyDown={handleSummaryKeyDown}
         onBlur={handleSummaryBlur}
         disabled={saving}
-        placeholder="Describe el contenido de esta caja"
-        aria-label="Describe el contenido de esta caja"
+        placeholder={t("tree.edit.summaryPlaceholder")}
+        aria-label={t("tree.edit.summaryLabel")}
         data-testid="inline-tree-node-summary-input"
         className={cn(
           "h-7 w-full rounded border border-dashed border-input bg-background/60 px-2 text-xs text-muted-foreground",
@@ -264,7 +266,7 @@ export function InlineTreeNodeEditor({
             className="flex items-center gap-1 text-muted-foreground"
           >
             <Loader2 className="h-2.5 w-2.5 animate-spin" />
-            Guardando
+            {t("tree.edit.saving")}
           </span>
         ) : savedFlash ? (
           <span
@@ -272,11 +274,11 @@ export function InlineTreeNodeEditor({
             className="flex items-center gap-1 text-emerald-600"
           >
             <Check className="h-2.5 w-2.5" />
-            Guardado
+            {t("tree.edit.saved")}
           </span>
         ) : (
           <span className="text-muted-foreground/60">
-            Enter / Tab para guardar
+            {t("tree.edit.description")}
           </span>
         )}
       </div>

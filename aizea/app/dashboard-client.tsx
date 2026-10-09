@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog,
@@ -20,6 +21,7 @@ import { useToast } from "@/components/toast";
 import { revalidateDashboard } from "@/lib/actions/revalidate";
 import { useCourseAdapter } from "@/lib/adapters/useCourseAdapter";
 import { CourseStatusIcons } from "@/components/course/CourseStatusIcons";
+import { useLocale, useTranslations } from "@/components/LocaleProvider";
 import type { CourseListItem } from "./page";
 
 interface DashboardClientProps {
@@ -31,10 +33,13 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
   const router = useRouter();
   const { toast } = useToast();
   const courseAdapter = useCourseAdapter();
+  const locale = useLocale();
+  const t = useTranslations();
 
   // Create dialog state
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newLlmContext, setNewLlmContext] = useState("");
   const [creating, setCreating] = useState(false);
 
   // Edit dialog state
@@ -50,7 +55,7 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const course = await courseAdapter.createCourse(newName.trim());
+      const course = await courseAdapter.createCourse(newName.trim(), newLlmContext.trim() || undefined);
       // Close the dialog and navigate *before* showing the toast.
       // Reasons:
       // 1. The toast helper used to throw `crypto.randomUUID is not a
@@ -62,28 +67,31 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
       //    a nice-to-have, not a precondition.
       setCreateOpen(false);
       setNewName("");
+      setNewLlmContext("");
       router.refresh(); // v1.8: ensure course list updates when returning
       router.push(`/courses/${course.id}/materials`);
       toast({
-        title: "Curso creado",
-        description: `"${newName.trim()}" se ha creado correctamente.`,
+        title: t("courseCreated"),
+        description: t("courseCreatedDescription", { name: newName.trim() }),
         variant: "success",
       });
     } catch (err) {
+      console.error("[dashboard] course creation failed:", err);
       // On error we also close the dialog so the user is never trapped
       // in it (e.g. by a transient network failure). The error is
       // surfaced via a toast on the dashboard behind the dialog.
       setCreateOpen(false);
       setNewName("");
+      setNewLlmContext("");
       toast({
-        title: "Error al crear",
-        description: err instanceof Error ? err.message : "No se pudo crear el curso.",
+        title: t("createCourseError"),
+        description: t("createCourseFailed"),
         variant: "error",
       });
     } finally {
       setCreating(false);
     }
-  }, [newName, toast, router, courseAdapter]);
+  }, [newName, newLlmContext, toast, router, courseAdapter, t]);
 
   const handleEdit = useCallback(async () => {
     if (!editTarget || !editName.trim()) return;
@@ -91,23 +99,24 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
     try {
       await updateCourseName(editTarget.id, editName.trim());
       toast({
-        title: "Curso renombrado",
-        description: `El curso ahora se llama "${editName.trim()}".`,
+        title: t("courseRenamed"),
+        description: t("courseRenamedDescription", { name: editName.trim() }),
         variant: "success",
       });
       setEditTarget(null);
       setEditName("");
       await revalidateDashboard();
     } catch (err) {
+      console.error("[dashboard] course rename failed:", err);
       toast({
-        title: "Error al renombrar",
-        description: err instanceof Error ? err.message : "No se pudo renombrar el curso.",
+        title: t("renameCourseError"),
+        description: t("renameCourseFailed"),
         variant: "error",
       });
     } finally {
       setEditing(false);
     }
-  }, [editTarget, editName, toast, updateCourseName]);
+  }, [editTarget, editName, toast, updateCourseName, t]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -115,22 +124,23 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
     try {
       await courseAdapter.deleteCourse(deleteTarget.id);
       toast({
-        title: "Curso eliminado",
-        description: `"${deleteTarget.name}" se ha eliminado.`,
+        title: t("courseDeleted"),
+        description: t("courseDeletedDescription", { name: deleteTarget.name }),
         variant: "success",
       });
       setDeleteTarget(null);
       await revalidateDashboard();
     } catch (err) {
+      console.error("[dashboard] course deletion failed:", err);
       toast({
-        title: "Error al eliminar",
-        description: err instanceof Error ? err.message : "No se pudo eliminar el curso.",
+        title: t("deleteCourseError"),
+        description: t("deleteCourseFailed"),
         variant: "error",
       });
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, toast, courseAdapter]);
+  }, [deleteTarget, toast, courseAdapter, t]);
 
   function openEdit(course: CourseListItem) {
     setEditTarget(course);
@@ -138,7 +148,7 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
   }
 
   function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString("es-ES", {
+    return new Date(iso).toLocaleDateString(locale === "es" ? "es-ES" : "en-US", {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -151,7 +161,7 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
       <div className="flex items-center justify-end">
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4" />
-          Nuevo Curso
+          {t("newCourse")}
         </Button>
       </div>
 
@@ -159,12 +169,12 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
       {courses.length === 0 ? (
         <EmptyState
           icon={<BookOpen className="h-8 w-8" />}
-          title="Sin cursos aún"
-          description="Crea tu primer curso para comenzar a generar materiales con IA."
+          title={t("noCourses")}
+          description={t("noCoursesDescription")}
           action={
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              Crear curso
+              {t("createCourse")}
             </Button>
           }
         />
@@ -191,14 +201,18 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
                     <div className="mt-1 flex items-center gap-2">
                       <Badge variant="secondary" className="gap-1">
                         <Layers className="h-3 w-3" />
-                        {course.slideCount} diapositivas
+                        {t(course.slideCount === 1 ? "slideCountOne" : "slidesCount", {
+                          count: course.slideCount,
+                        })}
                       </Badge>
                       <Badge variant="outline" className="gap-1">
                         <FileText className="h-3 w-3" />
-                        {course.materialCount} materiales
+                        {t(course.materialCount === 1 ? "materialCountOne" : "materialsCount", {
+                          count: course.materialCount,
+                        })}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        Actualizado el {formatDate(course.updatedAt)}
+                        {t("updatedOn", { date: formatDate(course.updatedAt) })}
                       </span>
                     </div>
                   </div>
@@ -222,13 +236,15 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
                     onClick={() => openEdit(course)}
                   >
                     <Edit className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Editar</span>
+                    <span className="hidden sm:inline">{t("edit")}</span>
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-8 text-muted-foreground hover:text-destructive"
                     onClick={() => setDeleteTarget(course)}
+                    aria-label={t("deleteCourse")}
+                    title={t("deleteCourse")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -242,22 +258,36 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
       {/* Create Course Dialog */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)}>
         <DialogHeader>
-          <DialogTitle>Nuevo Curso</DialogTitle>
-          <DialogDescription>
-            Introduce un nombre para tu nuevo curso. Podrás añadir materiales y
-            generar diapositivas después.
-          </DialogDescription>
+          <DialogTitle>{t("newCourse")}</DialogTitle>
+          <DialogDescription>{t("createCourseDescription")}</DialogDescription>
         </DialogHeader>
-        <div className="mt-4">
+        <div className="mt-4 space-y-4">
           <Input
             id="new-course-name"
-            label="Nombre del curso"
-            placeholder="Ej: Matemáticas Discretas — Unidad 3"
+            label={t("courseName")}
+            placeholder={t("courseNameExample")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             disabled={creating}
             autoFocus
           />
+          <div>
+            <label htmlFor="new-course-context" className="block text-sm font-medium mb-1.5">
+              {t("courseContextOptional")}
+            </label>
+            <Textarea
+              id="new-course-context"
+              placeholder={t("courseContextExample")}
+              value={newLlmContext}
+              onChange={(e) => setNewLlmContext(e.target.value)}
+              disabled={creating}
+              rows={4}
+              className="resize-none"
+            />
+            <p className="text-xs text-muted-foreground mt-1.5">
+              {t("courseContextHint")}
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button
@@ -265,13 +295,14 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
             onClick={() => {
               setCreateOpen(false);
               setNewName("");
+              setNewLlmContext("");
             }}
             disabled={creating}
           >
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>
-            Crear Curso
+            {t("create")}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -284,16 +315,16 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
         }}
       >
         <DialogHeader>
-          <DialogTitle>Renombrar curso</DialogTitle>
+          <DialogTitle>{t("renameCourse")}</DialogTitle>
           <DialogDescription>
-            Cambia el nombre del curso &quot;{editTarget?.name}&quot;.
+            {t("renameCourseDescription", { name: editTarget?.name ?? "" })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4">
           <Input
             id="edit-course-name"
-            label="Nuevo nombre"
-            placeholder="Nombre del curso"
+            label={t("newName")}
+            placeholder={t("courseName")}
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             disabled={editing}
@@ -306,14 +337,14 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
             onClick={() => setEditTarget(null)}
             disabled={editing}
           >
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button
             onClick={handleEdit}
             loading={editing}
             disabled={!editName.trim() || editName.trim() === editTarget?.name}
           >
-            Guardar
+            {t("save")}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -326,11 +357,9 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
         }}
       >
         <DialogHeader>
-          <DialogTitle>Eliminar curso</DialogTitle>
+          <DialogTitle>{t("deleteCourse")}</DialogTitle>
           <DialogDescription>
-            ¿Estás seguro de que quieres eliminar &quot;{deleteTarget?.name}&quot;?
-            Se borrarán todos sus materiales, diapositivas y figuras. Esta acción
-            no se puede deshacer.
+            {t("deleteCourseDescription", { name: deleteTarget?.name ?? "" })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -339,14 +368,14 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
             onClick={() => setDeleteTarget(null)}
             disabled={deleting}
           >
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button
             variant="destructive"
             onClick={handleDelete}
             loading={deleting}
           >
-            Eliminar
+            {t("delete")}
           </Button>
         </DialogFooter>
       </Dialog>

@@ -35,6 +35,7 @@
 import Link from "next/link";
 import { Network, Presentation } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface CourseStatusIconsProps {
   /** The course id — used to build the navigation hrefs. */
@@ -64,12 +65,13 @@ export function CourseStatusIcons({
   hasTree,
   hasSlides,
 }: CourseStatusIconsProps) {
+  const t = useTranslations();
   return (
     <div
       data-testid="course-status-icons"
       className="flex items-center gap-1 border-l border-border pl-3"
       role="group"
-      aria-label="Estado de los recursos derivados del curso"
+      aria-label={t("course.checkpoints.ariaLabel")}
     >
       <Link
         href={`/courses/${courseId}/tree`}
@@ -77,8 +79,8 @@ export function CourseStatusIcons({
         data-exists={hasTree ? "true" : "false"}
         aria-label={
           hasTree
-            ? "Árbol conceptual (creado) — abrir"
-            : "Árbol conceptual (no creado) — abrir"
+            ? t("course.checkpoints.current", { label: t("course.checkpoints.tree") })
+            : t("course.checkpoints.unavailable", { label: t("course.checkpoints.tree") })
         }
         className={statusLinkClass(hasTree)}
       >
@@ -90,8 +92,8 @@ export function CourseStatusIcons({
         data-exists={hasSlides ? "true" : "false"}
         aria-label={
           hasSlides
-            ? "Diapositivas (creado) — abrir"
-            : "Diapositivas (no creado) — abrir"
+            ? t("course.checkpoints.current", { label: t("course.checkpoints.slides") })
+            : t("course.checkpoints.unavailable", { label: t("course.checkpoints.slides") })
         }
         className={statusLinkClass(hasSlides)}
       >

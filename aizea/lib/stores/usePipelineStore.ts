@@ -125,8 +125,9 @@ interface PipelineActions {
 
 /** A job is considered "stuck" if it has been `running` for longer
  *  than this without any change in `progress`. After this, the UI
- *  should surface it as failed (with a "Reintentar" button). */
-export const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
+ *  shows a warning (not an error) — some phases legitimately take time.
+ *  v0.12.0 / RA2.2: raised from 5min to 15min to avoid false positives. */
+export const STUCK_THRESHOLD_MS = 15 * 60 * 1000;
 
 /** Upper bound on how many jobs the store retains (Fase 4 — estado saneado).
  *  Without a cap the `jobs` Map grew unbounded: every terminal/dismissed job
@@ -421,10 +422,14 @@ export function getActiveJobs(state: PipelineState): ActiveJobView[] {
  *                      works on a single phase field, so the
  *                      representative's phase IS the banner's
  *                      current phase.
- *   - `status` / `isComplete` / `hasFailed` : derived from the
- *                      whole group — the banner is "failed" if any
- *                      job in the group failed, "completed" only
- *                      when every job in the group is completed.
+ *   - `groupIsComplete` / `groupHasFailed` / `groupIsStuck`:
+ *                      v0.12.0 / RA2.2: Aggregated from the whole
+ *                      group, not just the representative. The
+ *                      banner is "failed" (red) only if any job
+ *                      in the group has `hasFailed` (stuck ≠ failed);
+ *                      "completed" (green) only when every job is
+ *                      completed; "stuck" (warning) if any job is
+ *                      stuck but none have failed.
  *   - `progress`     : the active (or latest) job's progress, since
  *                      each phase's progress is 0..100 for its
  *                      own slice, not the whole pipeline.
@@ -441,6 +446,12 @@ export interface BannerGroup {
   /** True when every job in the group has been marked as
    *  dismissed. The banner skips dismissed groups. */
   dismissed: boolean;
+  /** v0.12.0 / RA2.2: True when every job in the group is completed. */
+  groupIsComplete: boolean;
+  /** v0.12.0 / RA2.2: True when any job in the group has failed (stuck ≠ failed). */
+  groupHasFailed: boolean;
+  /** v0.12.0 / RA2.2: True when any job is stuck but none have failed. */
+  groupIsStuck: boolean;
 }
 
 /** Stable identifier for grouping a job with its siblings. Prefers
@@ -522,11 +533,22 @@ export function getBannerGroups(state: PipelineState): BannerGroup[] {
   const groups: BannerGroup[] = [];
   for (const [groupKey, members] of buckets) {
     const representative = pickRepresentative(members);
+    // v0.12.0 / RA2.2: Aggregate completion/failure/stuck from ALL
+    // members, not just the representative. The banner is red only
+    // if any job has `hasFailed` (stuck ≠ failed), green only when
+    // every job is completed, and shows a warning (not error) when
+    // any job is stuck but none have failed.
+    const groupIsComplete = members.every((j) => j.isComplete);
+    const groupHasFailed = members.some((j) => j.hasFailed);
+    const groupIsStuck = members.some((j) => j.isStuck) && !groupHasFailed;
     groups.push({
       groupKey,
       jobIds: members.map((j) => j.jobId),
       representative,
       dismissed: false,
+      groupIsComplete,
+      groupHasFailed,
+      groupIsStuck,
     });
   }
 

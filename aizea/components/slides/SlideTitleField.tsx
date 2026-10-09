@@ -30,6 +30,7 @@ import { Edit, Save, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface SlideTitleFieldProps {
   title: string;
@@ -46,6 +47,7 @@ export function SlideTitleField({
   onSave,
   saving = false,
 }: SlideTitleFieldProps) {
+  const t = useTranslations();
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
   const [draftDescription, setDraftDescription] = useState(description);
@@ -115,7 +117,7 @@ export function SlideTitleField({
             size="sm"
             onClick={openEditor}
             disabled={saving}
-            aria-label="Editar título y descripción"
+            aria-label={t("slides.editTitleDescription")}
             data-testid="slide-title-edit-button"
             className="h-7 gap-1 px-2 text-xs"
           >
@@ -124,7 +126,7 @@ export function SlideTitleField({
             ) : (
               <Edit className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">Editar</span>
+            <span className="hidden sm:inline">{t("common.edit")}</span>
           </Button>
         </div>
         {description && (
@@ -147,22 +149,22 @@ export function SlideTitleField({
     >
       <Input
         id="slide-title-input-id"
-        label="Título"
+        label={t("common.title")}
         value={draftTitle}
         onChange={(e) => setDraftTitle(e.target.value)}
         disabled={isBusy}
         data-testid="slide-title-input"
-        placeholder="Título de la diapositiva"
+        placeholder={t("slides.titlePlaceholder")}
         autoFocus
       />
       <Textarea
         id="slide-description-input-id"
-        label="Descripción"
+        label={t("common.description")}
         value={draftDescription}
         onChange={(e) => setDraftDescription(e.target.value)}
         disabled={isBusy}
         data-testid="slide-description-input"
-        placeholder="Descripción breve"
+        placeholder={t("slides.descriptionPlaceholder")}
         rows={2}
       />
       <div className="flex justify-end gap-2">
@@ -175,7 +177,7 @@ export function SlideTitleField({
           data-testid="slide-title-cancel-button"
         >
           <X className="h-3.5 w-3.5" />
-          Cancelar
+          {t("common.cancel")}
         </Button>
         <Button
           type="button"
@@ -189,7 +191,7 @@ export function SlideTitleField({
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          Guardar
+          {t("common.save")}
         </Button>
       </div>
     </div>

@@ -19,6 +19,7 @@
 import type { ILLMProvider, ChatMessage } from "@/lib/application/ports/llm-provider.port";
 import type { TopicNode } from "@/lib/types/pipeline";
 import { buildTreeAgentPrompt } from "@/lib/domain/prompts/templates/tree-agent.template";
+import { RAGEngine } from "@/lib/domain/rag/RAGEngine";
 
 /** One conversational turn as seen by the agent. */
 export interface AgentTurn {
@@ -56,21 +57,53 @@ const VALID_TYPES = new Set([
 ]);
 
 export class AgentService {
-  constructor(private readonly llm: ILLMProvider) {}
+  constructor(
+    private readonly llm: ILLMProvider,
+    private readonly ragEngine?: RAGEngine
+  ) {}
 
   /**
    * Run one agent turn. Returns the reply and the (validated) actions to apply.
    * Never throws for a malformed LLM response — it degrades to a reply with no
    * actions so the chat stays usable.
+   * 
+   * If materialIds are provided and the query is detected as RAG, responds
+   * using information from course materials instead of editing the tree.
    */
   async run(params: {
     tree: TopicNode[];
     history: AgentTurn[];
     slideTarget: number | null;
+    llmContext: string | null;
+    materialIds?: string[];
   }): Promise<AgentResult> {
+    // Get the latest user message for classification
+    const latestUserMessage = params.history
+      .filter((turn) => turn.role === "user")
+      .slice(-1)[0]?.content;
+
+    // If we have materials and the query looks like RAG, handle via RAG
+    if (
+      latestUserMessage &&
+      params.materialIds &&
+      params.materialIds.length > 0 &&
+      this.ragEngine
+    ) {
+      const queryType = await this.classifyQuery(latestUserMessage);
+      if (queryType === "rag") {
+        const ragReply = await this.queryMaterialsRAG({
+          query: latestUserMessage,
+          materialIds: params.materialIds,
+        });
+        return { reply: ragReply, actions: [] };
+      }
+    }
+
+    // Otherwise, handle as tree-editing agent
     const { system, user } = buildTreeAgentPrompt({
       tree: params.tree,
       slideTarget: params.slideTarget,
+      llmContext: params.llmContext,
     });
 
     const messages: ChatMessage[] = [{ role: "system", content: system }];
@@ -98,6 +131,138 @@ export class AgentService {
         : "Hecho.";
     const actions = this.validateActions(envelope?.actions, params.tree);
     return { reply, actions };
+  }
+
+  /**
+   * Classify user query as either RAG (information lookup) or tree editing.
+   * Returns 'rag' if the query is asking about course content/materials,
+   * 'edit' if it's requesting changes to the tree structure.
+   */
+  private async classifyQuery(query: string): Promise<"rag" | "edit"> {
+    const ragKeywords = [
+      "qué dice",
+      "qué explica",
+      "qué contiene",
+      "cuál es",
+      "cómo se define",
+      "busca",
+      "encuentra",
+      "dime sobre",
+      "información sobre",
+      "contenido sobre",
+      "según el material",
+      "según los materiales",
+    ];
+
+    const editKeywords = [
+      "añade",
+      "agrega",
+      "crea",
+      "elimina",
+      "borra",
+      "renombra",
+      "cambia",
+      "modifica",
+      "divide",
+      "une",
+      "fusiona",
+      "reorganiza",
+    ];
+
+    const lowerQuery = query.toLowerCase();
+
+    // Count keyword matches
+    const ragMatches = ragKeywords.filter((kw) => lowerQuery.includes(kw)).length;
+    const editMatches = editKeywords.filter((kw) => lowerQuery.includes(kw)).length;
+
+    // If edit keywords dominate, classify as edit
+    if (editMatches > ragMatches) return "edit";
+
+    // If RAG keywords dominate, classify as rag
+    if (ragMatches > editMatches) return "rag";
+
+    // For ambiguous cases, use LLM to classify
+    try {
+      const classificationPrompt: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Eres un clasificador de consultas. Responde SOLO con "rag" o "edit".
+- "rag": el usuario pregunta sobre contenido, información, o busca datos en los materiales del curso.
+- "edit": el usuario pide modificar, añadir, eliminar o reorganizar la estructura del árbol de conceptos.`,
+        },
+        {
+          role: "user",
+          content: `Clasifica esta consulta: "${query}"`,
+        },
+      ];
+
+      const response = await this.llm.chatJSON<{ type: "rag" | "edit" }>(
+        classificationPrompt
+      );
+      return response?.type === "rag" ? "rag" : "edit";
+    } catch {
+      // Default to edit on classification failure
+      return "edit";
+    }
+  }
+
+  /**
+   * Query materials using RAG to answer information lookup questions.
+   * Returns a natural language answer based on relevant chunks from course materials.
+   */
+  async queryMaterialsRAG(params: {
+    query: string;
+    materialIds: string[];
+  }): Promise<string> {
+    if (!this.ragEngine) {
+      return "No puedo buscar en los materiales en este momento.";
+    }
+
+    try {
+      // Search all materials and collect relevant chunks
+      const allChunks = [];
+      for (const materialId of params.materialIds) {
+        const chunks = await this.ragEngine.searchRelevant(
+          params.query,
+          materialId,
+          3 // top 3 per material
+        );
+        allChunks.push(...chunks);
+      }
+
+      // Sort by score and take top 5 overall
+      allChunks.sort((a, b) => b.score - a.score);
+      const topChunks = allChunks.slice(0, 5);
+
+      if (topChunks.length === 0) {
+        return "No he encontrado información relevante en los materiales sobre esa pregunta.";
+      }
+
+      // Build context from chunks
+      const context = topChunks
+        .map((chunk, i) => `[Fragmento ${i + 1}]\n${chunk.content}`)
+        .join("\n\n");
+
+      // Ask LLM to synthesize answer from context
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: `Eres un asistente que responde preguntas basándote ÚNICAMENTE en el contexto proporcionado.
+Si la información no está en el contexto, di que no la tienes.
+Responde de forma clara y concisa en español.`,
+        },
+        {
+          role: "user",
+          content: `Contexto:\n${context}\n\nPregunta: ${params.query}`,
+        },
+      ];
+
+      const response = await this.llm.chatJSON<{ answer: string }>(messages);
+      return response?.answer || "No he podido procesar la respuesta.";
+    } catch (error) {
+      console.error("[AgentService] RAG query failed:", error);
+      return "Ha ocurrido un error al buscar en los materiales.";
+    }
   }
 
   /** Keep only well-formed actions that reference real nodes in the tree. */

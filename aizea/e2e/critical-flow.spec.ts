@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 /**
  * CONTRATO E2E DEL FLUJO CRÍTICO — AIzea
- * Fase 0.2 · Plan: docs/plans/opcion-3-reescritura-selectiva.md
+ * Fase 0.2 · Plan: .omo/plans/opcion-3-reescritura-selectiva.md
  *
  * Este es el contrato de comportamiento que debe seguir verde en CADA gate de
  * fase durante la migración (backend saneado → sidecar → SPA Vite). Prueba el
@@ -37,8 +37,8 @@ async function dismissBanners(page: Page) {
 /**
  * Crea un curso desde el dashboard usando el flujo real de la UI:
  *  - Abre el diálogo "Nuevo Curso".
- *  - Rellena el Input (placeholder "Ej: ...").
- *  - Pulsa el botón "Crear Curso" del footer del diálogo.
+ *  - Rellena el campo "Nombre del curso" / "Course name".
+ *  - Pulsa el botón "Crear curso" / "Create course" del footer del diálogo.
  *  - Espera la navegación a /courses/{id}/materials.
  * Devuelve el courseId creado.
  */
@@ -46,16 +46,27 @@ async function createCourse(page: Page, name: string): Promise<string> {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await dismissBanners(page);
 
-  // Disparador que abre el diálogo (hay dos en la página; el primero visible sirve).
-  await page.getByRole("button", { name: /nuevo curso|crear curso/i }).first().click();
+  // Disparador del diálogo en la barra de acciones del dashboard.
+  await page
+    .getByRole("main")
+    .getByRole("button", {
+      name: /^(?:nuevo curso|new course|crear curso|create course)$/i,
+    })
+    .first()
+    .click();
 
-  // Input del diálogo, identificado por su placeholder real.
-  const nameInput = page.getByPlaceholder(/Ej:/i);
+  // Campo de nombre del diálogo, identificado por su etiqueta accesible.
+  const nameInput = page.getByRole("textbox", {
+    name: /^(?:nombre del curso|course name)$/i,
+  });
   await expect(nameInput).toBeVisible({ timeout: 10_000 });
   await nameInput.fill(name);
 
-  // Botón de envío dentro del diálogo (texto exacto "Crear Curso").
-  await page.getByRole("button", { name: "Crear Curso" }).click();
+  // Botón de envío dentro del diálogo (texto exacto de la traducción activa).
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /^(?:crear curso|create course)$/i })
+    .click();
 
   // El flujo del producto navega a los materiales del curso nuevo.
   await page.waitForURL(/\/courses\/[^/]+\/materials/, { timeout: 25_000 });

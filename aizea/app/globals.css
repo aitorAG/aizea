@@ -107,6 +107,17 @@
   pointer-events: none;
   z-index: 0;
 }
+/* v0.12.0 / RB3.1 — horizontal connector stub from vertical line to card */
+.slide-tree-item[data-depth]:not([data-depth="0"])::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--depth) * 28px + 8px);
+  top: 50%;
+  width: 20px;
+  border-top: 2px solid hsl(var(--foreground) / 0.2);
+  pointer-events: none;
+  z-index: 0;
+}
 
 /*
  * v1.5 / Task 3.2 + v1.7 / Issue 2.1 — fullscreen mode for the conceptual tree.

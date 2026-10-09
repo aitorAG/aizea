@@ -2,6 +2,13 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.16.2] — 2026-10-09
+
+### Added
+- Bilingual UI localization across the application.
+- Localized error fallbacks for clearer messages when translated errors are unavailable.
+- Automated release metadata and Tauri installer configuration parity verification.
+
 ## [0.9.1] — 2026-08-12
 
 Endurecimiento del diseño de render/export de diapositivas: cierra cuatro

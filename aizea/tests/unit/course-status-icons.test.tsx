@@ -22,8 +22,9 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { screen, cleanup } from "@testing-library/react";
 import { CourseStatusIcons } from "@/components/course/CourseStatusIcons";
+import { render } from "../helpers/render-with-locale";
 
 afterEach(() => {
   cleanup();
@@ -41,7 +42,7 @@ describe("<CourseStatusIcons />", () => {
           hasSlides={false}
         />
       );
-      const link = screen.getByRole("link", { name: /[áa]rbol conceptual/i });
+      const link = screen.getByRole("link", { name: /[áa]rbol/i });
       expect(link).toHaveAttribute("href", `/courses/${courseId}/tree`);
     });
 
@@ -53,7 +54,7 @@ describe("<CourseStatusIcons />", () => {
           hasSlides={false}
         />
       );
-      const link = screen.getByRole("link", { name: /[áa]rbol conceptual/i });
+      const link = screen.getByRole("link", { name: /[áa]rbol/i });
       expect(link.className).toMatch(/emerald-600/);
       // The icon (svg) lives inside the link and inherits the colour.
       const svg = link.querySelector("svg");
@@ -66,7 +67,7 @@ describe("<CourseStatusIcons />", () => {
       expect(wrapper?.className).not.toMatch(/text-red-500/);
     });
 
-    it("uses red-500 colour and the 'no creado' aria label when the tree is missing", () => {
+    it("uses red-500 colour and the unavailable aria label when the tree is missing", () => {
       render(
         <CourseStatusIcons
           courseId={courseId}
@@ -75,7 +76,7 @@ describe("<CourseStatusIcons />", () => {
         />
       );
       const link = screen.getByRole("link", {
-        name: /[áa]rbol conceptual.*no creado/i,
+        name: /[áa]rbol.*no disponible/i,
       });
       expect(link).toHaveAttribute("href", `/courses/${courseId}/tree`);
       expect(link.className).toMatch(/red-500/);
@@ -126,7 +127,7 @@ describe("<CourseStatusIcons />", () => {
       expect(link.className).toMatch(/emerald-600/);
     });
 
-    it("uses red-500 colour and the 'no creado' aria label when slides are missing", () => {
+    it("uses red-500 colour and the unavailable aria label when slides are missing", () => {
       render(
         <CourseStatusIcons
           courseId={courseId}
@@ -135,7 +136,7 @@ describe("<CourseStatusIcons />", () => {
         />
       );
       const link = screen.getByRole("link", {
-        name: /diapositivas.*no creado/i,
+        name: /diapositivas.*no disponible/i,
       });
       expect(link).toHaveAttribute("href", `/courses/${courseId}/slides`);
       expect(link.className).toMatch(/red-500/);
@@ -207,13 +208,11 @@ describe("<CourseStatusIcons />", () => {
         />
       );
       // English "tree" alone is too generic; the label must be specific.
-      const treeLink = screen.getByRole("link", {
-        name: /[áa]rbol conceptual/i,
-      });
-      expect(treeLink).toHaveAccessibleName(/[áa]rbol conceptual/i);
+      const treeLink = screen.getByRole("link", { name: /[áa]rbol/i });
+      expect(treeLink).toHaveAccessibleName(/[áa]rbol/i);
     });
 
-    it("annotates the state ('creado' / 'no creado') so the user knows the colour isn't decorative", () => {
+    it("annotates the state so the user knows the colour isn't decorative", () => {
       render(
         <CourseStatusIcons
           courseId={courseId}
@@ -221,12 +220,12 @@ describe("<CourseStatusIcons />", () => {
           hasSlides={false}
         />
       );
-      // The tree link is green → its accessible name carries "creado".
+      // The tree link is green and carries the current-stage state.
       const treeLink = screen.getByTestId("course-status-tree");
-      expect(treeLink).toHaveAccessibleName(/creado/i);
-      // The slides link is red → "no creado".
+      expect(treeLink).toHaveAccessibleName(/fase actual/i);
+      // The slides link is red and carries the unavailable state.
       const slidesLink = screen.getByTestId("course-status-slides");
-      expect(slidesLink).toHaveAccessibleName(/no creado/i);
+      expect(slidesLink).toHaveAccessibleName(/no disponible/i);
     });
 
     it("provides a focus-visible ring (no outline:none without replacement)", () => {

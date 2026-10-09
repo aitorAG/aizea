@@ -12,17 +12,21 @@
 
 import type { Metadata } from "next";
 import { JobsPageClient } from "./jobs-page-client";
+import { getRequestLocale } from "@/lib/i18n-server";
+import { translate } from "@/lib/i18n";
 
-export const metadata: Metadata = {
-  title: "Trabajos — AIzea",
-  description:
-    "Estado de los pipelines y trabajos de generación en curso.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getRequestLocale();
+  return {
+    title: `${translate(locale, "jobs")} — AIzea`,
+    description: translate(locale, "jobsDescription"),
+  };
+}
 
 // `dynamic = "force-dynamic"` so the page is never statically
 // pre-rendered — the panel needs fresh data on every visit.
 export const dynamic = "force-dynamic";
 
-export default function JobsPage() {
+export default async function JobsPage() {
   return <JobsPageClient />;
 }

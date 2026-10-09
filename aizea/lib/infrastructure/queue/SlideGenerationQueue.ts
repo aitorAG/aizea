@@ -76,6 +76,15 @@ export interface SlideGenerationQueueOptions {
   /** Optional callback fired on every per-slide terminal
    *  transition. Useful for fine-grained logging or analytics. */
   onSlideSettled?: (result: SlideGenerationResult) => void;
+  /**
+   * v0.12.0 (RC3) — Optional callback fired on every per-slide STATUS
+   * transition (pending → generating_content → generating_html →
+   * completed/failed). The slides page wires this to a server action that
+   * persists `Slide.status` in the DB, so the per-card markers survive
+   * navigation (the DB is the source of truth, not the in-memory store).
+   * Best-effort and fire-and-forget: the queue does NOT await it.
+   */
+  onSlideStatusChange?: (slideId: string, status: string) => void;
 }
 
 export interface SlideGenerationResult {
@@ -128,6 +137,9 @@ export class SlideGenerationQueue {
   private readonly onSlideSettled:
     | ((result: SlideGenerationResult) => void)
     | undefined;
+  private readonly onSlideStatusChange:
+    | ((slideId: string, status: string) => void)
+    | undefined;
 
   /**
    * Cancellation flag. Flipped by `cancel()`. The pump checks
@@ -178,6 +190,7 @@ export class SlideGenerationQueue {
     this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     this.onComplete = options.onComplete;
     this.onSlideSettled = options.onSlideSettled;
+    this.onSlideStatusChange = options.onSlideStatusChange;
   }
 
   /** Signal the queue to stop dispatching new slides. Idempotent. */
@@ -251,6 +264,12 @@ export class SlideGenerationQueue {
     // populates the global progress bar; the UI re-renders
     // before the first LLM call goes out.
     this.store.startGeneration(ids);
+    // v0.12.0 (RC3) — Persist "pending" in DB so markers survive navigation.
+    if (this.onSlideStatusChange) {
+      for (const id of ids) {
+        this.onSlideStatusChange(id, "pending");
+      }
+    }
 
     this.queue.push(...ids);
     this.inFlight = this.runBatch(designInstructions, phases);
@@ -309,6 +328,8 @@ export class SlideGenerationQueue {
         this.currentResults[i] = skipped;
         try {
           this.store.markFailed(slideId, skipped.error ?? "");
+          // v0.12.0 (RC3) — Persist cancellation.
+          this.onSlideStatusChange?.(slideId, "failed");
         } catch {
           // ignore
         }
@@ -364,6 +385,8 @@ export class SlideGenerationQueue {
         // defensive) is silently ignored.
         try {
           this.store.markFailed(slideId, skipped.error ?? "");
+          // v0.12.0 (RC3) — Persist cancellation.
+          this.onSlideStatusChange?.(slideId, "failed");
         } catch {
           // ignore
         }
@@ -470,6 +493,8 @@ export class SlideGenerationQueue {
     // reached a terminal state, which is what dismisses the
     // global progress bar.
     this.store.markCompleted(slideId);
+    // v0.12.0 (RC3) — Persist terminal state.
+    this.onSlideStatusChange?.(slideId, "completed");
     return ok;
   }
 
@@ -493,12 +518,15 @@ export class SlideGenerationQueue {
         // summary, and the slides page surfaces it.
         return false;
       }
+      const newStatus =
+        phase === "content" ? "generating_content" : "generating_html";
       this.store.updateJob(slideId, {
-        status:
-          phase === "content" ? "generating_content" : "generating_html",
+        status: newStatus,
         phase,
         retries: attempt - 1,
       });
+      // v0.12.0 (RC3) — Persist phase transitions.
+      this.onSlideStatusChange?.(slideId, newStatus);
       try {
         await op();
         return true;
@@ -521,6 +549,8 @@ export class SlideGenerationQueue {
       slideId,
       lastErrorMessage ?? "Error desconocido"
     );
+    // v0.12.0 (RC3) — Persist terminal state.
+    this.onSlideStatusChange?.(slideId, "failed");
     return false;
   }
 

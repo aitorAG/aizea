@@ -30,6 +30,19 @@ export class PrismaIncrementalMergerRepository
   }
 
   async createNode(data: MergeCreateNodeInput): Promise<MergeTopicNodeRow> {
-    return db.topicNode.create({ data });
+    const { sourceMaterialIds, ...rest } = data;
+    return db.topicNode.create({
+      data: {
+        ...rest,
+        sourceMaterialIds: sourceMaterialIds ? JSON.stringify(sourceMaterialIds) : undefined,
+      },
+    });
+  }
+
+  async updateNodeSourceMaterials(nodeId: string, sourceMaterialIds: string[]): Promise<void> {
+    await db.topicNode.update({
+      where: { id: nodeId },
+      data: { sourceMaterialIds: JSON.stringify(sourceMaterialIds) },
+    });
   }
 }

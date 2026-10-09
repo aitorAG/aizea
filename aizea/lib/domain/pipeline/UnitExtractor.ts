@@ -68,7 +68,7 @@ export class UnitExtractor {
     this.llmProvider = options.llmProvider;
   }
 
-  async extract(unit: SemanticUnit): Promise<UnitRepresentation> {
+  async extract(unit: SemanticUnit, llmContext?: string | null): Promise<UnitRepresentation> {
     if (!this.repository) {
       throw new Error(
         "UnitExtractor requiere un repositorio inyectado (options.repository)."
@@ -79,7 +79,9 @@ export class UnitExtractor {
         "UnitExtractor requiere un proveedor LLM inyectado (options.llmProvider)."
       );
     }
-    const { system, user } = this.promptManager.buildExtractUnitPrompt(unit);
+    const { system, user } = llmContext === undefined
+      ? this.promptManager.buildExtractUnitPrompt(unit)
+      : this.promptManager.buildExtractUnitPrompt(unit, llmContext);
 
     const response = await this.llmProvider.chatJSON<LlmExtractionResponse>([
       { role: "system", content: system },

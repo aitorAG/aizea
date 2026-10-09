@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MarkdownKatex } from "@/components/markdown-katex";
 import { Edit, Save, X } from "lucide-react";
 import { BoxType } from "@/lib/types";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface SlideBoxEditorProps {
   type: BoxType;
@@ -14,31 +15,26 @@ interface SlideBoxEditorProps {
   onSave: (type: BoxType, content: string) => Promise<void>;
 }
 
-const boxConfig: Record<BoxType, { icon: string; label: string; description: string }> = {
+const boxConfig: Record<BoxType, { icon: string; labelKey: "slides.script" | "slides.relevance" | "slides.narrative" | "slides.exerciseOne" | "slides.exerciseTwo" }> = {
   [BoxType.SCRIPT]: {
     icon: "🎯",
-    label: "Concepto",
-    description: "Guion del concepto a representar",
+    labelKey: "slides.script",
   },
   [BoxType.RELEVANCE]: {
     icon: "💡",
-    label: "Relevancia",
-    description: "Por qué es relevante este concepto",
+    labelKey: "slides.relevance",
   },
   [BoxType.NARRATIVE]: {
     icon: "📖",
-    label: "Narrativa",
-    description: "Narrativa para impartir en clase",
+    labelKey: "slides.narrative",
   },
   [BoxType.EXERCISE_1]: {
     icon: "✏️",
-    label: "Ejercicio 1",
-    description: "Enunciado de ejercicio",
+    labelKey: "slides.exerciseOne",
   },
   [BoxType.EXERCISE_2]: {
     icon: "✏️",
-    label: "Ejercicio 2",
-    description: "Enunciado de ejercicio",
+    labelKey: "slides.exerciseTwo",
   },
 };
 
@@ -46,6 +42,7 @@ function SlideBoxEditor({ type, content, onSave }: SlideBoxEditorProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
   const [saving, setSaving] = useState(false);
+  const t = useTranslations();
 
   const config = boxConfig[type];
 
@@ -70,9 +67,9 @@ function SlideBoxEditor({ type, content, onSave }: SlideBoxEditorProps) {
         <div>
           <h3 className="text-sm font-semibold leading-none">
             <span className="mr-1.5">{config.icon}</span>
-            {config.label}
+            {t(config.labelKey)}
           </h3>
-          <p className="mt-1 text-xs text-muted-foreground">{config.description}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("slides.designInstructionsHint")}</p>
         </div>
         {!editing && (
           <Button
@@ -85,7 +82,7 @@ function SlideBoxEditor({ type, content, onSave }: SlideBoxEditorProps) {
             }}
           >
             <Edit className="h-3 w-3" />
-            Editar
+            {t("common.edit")}
           </Button>
         )}
       </CardHeader>
@@ -97,17 +94,17 @@ function SlideBoxEditor({ type, content, onSave }: SlideBoxEditorProps) {
               onChange={(e) => setDraft(e.target.value)}
               rows={8}
               className="font-mono text-sm"
-              placeholder={`Escribe el contenido de ${config.label.toLowerCase()}...`}
+              placeholder={t("slides.optionalDescriptionPlaceholder")}
               autoFocus
             />
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={handleCancel} disabled={saving}>
                 <X className="h-3.5 w-3.5" />
-                Cancelar
+                {t("common.cancel")}
               </Button>
               <Button size="sm" onClick={handleSave} loading={saving}>
                 <Save className="h-3.5 w-3.5" />
-                Guardar
+                {t("common.save")}
               </Button>
             </div>
           </div>

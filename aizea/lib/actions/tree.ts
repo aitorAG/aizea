@@ -55,6 +55,10 @@ export type AddTreeNodeResult =
   | { ok: true; node: TopicNode }
   | { ok: false; error: string };
 
+export type ExpandTreeDepthResult =
+  | { ok: true; nodes: TopicNode[]; addedCount: number }
+  | { ok: false; error: string };
+
 export interface UpdateTreeNodeInput {
   name?: string;
   summary?: string | null;
@@ -161,4 +165,29 @@ export async function addTreeNodeAction(
   if (!result.ok) return result;
   revalidatePath(`/courses/${courseId}/tree`);
   return { ok: true, node: result.node };
+}
+
+/**
+ * v1.6 / Task 6 — Expand tree depth by one level.
+ * 
+ * Finds all current leaf nodes and generates child nodes for each one using
+ * the LLM. This grows the tree by one level.
+ */
+export async function expandTreeDepthAction(
+  courseId: string
+): Promise<ExpandTreeDepthResult> {
+  const result = await treeService.expandTreeDepth(courseId);
+  if (!result.ok) return result;
+  revalidatePath(`/courses/${result.courseId}/tree`);
+  return { ok: true, nodes: result.nodes, addedCount: result.addedCount };
+}
+
+export async function expandSelectedNodesDepthAction(
+  courseId: string,
+  selectedNodeIds: string[]
+): Promise<ExpandTreeDepthResult> {
+  const result = await treeService.expandSelectedNodesDepth(courseId, selectedNodeIds);
+  if (!result.ok) return result;
+  revalidatePath(`/courses/${result.courseId}/tree`);
+  return { ok: true, nodes: result.nodes, addedCount: result.addedCount };
 }

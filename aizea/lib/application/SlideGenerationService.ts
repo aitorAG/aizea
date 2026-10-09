@@ -78,6 +78,9 @@ export class SlideGenerationService {
         summary: row.summary,
         depth: row.depth,
         orderIndex: row.orderIndex,
+        numericPath: row.numericPath ?? undefined,
+        displayOrder: row.displayOrder ?? undefined,
+        sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds as string) : [],
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
@@ -226,6 +229,9 @@ export class SlideGenerationService {
         summary: row.summary,
         depth: row.depth,
         orderIndex: row.orderIndex,
+        numericPath: row.numericPath ?? undefined,
+        displayOrder: row.displayOrder ?? undefined,
+        sourceMaterialIds: row.sourceMaterialIds ? JSON.parse(row.sourceMaterialIds as string) : [],
         isLeaf: row.isLeaf,
         version: row.version,
         sourceMaterialId: row.sourceMaterialId,
@@ -267,6 +273,7 @@ export class SlideGenerationService {
       htmlDesign: string | null;
       /** For figure-slides: the sourceNodeId of the concept they belong to. */
       conceptNodeId: string | null;
+      numericPath: string | null;
     }
     const specs: SlideSpec[] = [];
     for (const id of finalIds) {
@@ -279,6 +286,7 @@ export class SlideGenerationService {
         kind: "concept",
         htmlDesign: null,
         conceptNodeId: null,
+        numericPath: node.numericPath ?? null,
       });
       for (const fig of figureSlidesByNode.get(node.id) ?? []) {
         specs.push({
@@ -288,6 +296,7 @@ export class SlideGenerationService {
           kind: "figure",
           htmlDesign: fig.htmlDesign,
           conceptNodeId: node.id,
+          numericPath: node.numericPath ?? null,
         });
       }
     }
@@ -304,6 +313,7 @@ export class SlideGenerationService {
             sourceNodeId: spec.sourceNodeId,
             kind: spec.kind,
             htmlDesign: spec.htmlDesign,
+            numericPath: spec.numericPath,
             // Figure slides ship their visual already; concept slides leave
             // htmlDesign null for the user / "Generar todo" to fill in.
           },

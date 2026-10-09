@@ -12,6 +12,7 @@
 import { PipelineService } from "@/lib/infrastructure/pipeline/pipeline.service";
 import { PrismaJobQueue } from "@/lib/infrastructure/queue/prisma-job-queue";
 import { PipelineWorker } from "@/lib/infrastructure/queue/pipeline-worker";
+import { db } from "@/lib/db";
 import { PrismaMaterialRepository } from "@/lib/infrastructure/persistence/prisma-material.repository";
 import { PrismaCourseRepository } from "@/lib/infrastructure/persistence/prisma-course.repository";
 import { PrismaSlideRepository } from "@/lib/infrastructure/persistence/prisma-slide.repository";
@@ -35,6 +36,11 @@ import { FigureRasterizer } from "@/lib/infrastructure/pdf/figure-rasterizer";
 import { LayoutParser } from "@/lib/domain/pdf/LayoutParser";
 import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import { getDoclingBaseUrl } from "@/lib/config-service";
+import { ArtifactCleanerService } from "@/lib/infrastructure/cleanup/artifact-cleaner.service";
+import {
+  createDeleteCourse,
+  type CourseArtifacts,
+} from "@/lib/application/course-deletion";
 import type { IPipelineService } from "@/lib/application/ports/pipeline.port";
 import type { IMaterialRepository } from "@/lib/application/ports/material-repository.port";
 import type { INotifier } from "@/lib/application/ports/notifier.port";
@@ -49,6 +55,7 @@ import type { ISettingsRepository } from "@/lib/application/ports/settings-repos
 import type { ISemanticUnitRepository } from "@/lib/application/ports/semantic-unit-repository.port";
 import type { IJobQueue } from "@/lib/application/ports/job-queue.port";
 import type { IJobWorker } from "@/lib/infrastructure/queue/pipeline-worker";
+import type { ICourseArtifactCleaner } from "@/lib/application/ports/course-artifact-cleaner.port";
 
 export interface ContainerOverrides {
   pipeline?: IPipelineService;
@@ -70,6 +77,8 @@ export interface ContainerOverrides {
   figureExtractor?: UploadMaterialUseCaseDeps["figureExtractor"];
   layoutParser?: UploadMaterialUseCaseDeps["layoutParser"];
   ragIndexer?: UploadMaterialUseCaseDeps["ragIndexer"];
+  /** Override del limpiador de artefactos físicos (tests inyectan fakes). */
+  artifactCleaner?: Container["artifactCleaner"];
 }
 
 export interface Container {
@@ -91,6 +100,10 @@ export interface Container {
   textChunks: ITextChunkRepository;
   settings: ISettingsRepository;
   semanticUnits: ISemanticUnitRepository;
+  /** Limpieza de artefactos físicos (vectores LanceDB, PDFs, figuras). */
+  artifactCleaner: ICourseArtifactCleaner;
+  /** Borrado completo de curso: BD + artefactos físicos. */
+  deleteCourse: (courseId: string) => Promise<void>;
 }
 
 export function createContainer(overrides: ContainerOverrides = {}): Container {
@@ -120,6 +133,30 @@ export function createContainer(overrides: ContainerOverrides = {}): Container {
 
   const jobQueue = overrides.jobQueue ?? new PrismaJobQueue();
   const processCourse = new ProcessCourseUseCase({ pipeline, materials, notifier });
+  const artifactCleaner =
+    overrides.artifactCleaner ?? new ArtifactCleanerService();
+  // Orquestador de borrado de curso: carga artefactos (materiales + figuras)
+  // antes del cascade, limpia vectores/ficheros best-effort y borra la fila.
+  const deleteCourse = createDeleteCourse({
+    cleaner: artifactCleaner,
+    loadArtifacts: async (courseId): Promise<CourseArtifacts | null> => {
+      const course = await db.course.findUnique({
+        where: { id: courseId },
+        select: {
+          materials: { select: { id: true, filename: true } },
+          figures: { select: { filename: true } },
+        },
+      });
+      if (!course) return null;
+      return {
+        materials: course.materials,
+        figures: course.figures,
+      };
+    },
+    deleteCourseRow: async (courseId) => {
+      await db.course.delete({ where: { id: courseId } });
+    },
+  });
   // The worker's runCourse is the synchronous pipeline primitive. Injecting a
   // closure (not the use case) keeps the worker decoupled and testable.
   const pipelineWorker = new PipelineWorker({
@@ -150,6 +187,8 @@ export function createContainer(overrides: ContainerOverrides = {}): Container {
     textChunks,
     settings,
     semanticUnits,
+    artifactCleaner,
+    deleteCourse,
     jobQueue,
     pipelineWorker,
   };

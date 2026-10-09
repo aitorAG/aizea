@@ -41,6 +41,12 @@ let getSettingsAction: typeof import("@/lib/actions/settings").getSettingsAction
 let updateSettingsAction: typeof import("@/lib/actions/settings").updateSettingsAction;
 let invalidateConfigCache: typeof import("@/lib/config-service").invalidateConfigCache;
 let _setCacheForTesting: typeof import("@/lib/config-service")._setCacheForTesting;
+const originalEnv = {
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
+  OPENROUTER_EMBED_MODEL: process.env.OPENROUTER_EMBED_MODEL,
+  DOCLING_BASE_URL: process.env.DOCLING_BASE_URL,
+};
 
 beforeAll(async () => {
   const settingsMod = await import("@/lib/actions/settings");
@@ -56,15 +62,49 @@ afterAll(async () => {
   for (const suffix of ["", "-journal", "-shm", "-wal"]) {
     if (existsSync(TEST_DB + suffix)) rmSync(TEST_DB + suffix, { force: true });
   }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 beforeEach(async () => {
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_MODEL;
+  delete process.env.OPENROUTER_EMBED_MODEL;
+  delete process.env.DOCLING_BASE_URL;
   await testDb.settings.deleteMany({});
   invalidateConfigCache();
   _setCacheForTesting(null);
 });
 
 describe("getSettingsAction", () => {
+  it("uses effective env settings without a DB row and never serializes the key", async () => {
+    const secret = "sk-env-secret-123456";
+    process.env.OPENROUTER_API_KEY = secret;
+    process.env.OPENROUTER_MODEL = "env/chat";
+    process.env.OPENROUTER_EMBED_MODEL = "env/embed";
+    process.env.DOCLING_BASE_URL = "http://env-docling:9999";
+    _setCacheForTesting({
+      apiKey: "test-api-key",
+      chatModel: "stale/chat",
+      embedModel: "stale/embed",
+      doclingBaseUrl: "http://stale:5001",
+      fromDb: false,
+    });
+
+    const result = await getSettingsAction();
+    expect(result).toEqual({
+      openrouterApiKey: null,
+      chatModel: "env/chat",
+      embedModel: "env/embed",
+      doclingBaseUrl: "http://env-docling:9999",
+      persisted: false,
+      apiKeyPresent: true,
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
   it("returns defaults when no row exists", async () => {
     const result = await getSettingsAction();
     expect(result.persisted).toBe(false);
@@ -87,7 +127,8 @@ describe("getSettingsAction", () => {
     });
     const result = await getSettingsAction();
     expect(result.persisted).toBe(true);
-    expect(result.openrouterApiKey).toBe("sk-stored");
+    // v0.14.0 — la key NUNCA se envía al cliente, aunque exista en BD.
+    expect(result.openrouterApiKey).toBeNull();
     expect(result.chatModel).toBe("anthropic/claude-3.5-sonnet");
     expect(result.embedModel).toBe("voyage/voyage-3");
     expect(result.doclingBaseUrl).toBe("http://my-docling:5001");
@@ -104,6 +145,58 @@ describe("getSettingsAction", () => {
     const result = await getSettingsAction();
     expect(result.persisted).toBe(true);
     expect(result.apiKeyPresent).toBe(false);
+  });
+
+  it("uses DB overrides and never exposes the DB or env key", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-env-secret";
+    process.env.OPENROUTER_MODEL = "env/chat";
+    await testDb.settings.create({
+      data: {
+        id: "default",
+        openrouterApiKey: "sk-db-secret",
+        chatModel: "db/chat",
+        embedModel: "db/embed",
+        doclingBaseUrl: "http://db-docling:5001",
+      },
+    });
+
+    const result = await getSettingsAction();
+    expect(result).toEqual({
+      openrouterApiKey: null,
+      chatModel: "db/chat",
+      embedModel: "db/embed",
+      doclingBaseUrl: "http://db-docling:5001",
+      persisted: true,
+      apiKeyPresent: true,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/sk-(db|env)-secret/);
+  });
+
+  it("clearing a DB key falls back to the env key while retaining the row", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-env-after-clear";
+    await testDb.settings.create({
+      data: { id: "default", openrouterApiKey: "sk-to-clear" },
+    });
+    await updateSettingsAction({
+      apiKey: "",
+      chatModel: "db/chat",
+      embedModel: "db/embed",
+      doclingBaseUrl: "http://db-docling:5001",
+    });
+
+    const result = await getSettingsAction();
+    expect(result.persisted).toBe(true);
+    expect(result.apiKeyPresent).toBe(true);
+    expect(result.openrouterApiKey).toBeNull();
+    expect(JSON.stringify(result)).not.toContain("sk-env-after-clear");
+    expect((await testDb.settings.findUnique({ where: { id: "default" } }))?.openrouterApiKey).toBeNull();
+  });
+
+  it("treats the internal placeholder as an absent key", async () => {
+    process.env.OPENROUTER_API_KEY = "test-api-key";
+    const result = await getSettingsAction();
+    expect(result.apiKeyPresent).toBe(false);
+    expect(result.openrouterApiKey).toBeNull();
   });
 });
 

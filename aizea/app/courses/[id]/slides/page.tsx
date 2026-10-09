@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { SlidesClient } from "./slides-client";
+import type { SlideSummary } from "@/components/slides/SlidesHierarchy";
 
 interface SlidesPageProps {
   params: Promise<{ id: string }>;
@@ -23,6 +24,9 @@ export default async function SlidesPage({ params }: SlidesPageProps) {
           order: true,
           htmlDesign: true,
           parentSlideId: true,
+          numericPath: true,
+          kind: true,
+          status: true,
         },
       },
       materials: {
@@ -40,18 +44,10 @@ export default async function SlidesPage({ params }: SlidesPageProps) {
     notFound();
   }
 
-  const slides = course.slides.map((s) => ({
-    id: s.id,
-    title: s.title,
-    description: s.description,
-    order: s.order,
-    htmlDesign: s.htmlDesign,
-    parentSlideId: s.parentSlideId,
-    hasContent: false, // will be determined by boxes count
-  }));
-
-  // Check which slides have content (boxes) using a single groupBy query
-  const slideIds = slides.map((s) => s.id);
+  // Count boxes per slide (single groupBy) so we can derive the "fully
+  // generated" state below. A concept slide is only fully generated when it
+  // has BOTH content boxes AND an htmlDesign; a figure slide needs only html.
+  const slideIds = course.slides.map((s) => s.id);
   const boxCounts = await db.slideBox.groupBy({
     by: ["slideId"],
     where: { slideId: { in: slideIds } },
@@ -59,10 +55,25 @@ export default async function SlidesPage({ params }: SlidesPageProps) {
   });
   const countMap = new Map(boxCounts.map((b) => [b.slideId, b._count._all]));
 
-  const slidesWithBoxes = slides.map((s) => ({
-    ...s,
-    hasContent: (countMap.get(s.id) ?? 0) > 0,
-  }));
+  // Typed as SlideSummary[] so a future field-name drift is a COMPILE error
+  // (this is the anti-regression guard for the numericPath key mismatch bug).
+  const slidesWithBoxes: SlideSummary[] = course.slides.map((s) => {
+    const hasContent = (countMap.get(s.id) ?? 0) > 0;
+    const hasHtml = !!s.htmlDesign && s.htmlDesign.trim().length > 0;
+    return {
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      order: s.order,
+      htmlDesign: s.htmlDesign,
+      parentSlideId: s.parentSlideId,
+      numericPath: s.numericPath,
+      kind: s.kind,
+      hasContent,
+      hasHtml,
+      status: s.status,
+    };
+  });
 
   const materials = course.materials.map((m) => ({
     id: m.id,

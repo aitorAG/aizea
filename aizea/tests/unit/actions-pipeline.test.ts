@@ -93,6 +93,13 @@ beforeEach(async () => {
   // Wipe the relevant tables between tests
   await testDb.processingJob.deleteMany({});
   await testDb.course.deleteMany({});
+  // ProcessingJob.courseId is a real FK. Seed the IDs used by the list tests
+  // instead of relying on SQLite accepting orphaned rows.
+  await Promise.all(
+    ["c-1", "course-current", "course-other", "c-42"].map((id) =>
+      testDb.course.create({ data: { id, name: `Fixture ${id}` } })
+    )
+  );
   mockProcessCourse.mockResolvedValue({
     ok: true,
     empty: false,

@@ -8,6 +8,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } fr
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Image as ImageIcon, X } from "lucide-react";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface FigureCardProps {
   id: string;
@@ -25,6 +26,7 @@ function FigureCard({ id, filename, caption, pageNum, tags, onUpdate, onClick }:
   const [editTags, setEditTags] = useState(tags);
   const [newTag, setNewTag] = useState("");
   const [saving, setSaving] = useState(false);
+  const t = useTranslations();
 
   async function handleSave() {
     setSaving(true);
@@ -65,7 +67,7 @@ function FigureCard({ id, filename, caption, pageNum, tags, onUpdate, onClick }:
           </div>
           <p className="text-sm font-medium line-clamp-1">{caption ?? filename}</p>
           {pageNum && (
-            <p className="text-xs text-muted-foreground mt-0.5">Página {pageNum}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("course.materials.pageOne", { count: pageNum })}</p>
           )}
           {tags.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
@@ -86,10 +88,10 @@ function FigureCard({ id, filename, caption, pageNum, tags, onUpdate, onClick }:
 
       <Dialog open={detailOpen} onClose={() => setDetailOpen(false)}>
         <DialogHeader>
-          <DialogTitle>Detalle de figura</DialogTitle>
+          <DialogTitle>{t("course.figures.title")}</DialogTitle>
           <DialogDescription>
             {filename}
-            {pageNum && ` — Página ${pageNum}`}
+            {pageNum && ` — ${t("course.materials.pageOne", { count: pageNum })}`}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4 space-y-4">
@@ -98,18 +100,18 @@ function FigureCard({ id, filename, caption, pageNum, tags, onUpdate, onClick }:
           </div>
           <div className="space-y-1.5">
             <label htmlFor="figure-caption" className="block text-sm font-medium text-foreground">
-              Descripción
+              {t("common.description")}
             </label>
             <Textarea
               id="figure-caption"
               value={editCaption}
               onChange={(e) => setEditCaption(e.target.value)}
               rows={3}
-              placeholder="Describe la figura..."
+              placeholder={t("slides.descriptionPlaceholder")}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Etiquetas</label>
+            <label className="block text-sm font-medium text-foreground mb-1.5">{t("common.description")}</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {editTags.map((tag) => (
                 <Badge key={tag} variant="secondary" className="gap-1 pr-1">
@@ -127,7 +129,7 @@ function FigureCard({ id, filename, caption, pageNum, tags, onUpdate, onClick }:
               <Input
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value)}
-                placeholder="Nueva etiqueta"
+                 placeholder={t("common.add")}
                 className="flex-1"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -137,17 +139,17 @@ function FigureCard({ id, filename, caption, pageNum, tags, onUpdate, onClick }:
                 }}
               />
               <Button size="sm" onClick={addTag} variant="outline">
-                Añadir
+                {t("common.add")}
               </Button>
             </div>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setDetailOpen(false)} disabled={saving}>
-            Cancelar
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleSave} loading={saving}>
-            Guardar cambios
+            {t("common.save")}
           </Button>
         </DialogFooter>
       </Dialog>

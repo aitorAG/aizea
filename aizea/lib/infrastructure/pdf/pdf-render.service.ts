@@ -134,7 +134,9 @@ export class PdfRenderService {
       // decoded + fonts ready + transform applied). The timeout scales with the
       // slide count (caller-provided) so large exports aren't captured early;
       // a document WITHOUT the script (or a hang) still resolves at the cap.
-      await waitForSlideFit(page, opts.fitTimeoutMs ?? 6000);
+      // v2.0: aumentado de 6000ms a 10000ms para dar más tiempo a KaTeX en
+      // cursos con muchas fórmulas matemáticas complejas.
+      await waitForSlideFit(page, opts.fitTimeoutMs ?? 10000);
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
     } finally {

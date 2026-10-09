@@ -15,7 +15,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { screen, cleanup, waitFor } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -181,7 +182,7 @@ describe('<MaterialsClient /> — F3 "Guardar y continuar"', () => {
     renderClient();
 
     // Type additional instructions into the LLMContext textarea.
-    const textarea = screen.getByLabelText(/instrucciones para la ia/i);
+    const textarea = screen.getByRole("textbox", { name: /contexto del curso/i });
     await user.clear(textarea);
     await user.type(textarea, "Tono didáctico, ejemplos prácticos.");
 

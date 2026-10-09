@@ -1,13 +1,14 @@
 "use server";
 
+import { container } from "@/lib/composition/container";
 import { CourseService } from "@/lib/application/CourseService";
 import { CourseSummary } from "@/lib/types";
 import { revalidatePath } from "next/cache";
 
 const courseService = new CourseService();
 
-export async function createCourse(name: string): Promise<{ id: string }> {
-  const course = await courseService.createCourse(name);
+export async function createCourse(name: string, llmContext?: string): Promise<{ id: string }> {
+  const course = await courseService.createCourse(name, llmContext);
   revalidatePath("/");
   return { id: course.id };
 }
@@ -83,7 +84,10 @@ export async function getCourse(id: string): Promise<{
 }
 
 export async function deleteCourse(id: string): Promise<void> {
-  await courseService.deleteCourse(id);
+  // v0.14.0 — borrado completo: filas (cascade) + artefactos físicos
+  // (vectores LanceDB, PDFs subidos, imágenes de figuras). Best-effort en
+  // la parte física; ver lib/application/course-deletion.ts.
+  await container.deleteCourse(id);
   revalidatePath("/");
 }
 
@@ -118,5 +122,17 @@ export async function updateSlideTarget(
   const clamped =
     slideTarget == null ? null : Math.max(0, Math.min(300, Math.round(slideTarget)));
   await courseService.updateCourse(id, { slideTarget: clamped });
+  revalidatePath(`/courses/${id}/tree`);
+}
+
+/**
+ * Persist user-provided context for LLM operations (extraction, integration, tree-building).
+ * Consumed by the pipeline prompts to inject domain-specific guidance.
+ */
+export async function updateLlmContext(
+  id: string,
+  llmContext: string | null
+): Promise<void> {
+  await courseService.updateCourse(id, { llmContext: llmContext ?? undefined });
   revalidatePath(`/courses/${id}/tree`);
 }

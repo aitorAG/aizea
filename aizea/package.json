@@ -1,6 +1,6 @@
 {
   "name": "aizea",
-  "version": "0.9.1",
+  "version": "0.16.2",
   "private": true,
   "scripts": {
     "local": "node scripts/start-local.cjs",
@@ -13,7 +13,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx",
-    "test": "vitest run",
+    "test": "vitest run tests/unit tests/integration",
+    "test:verification": "vitest run tests/verification",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test --grep @smoke",
@@ -50,6 +51,7 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pngjs": "^7.0.0",
+    "pptxgenjs": "^3.12.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.0",

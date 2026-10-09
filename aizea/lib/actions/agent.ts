@@ -15,10 +15,14 @@ import { db } from "@/lib/db";
 import { TreeService } from "@/lib/application/TreeService";
 import { AgentService, type AgentTurn } from "@/lib/application/AgentService";
 import { OpenRouterLLMProvider } from "@/lib/infrastructure/ai/openrouter-llm.provider";
+import { createRAGEngine } from "@/lib/infrastructure/rag/rag-engine.factory";
 import type { TopicNode } from "@/lib/types/pipeline";
 
 const treeService = new TreeService();
-const agentService = new AgentService(new OpenRouterLLMProvider());
+const agentService = new AgentService(
+  new OpenRouterLLMProvider(),
+  createRAGEngine()
+);
 
 export type TreeAgentResult =
   | {
@@ -40,7 +44,12 @@ export async function treeAgentChatAction(
 ): Promise<TreeAgentResult> {
   const course = await db.course.findUnique({
     where: { id: courseId },
-    select: { id: true, slideTarget: true },
+    select: { 
+      id: true, 
+      slideTarget: true, 
+      llmContext: true,
+      materials: { select: { id: true } }
+    },
   });
   if (!course) return { ok: false, error: "Curso no encontrado." };
 
@@ -52,6 +61,8 @@ export async function treeAgentChatAction(
     tree: treeRead.tree,
     history,
     slideTarget: course.slideTarget ?? null,
+    llmContext: course.llmContext,
+    materialIds: course.materials.map((m) => m.id),
   });
 
   // 2. Execute each action through TreeService (same path as manual edits).

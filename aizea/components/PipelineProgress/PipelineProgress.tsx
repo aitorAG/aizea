@@ -24,6 +24,7 @@
 
 import { Check, Circle, AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 import {
   usePipelineStore,
   type JobInfo,
@@ -32,30 +33,30 @@ import type { PipelinePhase } from "@/lib/types/pipeline";
 
 interface PhaseDescriptor {
   id: PipelinePhase;
-  label: string;
-  description: string;
+  labelKey: `pipeline.phases.${"segmentation" | "extraction" | "integration" | "treeBuilding"}.label`;
+  descriptionKey: `pipeline.phases.${"segmentation" | "extraction" | "integration" | "treeBuilding"}.description`;
 }
 
 const PHASES: PhaseDescriptor[] = [
   {
     id: "segmentation",
-    label: "Segmentando",
-    description: "Dividimos el documento en unidades semánticas.",
+    labelKey: "pipeline.phases.segmentation.label",
+    descriptionKey: "pipeline.phases.segmentation.description",
   },
   {
     id: "extraction",
-    label: "Extrayendo",
-    description: "Identificamos conceptos, fórmulas y figuras.",
+    labelKey: "pipeline.phases.extraction.label",
+    descriptionKey: "pipeline.phases.extraction.description",
   },
   {
     id: "integration",
-    label: "Integrando",
-    description: "Agrupamos conceptos en temas cohesivos.",
+    labelKey: "pipeline.phases.integration.label",
+    descriptionKey: "pipeline.phases.integration.description",
   },
   {
     id: "tree-building",
-    label: "Jerarquizando",
-    description: "Construimos el árbol conceptual del curso.",
+    labelKey: "pipeline.phases.treeBuilding.label",
+    descriptionKey: "pipeline.phases.treeBuilding.description",
   },
 ];
 
@@ -79,6 +80,7 @@ interface PhaseRowProps {
 }
 
 function PhaseRow({ descriptor, index, status, isLast }: PhaseRowProps) {
+  const t = useTranslations();
   const isActive = status === "active";
   const isCompleted = status === "completed";
 
@@ -128,16 +130,16 @@ function PhaseRow({ descriptor, index, status, isLast }: PhaseRowProps) {
               isActive ? "text-foreground" : "text-foreground/80"
             )}
           >
-            {descriptor.label}
+            {t(descriptor.labelKey)}
           </p>
           {isActive && (
             <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
-              En curso
+              {t("pipeline.status.inProgress")}
             </span>
           )}
           {isCompleted && (
             <span className="font-mono text-[10px] uppercase tracking-wider text-primary/70">
-              Hecho
+              {t("pipeline.status.done")}
             </span>
           )}
         </div>
@@ -147,7 +149,7 @@ function PhaseRow({ descriptor, index, status, isLast }: PhaseRowProps) {
             isActive ? "text-muted-foreground" : "text-muted-foreground/70"
           )}
         >
-          {descriptor.description}
+          {t(descriptor.descriptionKey)}
         </p>
       </div>
     </li>
@@ -179,10 +181,11 @@ function pickJob(jobs: Map<string, JobInfo>, jobId?: string | null): JobInfo | n
 }
 
 export function PipelineProgress({
-  title = "Pipeline estructural",
+  title,
   className,
   jobId = null,
 }: PipelineProgressProps) {
+  const t = useTranslations();
   const jobs = usePipelineStore((s) => s.jobs);
   const job = pickJob(jobs, jobId);
 
@@ -197,7 +200,7 @@ export function PipelineProgress({
 
   return (
     <section
-      aria-label="Progreso del pipeline"
+      aria-label={t("pipeline.ariaLabel")}
       data-testid="pipeline-progress"
       data-job-id={job?.jobId ?? null}
       className={cn(
@@ -208,21 +211,21 @@ export function PipelineProgress({
       <header className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold tracking-tight text-foreground">
-            {title}
+            {title ?? t("pipeline.title")}
           </h2>
           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             {isComplete
-              ? "Trabajo finalizado"
+              ? t("pipeline.status.finished")
               : isFailed
-                ? "Trabajo fallido"
+                ? t("pipeline.status.failedWork")
                 : job
-                  ? `Fase ${activeIdx + 1} de ${PHASES.length}`
-                  : "En espera"}
+                  ? t("pipeline.phaseOf", { current: activeIdx + 1, total: PHASES.length })
+                  : t("pipeline.status.waiting")}
           </p>
         </div>
         {isComplete && (
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
-            <Check className="h-3 w-3" /> Completado
+            <Check className="h-3 w-3" /> {t("pipeline.status.completed")}
           </span>
         )}
         {isFailed && (
@@ -230,7 +233,7 @@ export function PipelineProgress({
             data-testid="pipeline-progress-failed"
             className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-red-700"
           >
-            <AlertTriangle className="h-3 w-3" /> Error
+            <AlertTriangle className="h-3 w-3" /> {t("common.error")}
           </span>
         )}
       </header>
@@ -239,7 +242,7 @@ export function PipelineProgress({
       <div className="mb-5">
         <div className="mb-1.5 flex items-baseline justify-between">
           <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            {currentStep ?? (phase ? "Procesando..." : "Sin iniciar")}
+            {currentStep ?? (phase ? t("pipeline.status.processing") : t("pipeline.status.notStarted"))}
           </span>
           <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
             {Math.round(progress)}%
@@ -250,7 +253,7 @@ export function PipelineProgress({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress)}
-          aria-label="Progreso del pipeline"
+          aria-label={t("pipeline.ariaLabel")}
           className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
         >
           <div
@@ -288,7 +291,7 @@ export function PipelineProgress({
         >
           <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-destructive">
             <AlertTriangle className="h-3.5 w-3.5" />
-            Error
+            {t("common.error")}
           </div>
           <ul className="m-0 list-none space-y-1 p-0">
             <li className="font-mono text-xs leading-relaxed text-destructive/90">
@@ -302,7 +305,7 @@ export function PipelineProgress({
       {!job && (
         <div className="mt-3 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <Circle className="h-3.5 w-3.5" />
-          El pipeline se inicia al subir un nuevo material al curso.
+          {t("pipeline.emptyHint")}
         </div>
       )}
     </section>

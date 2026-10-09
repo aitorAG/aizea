@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { SlideCard } from "@/components/slide-card";
 import type { SlideOutline } from "@/lib/types";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface SortableSlideItemProps {
   slide: SlideOutline;
@@ -28,6 +29,7 @@ interface SortableSlideItemProps {
 }
 
 function SortableSlideItem({ slide, onEdit, onDelete }: SortableSlideItemProps) {
+  const t = useTranslations();
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: slide.id,
   });
@@ -43,7 +45,7 @@ function SortableSlideItem({ slide, onEdit, onDelete }: SortableSlideItemProps) 
         {...attributes}
         {...listeners}
         className="mt-1 cursor-grab rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors active:cursor-grabbing"
-        aria-label="Arrastrar para reordenar"
+        aria-label={t("slides.navigation")}
       >
         <GripVertical className="h-4 w-4" />
       </button>
@@ -51,6 +53,7 @@ function SortableSlideItem({ slide, onEdit, onDelete }: SortableSlideItemProps) 
         <SlideCard
           id={slide.id}
           order={slide.order}
+          numericPath={slide.numericPath}
           title={slide.title}
           description={slide.description}
           onEdit={onEdit}

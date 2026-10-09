@@ -23,6 +23,12 @@ export interface TreeFlowNodeData extends Record<string, unknown> {
   isLeaf: boolean;
   version: number;
   sourceMaterialId: string | null;
+  // v1.0 — hierarchical number (e.g. "1.2.3") computed via DFS
+  // pre-order on the tree. Displayed as a small, muted prefix next
+  // to the node name so the user can locate the node in the same
+  // numbering scheme used by the slides and exports. Optional
+  // because older trees (pre-numbering) may not carry it.
+  numericPath?: string;
   // Optional enrichment — the adapter fills these from the optional
   // counts argument so the tree can show concept/slide counts without
   // the renderer needing to do its own queries.
@@ -130,6 +136,12 @@ export function buildNodes(
       // (no children) and for roots that have no kids yet.
       childNames: childrenByParent.get(node.id) ?? [],
     };
+    // v1.0 — thread the hierarchical number through so the tile can
+    // render it as a prefix. Only set when present so the type stays
+    // `string | undefined` (never an empty string).
+    if (node.numericPath) {
+      data.numericPath = node.numericPath;
+    }
     if (enrichment) {
       data.conceptCount = enrichment.concepts;
       data.slideCount = enrichment.slides;

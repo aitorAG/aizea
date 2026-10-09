@@ -3,7 +3,7 @@
 // SlideNavigator — pure presentational component that lets the user jump
 // between slides WITHOUT going back to the index.
 //
-// F5.2 design contract (from docs/drafts/product-design/flujo-usuario.md):
+// F5.2 design contract (from .omo/drafts/product-design/flujo-usuario.md):
 //   - Dropdown showing all slides of the course
 //   - "Anterior" / "Siguiente" buttons
 //   - On change → invokes onNavigate(newSlideId) (parent does router.push)
@@ -28,13 +28,18 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render as rtlRender, screen, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SlideNavigator } from "@/components/slides/SlideNavigator";
+import { LocaleProvider } from "@/components/LocaleProvider";
 
 afterEach(() => {
   cleanup();
 });
+
+function render(node: React.ReactNode) {
+  return rtlRender(<LocaleProvider locale="es">{node}</LocaleProvider>);
+}
 
 const SLIDES = [
   { id: "s1", title: "Chumacera de camisa", order: 0 },
@@ -279,7 +284,7 @@ describe("<SlideNavigator /> — accessibility", () => {
     );
     const select = screen.getByTestId("slide-navigator-select");
     // Either an aria-label or a wrapping <label> with the text "Saltar a"
-    expect(select).toHaveAccessibleName(/saltar a/i);
+    expect(select).toHaveAccessibleName(/ir a diapositiva/i);
   });
 
   it("Anterior / Siguiente buttons expose the target slide in their accessible name", () => {

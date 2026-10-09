@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { getCourseStatus } from "@/lib/utils/course-status";
+import { getRequestLocale } from "@/lib/i18n-server";
+import { translate } from "@/lib/i18n";
 import { DashboardClient } from "./dashboard-client";
 
 export const revalidate = 60;
@@ -25,6 +27,7 @@ async function updateCourseName(id: string, name: string) {
 }
 
 export default async function DashboardPage() {
+  const locale = await getRequestLocale();
   const courses = await db.course.findMany({
     orderBy: { updatedAt: "desc" },
     include: {
@@ -60,7 +63,7 @@ export default async function DashboardPage() {
           <span className="text-primary">AI</span>zea
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Preparación de Materiales Docentes
+          {translate(locale, "appSubtitle")}
         </p>
       </div>
 

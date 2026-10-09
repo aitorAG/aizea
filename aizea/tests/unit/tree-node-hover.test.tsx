@@ -16,7 +16,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { screen, cleanup, fireEvent } from "@testing-library/react";
+import { render } from "@/tests/helpers/render-with-locale";
 import type * as React from "react";
 
 vi.mock("reactflow", () => ({

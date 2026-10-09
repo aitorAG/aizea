@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render as testingRender, screen, cleanup, fireEvent, waitFor, type RenderOptions } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { LocaleProvider } from "@/components/LocaleProvider";
 import userEvent from "@testing-library/user-event";
+function render(ui: ReactElement, options?: RenderOptions) {
+  return testingRender(ui, {
+    ...options,
+    wrapper: ({ children }) => <LocaleProvider locale="es">{children}</LocaleProvider>,
+  });
+}
 
 // Mock the server actions so handler tests can control the action
 // lifecycle (add ids to pending → assert → resolve → assert cleared).
@@ -176,6 +184,7 @@ const mockNodes: TopicNode[] = [
     isLeaf: false,
     version: 1,
     sourceMaterialId: null,
+    sourceMaterialIds: [],
     createdAt: "2024-01-01T00:00:00Z",
     updatedAt: "2024-01-01T00:00:00Z",
   },
@@ -192,6 +201,7 @@ const mockNodes: TopicNode[] = [
     isLeaf: true,
     version: 1,
     sourceMaterialId: null,
+    sourceMaterialIds: [],
     createdAt: "2024-01-01T00:00:00Z",
     updatedAt: "2024-01-01T00:00:00Z",
   },
@@ -208,6 +218,7 @@ const mockNodes: TopicNode[] = [
     isLeaf: true,
     version: 1,
     sourceMaterialId: null,
+    sourceMaterialIds: [],
     createdAt: "2024-01-01T00:00:00Z",
     updatedAt: "2024-01-01T00:00:00Z",
   },
@@ -224,6 +235,7 @@ const mockNodes: TopicNode[] = [
     isLeaf: true,
     version: 1,
     sourceMaterialId: null,
+    sourceMaterialIds: [],
     createdAt: "2024-01-01T00:00:00Z",
     updatedAt: "2024-01-01T00:00:00Z",
   },
@@ -646,7 +658,7 @@ describe("<TreeViewer />", () => {
 
   it("shows an empty-state message when there are no nodes", () => {
     render(<TreeViewer nodes={[]} onChange={() => {}} />);
-    expect(screen.getByText(/[áa]rbol.*(vac[íi]o|est[áa])/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /sin árbol conceptual/i })).toBeInTheDocument();
   });
 
   it("clears the selection on Escape", async () => {
