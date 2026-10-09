@@ -129,6 +129,14 @@ export function TreePageClient({
   // lives in the parent layout, not in this React tree) without
   // needing a context.
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // UX — progressive disclosure of the structural-editing toolbar
+  // (Podar / Unir / Dividir / Eliminar / Añadir…). Off by default so
+  // first-time users see a focused "select → generate" toolbar; power
+  // users flip "Edición manual" when they need to restructure.
+  const [manualEditing, setManualEditing] = useState(false);
+  const handleToggleManualEditing = useCallback(() => {
+    setManualEditing((prev) => !prev);
+  }, []);
   const handleToggleFullscreen = useCallback(() => {
     setIsFullscreen((prev) => !prev);
   }, []);
@@ -961,6 +969,8 @@ export function TreePageClient({
               // v1.9 / Issue 3 — disable the toolbar's button
               // while the in-flight server action runs.
               busy={generatingSlidesOnly}
+              manualEditing={manualEditing}
+              onToggleManualEditing={handleToggleManualEditing}
             />
           </div>
           {/* v1.5 / Task 3.2 — hide the PipelineProgress sidebar in
@@ -1002,6 +1012,8 @@ export function TreePageClient({
               isFullscreen={isFullscreen}
               onToggleFullscreen={handleToggleFullscreen}
               busy={generatingSlidesOnly}
+              manualEditing={manualEditing}
+              onToggleManualEditing={handleToggleManualEditing}
             />
           </div>
           {chatOpen && !isFullscreen && (

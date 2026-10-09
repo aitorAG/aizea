@@ -11,7 +11,7 @@ import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "@prisma/client";
 
-const EVIDENCE_DIR = join(process.cwd(), ".test-artifacts", "evidence", "add-root-fix");
+const EVIDENCE_DIR = join(process.cwd(), ".omo", "evidence", "add-root-fix");
 if (!existsSync(EVIDENCE_DIR)) mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 const SERVER = "http://localhost:3000";

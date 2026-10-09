@@ -59,6 +59,7 @@ import {
   Pencil,
   Maximize2,
   Minimize2,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -122,6 +123,20 @@ interface TreeControlsProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   busy?: boolean;
+  /**
+   * UX — progressive disclosure. When the parent supplies
+   * `onToggleManualEditing`, the manual-mutation buttons (Podar, Unir,
+   * Dividir, Editar, Añadir hijo, Eliminar, Añadir raíz) are HIDDEN
+   * unless `manualEditing` is true, and a toggle button shows in their
+   * place. This keeps the first-run toolbar focused on the happy path
+   * (select → generate) instead of confronting new users with seven
+   * structural operations.
+   *
+   * When the prop is omitted (legacy callers / tests) every button stays
+   * visible — behaviour unchanged.
+   */
+  manualEditing?: boolean;
+  onToggleManualEditing?: () => void;
 }
 
 export function TreeControls({
@@ -141,7 +156,13 @@ export function TreeControls({
   isFullscreen = false,
   onToggleFullscreen,
   busy = false,
+  manualEditing = true,
+  onToggleManualEditing,
 }: TreeControlsProps) {
+  // Progressive disclosure only kicks in when the parent opts in by
+  // passing the toggle handler. Otherwise we render everything.
+  const gateManualActions = typeof onToggleManualEditing === "function";
+  const showManualActions = !gateManualActions || manualEditing;
   const hasSelection = selectedCount > 0;
   const singleSelection = selectedCount === 1;
   // F4.1 — "all selected" means every node in the tree is in the
@@ -218,89 +239,115 @@ export function TreeControls({
         Limpiar
       </Button>
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onPrune}
-        disabled={!hasSelection || busy}
-        aria-label="Podar seleccionados"
-        title="Eliminar nodos sin hijos (Podar)"
-      >
-        <Scissors className="h-3.5 w-3.5" />
-        Podar
-      </Button>
+      {/* UX — progressive disclosure toggle. When the parent opts in,
+          the structural-editing actions below are collapsed behind this
+          switch so first-time users see a focused toolbar. */}
+      {gateManualActions && (
+        <Button
+          type="button"
+          variant={manualEditing ? "default" : "outline"}
+          size="sm"
+          onClick={onToggleManualEditing}
+          aria-pressed={manualEditing}
+          title={
+            manualEditing
+              ? "Ocultar las herramientas de edición manual (Podar, Unir, Dividir…)"
+              : "Mostrar las herramientas de edición manual del árbol"
+          }
+          data-testid="toggle-manual-editing"
+        >
+          <Wrench className="h-3.5 w-3.5" />
+          Edición manual
+        </Button>
+      )}
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onMerge}
-        disabled={selectedCount < 2 || busy}
-        aria-label="Unir seleccionados"
-        title="Combinar varios nodos en uno (Unir)"
-      >
-        <GitMerge className="h-3.5 w-3.5" />
-        Unir
-      </Button>
+      {showManualActions && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onPrune}
+            disabled={!hasSelection || busy}
+            aria-label="Podar seleccionados"
+            title="Eliminar nodos sin hijos (Podar)"
+          >
+            <Scissors className="h-3.5 w-3.5" />
+            Podar
+          </Button>
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onSplit}
-        disabled={!singleSelection || busy}
-        aria-label="Dividir nodo"
-        title="Dividir el nodo en dos (Dividir)"
-      >
-        <Scissors className="h-3.5 w-3.5 rotate-90" />
-        Dividir
-      </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onMerge}
+            disabled={selectedCount < 2 || busy}
+            aria-label="Unir seleccionados"
+            title="Combinar varios nodos en uno (Unir)"
+          >
+            <GitMerge className="h-3.5 w-3.5" />
+            Unir
+          </Button>
 
-      {/* v1.5 / Task 3.1 — open the edit modal for the single
-          selected node. Disabled when the selection set is not
-          exactly one element (same predicate as "Dividir" /
-          "Añadir hijo"). The button is a thin wrapper: the actual
-          modal lives in the parent. */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onEdit}
-        disabled={!singleSelection || busy}
-        aria-label="Editar nodo seleccionado"
-        title="Editar el nombre o la descripción del nodo (Editar)"
-        data-testid="edit-selected"
-      >
-        <Pencil className="h-3.5 w-3.5" />
-        Editar
-      </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onSplit}
+            disabled={!singleSelection || busy}
+            aria-label="Dividir nodo"
+            title="Dividir el nodo en dos (Dividir)"
+          >
+            <Scissors className="h-3.5 w-3.5 rotate-90" />
+            Dividir
+          </Button>
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onAddChild}
-        disabled={!singleSelection || busy}
-        aria-label="Añadir hijo"
-        title="Añadir un nodo hijo al seleccionado"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Añadir hijo
-      </Button>
+          {/* v1.5 / Task 3.1 — open the edit modal for the single
+              selected node. Disabled when the selection set is not
+              exactly one element (same predicate as "Dividir" /
+              "Añadir hijo"). The button is a thin wrapper: the actual
+              modal lives in the parent. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onEdit}
+            disabled={!singleSelection || busy}
+            aria-label="Editar nodo seleccionado"
+            title="Editar el nombre o la descripción del nodo (Editar)"
+            data-testid="edit-selected"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Editar
+          </Button>
 
-      <Button
-        type="button"
-        variant="destructive"
-        size="sm"
-        onClick={onDelete}
-        disabled={!hasSelection || busy}
-        aria-label="Eliminar seleccionados"
-        title="Eliminar los nodos seleccionados"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-        Eliminar
-      </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onAddChild}
+            disabled={!singleSelection || busy}
+            aria-label="Añadir hijo"
+            title="Añadir un nodo hijo al seleccionado"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Añadir hijo
+          </Button>
+
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={onDelete}
+            disabled={!hasSelection || busy}
+            aria-label="Eliminar seleccionados"
+            title="Eliminar los nodos seleccionados"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Eliminar
+          </Button>
+        </>
+      )}
 
       <div className="ml-auto flex items-center gap-1.5">
         {onGenerateAllSlides && (
@@ -320,18 +367,20 @@ export function TreeControls({
 Generar diapositivas
           </Button>
         )}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onAddRoot}
-          disabled={busy}
-          aria-label="Añadir raíz"
-          title="Añadir un nuevo capítulo raíz"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Añadir raíz
-        </Button>
+        {showManualActions && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onAddRoot}
+            disabled={busy}
+            aria-label="Añadir raíz"
+            title="Añadir un nuevo capítulo raíz"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Añadir raíz
+          </Button>
+        )}
         {/* v1.5 / Task 3.2 — fullscreen toggle. Sits next to
             "Añadir raíz" so it lives in the right-hand cluster of
             view-only actions. The icon flips between Maximize2

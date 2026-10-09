@@ -23,7 +23,7 @@ import { mkdirSync, existsSync, statSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "@prisma/client";
 
-const EVIDENCE_DIR = join(process.cwd(), ".test-artifacts", "evidence", "fix-upload-rca");
+const EVIDENCE_DIR = join(process.cwd(), ".omo", "evidence", "fix-upload-rca");
 if (!existsSync(EVIDENCE_DIR)) mkdirSync(EVIDENCE_DIR, { recursive: true });
 const SCREENSHOT_DIR = EVIDENCE_DIR;
 const REPORT_PATH = join(EVIDENCE_DIR, "REPORT.json");

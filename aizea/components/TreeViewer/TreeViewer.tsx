@@ -159,6 +159,15 @@ interface TreeViewerProps {
   busy?: boolean;
   /** v1.5 / Task 3.2 — toggles the parent's fullscreen state. */
   onToggleFullscreen?: () => void;
+  /**
+   * UX — progressive disclosure of the manual structural-editing
+   * toolbar (Podar / Unir / Dividir / Editar / Añadir hijo / Eliminar /
+   * Añadir raíz). When the toggle callback is provided, those buttons
+   * are hidden until `manualEditing` is true. Omitted → legacy
+   * behaviour with all buttons visible.
+   */
+  manualEditing?: boolean;
+  onToggleManualEditing?: () => void;
 }
 
 /**
@@ -208,6 +217,8 @@ export function TreeViewer({
   // v1.9 / Issue 3 — see the prop doc above. Defaults to `false`
   // so older callers (e.g. tests) keep working unchanged.
   busy = false,
+  manualEditing,
+  onToggleManualEditing,
 }: TreeViewerProps) {
   const adapter = useTreeAdapter(nodes, {
     counts,
@@ -598,6 +609,8 @@ export function TreeViewer({
           // to the toolbar so the "Generar diapositivas" button
           // can disable itself while the server action runs.
           busy={busy}
+          manualEditing={manualEditing}
+          onToggleManualEditing={onToggleManualEditing}
         />
       </div>
 

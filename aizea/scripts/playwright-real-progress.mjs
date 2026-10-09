@@ -12,8 +12,8 @@
 //      100% as bytes stream.
 //
 // Run: node scripts/playwright-real-progress.mjs
-// Saves: .test-artifacts/evidence/v1.5/wave-1/1.6-real-progress.png
-//        .test-artifacts/evidence/v1.5/wave-1/1.6-real-progress-frames.png
+// Saves: .omo/evidence/v1.5/wave-1/1.6-real-progress.png
+//        .omo/evidence/v1.5/wave-1/1.6-real-progress-frames.png
 
 import { chromium } from "playwright";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -22,7 +22,7 @@ import { dirname, join } from "node:path";
 const COURSE_ID = "7a00a748-9aea-4b77-bc2e-2834e4313538";
 const BASE_URL = "http://localhost:3000";
 const MATERIALS_URL = `${BASE_URL}/courses/${COURSE_ID}/materials`;
-const OUT_DIR = ".test-artifacts/evidence/v1.5/wave-1";
+const OUT_DIR = ".omo/evidence/v1.5/wave-1";
 const OUT_FINAL = join(OUT_DIR, "1.6-real-progress.png");
 const OUT_FRAMES = join(OUT_DIR, "1.6-real-progress-frames.png");
 const OUT_LOG = join(OUT_DIR, "1.6-capture.log");

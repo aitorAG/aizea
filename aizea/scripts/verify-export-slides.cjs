@@ -14,7 +14,7 @@ const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
 
-const EVIDENCE = path.resolve(__dirname, "..", ".test-artifacts", "evidence", "export-slides");
+const EVIDENCE = path.resolve(__dirname, "..", ".omo", "evidence", "export-slides");
 const SCREENSHOTS = path.join(EVIDENCE, "screenshots");
 const EXPORTS = path.join(EVIDENCE, "exports");
 for (const d of [SCREENSHOTS, EXPORTS]) fs.mkdirSync(d, { recursive: true });
