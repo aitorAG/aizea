@@ -1,106 +1,106 @@
-# Módulos y carpetas
+# Modules and folders
 
-[◄ Índice](./README.md) · Anterior: [Arquitectura](./README.ARCHITECTURE.md) · Siguiente: [Pipeline ►](./README.PIPELINE.md)
+[◄ Index](./README.md) · Previous: [Architecture](./README.ARCHITECTURE.md) · Next: [Pipeline ►](./README.PIPELINE.md)
 
-Referencia de cada directorio del proyecto y sus responsabilidades.
+Reference for each project directory and its responsibilities.
 
 ---
 
 ## `app/` — Next.js App Router
 
-Páginas de UI (React Server/Client Components) + rutas API REST.
+UI pages (React Server/Client Components) + REST API routes.
 
-### Páginas
+### Pages
 
-| Ruta | Fichero | Función |
+| Route | File | Function |
 |---|---|---|
-| `/` | `app/page.tsx` | Home: lista de cursos |
-| `/courses/[id]` | `app/courses/[id]/page.tsx` | Vista del curso (layout con `layout.tsx`) |
-| `/courses/[id]/materials` | `.../materials/page.tsx` | Materiales (PDFs) del curso |
-| `/courses/[id]/tree` | `.../tree/page.tsx` | Árbol conceptual (TreeViewer) |
-| `/courses/[id]/slides` | `.../slides/page.tsx` | Lista de diapositivas |
-| `/courses/[id]/slides/[slideId]` | `.../slides/[slideId]/page.tsx` | Editor de diapositiva |
-| `/courses/[id]/figures` | `.../figures/page.tsx` | Figuras extraídas |
-| `/jobs` | `app/jobs/page.tsx` | Panel de trabajos del pipeline |
-| `/settings` | `app/settings/page.tsx` | Configuración (API key, modelos) |
+| `/` | `app/page.tsx` | Home: course list |
+| `/courses/[id]` | `app/courses/[id]/page.tsx` | Course view (layout with `layout.tsx`) |
+| `/courses/[id]/materials` | `.../materials/page.tsx` | Course materials (PDFs) |
+| `/courses/[id]/tree` | `.../tree/page.tsx` | Concept tree (TreeViewer) |
+| `/courses/[id]/slides` | `.../slides/page.tsx` | Slide list |
+| `/courses/[id]/slides/[slideId]` | `.../slides/[slideId]/page.tsx` | Slide editor |
+| `/courses/[id]/figures` | `.../figures/page.tsx` | Extracted figures |
+| `/jobs` | `app/jobs/page.tsx` | Pipeline jobs panel |
+| `/settings` | `app/settings/page.tsx` | Settings (API key, models) |
 
-### Rutas API — ver [API y acciones](./README.API.md) para contratos completos.
+### API routes — see [API and actions](./README.API.md) for complete contracts.
 
 ---
 
-## `lib/` — núcleo (arquitectura hexagonal)
+## `lib/` — core (hexagonal architecture)
 
-### `lib/domain/` — lógica de negocio pura
+### `lib/domain/` — pure business logic
 
-| Subcarpeta | Contenido |
+| Subdirectory | Contents |
 |---|---|
-| `pipeline/` | `SegmenterService`, `UnitExtractor`, `ConceptIntegrator`, `IncrementalMerger`, `TreeBuilder` — las fases del pipeline |
-| `rag/` | `RAGEngine`, `TextChunker` — búsqueda semántica |
-| `pdf/` | `PDFService`, `LayoutParser` — extracción de texto/estructura |
-| `figures/` | `FigureExtractor`, `figure-references` — extracción de imágenes |
-| `prompts/` | `PromptManager` + `templates/` — plantillas de prompts LLM |
-| `entities/` | `course`, `material` — entidades de dominio |
+| `pipeline/` | `SegmenterService`, `UnitExtractor`, `ConceptIntegrator`, `IncrementalMerger`, `TreeBuilder` — pipeline phases |
+| `rag/` | `RAGEngine`, `TextChunker` — semantic search |
+| `pdf/` | `PDFService`, `LayoutParser` — text/structure extraction |
+| `figures/` | `FigureExtractor`, `figure-references` — image extraction |
+| `prompts/` | `PromptManager` + `templates/` — LLM prompt templates |
+| `entities/` | `course`, `material` — domain entities |
 | `utils/` | `image-compressor`, `latex-renderer` |
-| `ai/` | `llm-error` — errores de dominio del LLM |
+| `ai/` | `llm-error` — LLM domain errors |
 
-### `lib/application/` — casos de uso + puertos
+### `lib/application/` — use cases + ports
 
-| Elemento | Función |
+| Element | Function |
 |---|---|
-| `ports/` | **Interfaces** (24 puertos): `I*Repository`, `I*Provider`, `IJobQueue`, `IPipeline`, `INotifier`… |
-| `use-cases/process-course.use-case.ts` | Orquesta el pipeline completo de un curso |
-| `use-cases/upload-material.use-case.ts` | Sube y parsea un PDF |
-| `CourseService` · `SlideService` · `SlideCrudService` · `SlideBoxService` · `SlideGenerationService` · `TreeService` · `ExportService` | Servicios de aplicación |
-| `health.ts` | Lógica de readiness (testeable, sin Next) |
+| `ports/` | **Interfaces** (24 ports): `I*Repository`, `I*Provider`, `IJobQueue`, `IPipeline`, `INotifier`… |
+| `use-cases/process-course.use-case.ts` | Orchestrates the complete course pipeline |
+| `use-cases/upload-material.use-case.ts` | Uploads and parses a PDF |
+| `CourseService` · `SlideService` · `SlideCrudService` · `SlideBoxService` · `SlideGenerationService` · `TreeService` · `ExportService` | Application services |
+| `health.ts` | Readiness logic (testable, without Next) |
 
-### `lib/infrastructure/` — adaptadores concretos
+### `lib/infrastructure/` — concrete adapters
 
-| Subcarpeta | Contenido |
+| Subdirectory | Contents |
 |---|---|
-| `persistence/` | ~15 `Prisma*Repository` — implementan los puertos de repositorio |
+| `persistence/` | ~15 `Prisma*Repository` — implement repository ports |
 | `ai/` | `OpenRouterLLMProvider`, `OpenRouterEmbeddingProvider`, `llm-client`, `openrouter-breakers`, `embedding-service` |
 | `rag/` | `LanceDBVectorStore`, `rag-engine.factory` |
 | `queue/` | `PrismaJobQueue`, `PipelineWorker`, `worker-bootstrap`, `SlideGenerationQueue` |
-| `pipeline/` | `PipelineService` — implementa `IPipeline` |
+| `pipeline/` | `PipelineService` — implements `IPipeline` |
 | `pdf/` | `pdf-render.service`, `pdf-service-tauri` |
-| `crypto/` | `secret-cipher` — cifrado AES-256-GCM de la API key |
+| `crypto/` | `secret-cipher` — AES-256-GCM encryption for the API key |
 | `notifications/` | `InAppNotifier` |
 | `figures/` | `figure-store` |
-| raíz | `circuit-breaker`, `retry`, `errors` — utilidades transversales |
+| root | `circuit-breaker`, `retry`, `errors` — cross-cutting utilities |
 
-### Otras carpetas de `lib/`
+### Other `lib/` directories
 
-| Carpeta | Función |
+| Folder | Function |
 |---|---|
-| `composition/` | `container.ts` — inyección de dependencias (único punto de cableado) |
-| `actions/` | Server actions de Next (`course`, `slide`, `pipeline`, `settings`, `tree`, `figure`, `box`, `material`, `generate`, `export`…) |
-| `client/` | `api-client.ts` — data-layer tipado con caché |
+| `composition/` | `container.ts` — dependency injection (single wiring point) |
+| `actions/` | Next server actions (`course`, `slide`, `pipeline`, `settings`, `tree`, `figure`, `box`, `material`, `generate`, `export`…) |
+| `client/` | `api-client.ts` — typed data layer with caching |
 | `stores/` | Zustand: `usePipelineStore`, `useCourseStore`, `useUIStore`, `useJobsUIStore`, `useGenerationStore`, `useSlideGenerationStore` |
-| `types/` | Tipos compartidos (`CourseSummary`, `pipeline`, `slide`…) |
-| `adapters/` · `utils/` | Adaptadores y utilidades auxiliares |
+| `types/` | Shared types (`CourseSummary`, `pipeline`, `slide`…) |
+| `adapters/` · `utils/` | Supporting adapters and utilities |
 
 ---
 
-## `components/` — componentes React
+## `components/` — React components
 
-| Subcarpeta | Contenido |
+| Subdirectory | Contents |
 |---|---|
-| `course/` | Componentes de la vista de curso (checkpoint bar, iconos de estado…) |
-| `slides/` | Editor y render de diapositivas |
-| `TreeViewer/` | Visor del árbol conceptual (ReactFlow + dagre) |
-| `PipelineProgress/` | `GlobalPipelineBanner` — banner de progreso del pipeline |
-| `ErrorBoundary/` | Error boundary reutilizable |
-| `ui/` | Primitivas de UI (estilo shadcn: botones, inputs…) |
+| `course/` | Course-view components (checkpoint bar, status icons…) |
+| `slides/` | Slide editor and renderer |
+| `TreeViewer/` | Concept-tree viewer (ReactFlow + dagre) |
+| `PipelineProgress/` | `GlobalPipelineBanner` — pipeline progress banner |
+| `ErrorBoundary/` | Reusable error boundary |
+| `ui/` | UI primitives (shadcn style: buttons, inputs…) |
 
 ---
 
-## `src-tauri/` — shell de escritorio (Rust)
+## `src-tauri/` — desktop shell (Rust)
 
-| Fichero | Función |
+| File | Function |
 |---|---|
-| `src/lib.rs` | Entry point: supervisión del sidecar Node, health-poll, menús, comandos |
-| `src/main.rs` | Arranque |
-| `src/pdf_parser.rs` | Parser PDF nativo (comando `extract_pdf`) |
+| `src/lib.rs` | Entry point: Node sidecar supervision, health polling, menus, commands |
+| `src/main.rs` | Startup |
+| `src/pdf_parser.rs` | Native PDF parser (`extract_pdf` command) |
 | `tauri.conf.json` | Config: ventana, bundle MSI/NSIS, sidecar |
 | `capabilities/default.json` | Permisos de plugins |
 | `Cargo.toml` | Dependencias Rust |
@@ -109,10 +109,10 @@ Páginas de UI (React Server/Client Components) + rutas API REST.
 
 ## `prisma/`, `scripts/`, `tests/`
 
-- **`prisma/`** — `schema.prisma` (13 modelos), `migrations/`, `dev.db`. Ver [Datos](./README.DATA.md).
-- **`scripts/`** — `start-local.cjs`, `build-msi.cjs`, `wal-checkpoint.cjs`, `check-docling.cjs` + utilidades de QA/inspección.
-- **`tests/`** — 83 ficheros (unit + integration). Ver [Testing](./README.TESTING.md).
+- **`prisma/`** — `schema.prisma` (13 models), `migrations/`, `dev.db`. See [Data](./README.DATA.md).
+- **`scripts/`** — `start-local.cjs`, `build-msi.cjs`, `wal-checkpoint.cjs`, `check-docling.cjs` + QA/inspection utilities.
+- **`tests/`** — 83 files (unit + integration). See [Testing](./README.TESTING.md).
 
 ---
 
-[◄ Índice](./README.md) · Anterior: [Arquitectura](./README.ARCHITECTURE.md) · Siguiente: [Pipeline ►](./README.PIPELINE.md)
+[◄ Index](./README.md) · Previous: [Architecture](./README.ARCHITECTURE.md) · Next: [Pipeline ►](./README.PIPELINE.md)

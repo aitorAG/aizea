@@ -1,84 +1,84 @@
-# Datos y persistencia
+# Data and persistence
 
-[◄ Índice](./README.md) · Anterior: [API](./README.API.md) · Siguiente: [Testing ►](./README.TESTING.md)
+[◄ Index](./README.md) · Previous: [API](./README.API.md) · Next: [Testing ►](./README.TESTING.md)
 
-Modelos de datos, almacenes y cómo se resuelve la configuración.
+Data models, stores, and configuration resolution.
 
 ---
 
-## Dos almacenes
+## Two stores
 
-| Almacén | Tecnología | Contenido | Ubicación |
+| Store | Technology | Contents | Location |
 |---|---|---|---|
-| **Relacional** | SQLite + Prisma | Cursos, materiales, slides, árbol, jobs, settings | dev: `prisma/dev.db` · escritorio: `%APPDATA%\AIzea\db.sqlite` |
-| **Vectorial** | LanceDB | Embeddings para RAG (búsqueda semántica) | dev: `lancedb-data/` · escritorio: `%APPDATA%\AIzea\lancedb-data\` |
+| **Relational** | SQLite + Prisma | Courses, materials, slides, tree, jobs, settings | dev: `prisma/dev.db` · desktop: `%APPDATA%\AIzea\db.sqlite` |
+| **Vector** | LanceDB | Embeddings for RAG (semantic search) | dev: `lancedb-data/` · desktop: `%APPDATA%\AIzea\lancedb-data\` |
 
 Los uploads de PDF van a `public/uploads/` (dev) o `%APPDATA%\AIzea\uploads\` (escritorio).
 
 ---
 
-## Modelos Prisma
+## Prisma models
 
-Definidos en [`prisma/schema.prisma`](./prisma/schema.prisma). 13 modelos:
+Defined in [`prisma/schema.prisma`](./prisma/schema.prisma). 13 models:
 
-### Contenido del curso
+### Course content
 
-| Modelo | Descripción | Relaciones |
+| Model | Description | Relations |
 |---|---|---|
-| **Course** | Curso raíz. Tiene `llmContext` opcional | → materials, slides, figures, topicNodes, topicGroups |
-| **Material** | PDF subido (el `content` está deprecado en favor de `TextChunk`) | → course, textChunks, semanticUnits |
-| **TextChunk** | Fragmento de material con `embedding` opcional (para RAG) | → material |
-| **Figure** | Imagen extraída del PDF (`caption`, `pageNum`, `tags`) | → course |
+| **Course** | Root course. Has optional `llmContext` | → materials, slides, figures, topicNodes, topicGroups |
+| **Material** | Uploaded PDF (`content` is deprecated in favor of `TextChunk`) | → course, textChunks, semanticUnits |
+| **TextChunk** | Material fragment with optional `embedding` (for RAG) | → material |
+| **Figure** | Image extracted from the PDF (`caption`, `pageNum`, `tags`) | → course |
 
-### Diapositivas
+### Slides
 
-| Modelo | Descripción | Relaciones |
+| Model | Description | Relations |
 |---|---|---|
-| **Slide** | Diapositiva (`title`, `description`, `order`) | → course, boxes |
-| **SlideBox** | Caja de contenido de una slide (`type`: guion/relevancia/narrativa/ejercicios) | → slide |
+| **Slide** | Slide (`title`, `description`, `order`) | → course, boxes |
+| **SlideBox** | Slide content box (`type`: script/relevance/narrative/exercises) | → slide |
 
-### Árbol conceptual
+### Concept tree
 
-| Modelo | Descripción | Relaciones |
+| Model | Description | Relations |
 |---|---|---|
-| **SemanticUnit** | Unidad semántica extraída de un material (`order`, `pageStart`) | → material, representation |
-| **UnitRepresentation** | Representación estructurada de una unidad (`concepts`, `mainIdeas`, `formulas` como JSON) | → unit (1:1) |
-| **TopicNode** | Nodo del árbol conceptual; auto-relación `parent`/`children` (relación `"TopicTree"`) | → course, parent, children |
-| **TopicGroup** | Agrupación de temas (`importance`) | → course |
+| **SemanticUnit** | Semantic unit extracted from material (`order`, `pageStart`) | → material, representation |
+| **UnitRepresentation** | Structured unit representation (`concepts`, `mainIdeas`, `formulas` as JSON) | → unit (1:1) |
+| **TopicNode** | Concept-tree node; `parent`/`children` self-relation (`"TopicTree"`) | → course, parent, children |
+| **TopicGroup** | Topic grouping (`importance`) | → course |
 
 ### Sistema
 
-| Modelo | Descripción |
+| Model | Description |
 |---|---|
-| **Settings** | Singleton (`id="default"`): `openrouterApiKey` (cifrada — ver [Seguridad](./README.SECURITY.md)), `chatModel`, `embedModel`, `doclingBaseUrl` |
-| **ProcessingJob** | Job del pipeline: `type`, `status`, `progress`, `total`, `currentStep`. Con `type="pipeline-run"` es la fila meta de la cola (ver [Pipeline](./README.PIPELINE.md)) |
+| **Settings** | Singleton (`id="default"`): `openrouterApiKey` (encrypted — see [Security](./README.SECURITY.md)), `chatModel`, `embedModel`, `doclingBaseUrl` |
+| **ProcessingJob** | Pipeline job: `type`, `status`, `progress`, `total`, `currentStep`. With `type="pipeline-run"`, it is the queue meta row (see [Pipeline](./README.PIPELINE.md)) |
 
 ---
 
-## Migraciones
+## Migrations
 
 En [`prisma/migrations/`](./prisma/migrations/):
 
 - `20260711161501_add_pipeline_tables`
 - `20260711200000_add_topic_group_table`
 
-> Los tests reconstruyen la DB **replayando el SQL** de la migración de pipeline. Por eso la cola reusa `ProcessingJob` en vez de crear una tabla nueva (una tabla nueva rompería ese replay). Ver [Testing](./README.TESTING.md).
+> Tests rebuild the DB by **replaying the SQL** from the pipeline migration. Therefore the queue reuses `ProcessingJob` instead of creating a new table (a new table would break that replay). See [Testing](./README.TESTING.md).
 
-### Comandos
+### Commands
 
-| Comando | Función |
+| Command | Function |
 |---|---|
 | `pnpm db:generate` | Regenera el cliente Prisma |
-| `pnpm db:push` | Sincroniza el schema con la DB (sin migración formal) |
+| `pnpm db:push` | Synchronizes the schema with the DB (without a formal migration) |
 | `pnpm db:studio` | Inspector visual (Prisma Studio) |
 
 ---
 
-## Resolución de configuración
+## Configuration resolution
 
 [`lib/config-service.ts`](./lib/config-service.ts) resuelve los valores con precedencia **DB > env > defaults**:
 
-1. Fila `Settings` (id `"default"`) si tiene valor no vacío.
+1. `Settings` row (`id="default"`) if it has a non-empty value.
 2. `process.env` (`OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_EMBED_MODEL`, `DOCLING_BASE_URL`).
 3. Defaults integrados (`deepseek/deepseek-chat`, `openai/text-embedding-3-small`, `http://127.0.0.1:5001`).
 
@@ -88,10 +88,10 @@ En [`prisma/migrations/`](./prisma/migrations/):
 
 ---
 
-## SQLite y WAL (relevante para el build)
+## SQLite and WAL (relevant to the build)
 
-SQLite usa modo **WAL** por defecto: cambios recientes de schema viven en el fichero `-wal` junto a `dev.db`. El build de escritorio hace un **WAL checkpoint** ([`scripts/wal-checkpoint.cjs`](./scripts/wal-checkpoint.cjs)) **antes** de copiar la DB semilla, para no perder tablas/columnas. Ver [Compilar](./README.BUILD.md).
+SQLite uses **WAL** mode by default: recent schema changes live in the `-wal` file next to `dev.db`. The desktop build performs a **WAL checkpoint** ([`scripts/wal-checkpoint.cjs`](./scripts/wal-checkpoint.cjs)) **before** copying the seeded DB, preventing tables or columns from being lost. See [Build](./README.BUILD.md).
 
 ---
 
-[◄ Índice](./README.md) · Anterior: [API](./README.API.md) · Siguiente: [Testing ►](./README.TESTING.md)
+[◄ Index](./README.md) · Previous: [API](./README.API.md) · Next: [Testing ►](./README.TESTING.md)

@@ -1,88 +1,88 @@
 # AIzea
 
-> Plataforma de escritorio (Tauri + Next.js) que transforma PDFs de material didáctico en **árboles conceptuales** y **diapositivas** generadas con IA, con búsqueda semántica (RAG) local.
+> Desktop platform (Tauri + Next.js) that transforms teaching PDFs into AI-generated **concept trees** and **slides**, with local semantic search (RAG).
 
-**Versión:** 0.2.0 · **Stack:** Next.js 15 · React 19 · TypeScript · Prisma/SQLite · LanceDB · Tauri 2 (Rust) · Zustand · Tailwind
+**Version:** 0.19.2 · **Stack:** Next.js 15 · React 19 · TypeScript · Prisma/SQLite · LanceDB · Tauri 2 (Rust) · Zustand · Tailwind
 
 ---
 
-## Wiki — índice navegable
+## Wiki — navigable index
 
-Esta wiki está partida en varias páginas. Empieza por donde necesites:
+This wiki is split across several pages. Start wherever you need:
 
-| Página | Para qué |
+| Page | Purpose |
 |---|---|
-| [Primeros pasos](./README.GETTING-STARTED.md) | Requisitos, instalación y arrancar en local (`pnpm local`) |
-| [Compilar el escritorio (MSI)](./README.BUILD.md) | Generar el instalador `.msi`/`.exe` con `pnpm build:msi` |
-| [Arquitectura](./README.ARCHITECTURE.md) | Diseño hexagonal, capas, flujo de datos, diagrama |
-| [Módulos y carpetas](./README.MODULES.md) | Referencia de cada directorio y sus responsabilidades |
-| [Pipeline de generación](./README.PIPELINE.md) | Cola persistente, worker, fases (segmentación→árbol) |
-| [API y acciones](./README.API.md) | Endpoints REST, server actions, contratos |
-| [Datos y persistencia](./README.DATA.md) | Modelos Prisma, SQLite, LanceDB, migraciones |
-| [Testing](./README.TESTING.md) | Cómo correr la suite (889 tests), tipos de test |
-| [Seguridad y distribución](./README.SECURITY.md) | Cifrado de API key, CSP, firma del instalador |
+| [Getting started](./README.GETTING-STARTED.md) | Requirements, installation, and local startup (`pnpm local`) |
+| [Build the desktop app (MSI)](./README.BUILD.md) | Generate the `.msi`/`.exe` installer with `pnpm build:msi` |
+| [Architecture](./README.ARCHITECTURE.md) | Hexagonal design, layers, data flow, and diagrams |
+| [Modules and folders](./README.MODULES.md) | Reference for each directory and its responsibilities |
+| [Generation pipeline](./README.PIPELINE.md) | Persistent queue, worker, and phases (segmentation to tree) |
+| [API and actions](./README.API.md) | REST endpoints, server actions, and contracts |
+| [Data and persistence](./README.DATA.md) | Prisma models, SQLite, LanceDB, and migrations |
+| [Testing](./README.TESTING.md) | Running the suite (889 tests) and test types |
+| [Security and distribution](./README.SECURITY.md) | API-key encryption, CSP, and installer signing |
 
 ---
 
-## Qué hace AIzea
+## What AIzea does
 
-1. **Subes un PDF** de material de estudio a un curso.
-2. El **pipeline** lo procesa en fondo: segmenta el texto, extrae unidades semánticas, las integra y construye un **árbol conceptual** navegable.
-3. A partir del árbol, genera **diapositivas** con contenido estructurado (guion, relevancia, narrativa, ejercicios).
-4. Un motor **RAG** (LanceDB) indexa el contenido para búsqueda semántica.
+1. **Upload a PDF** of study material to a course.
+2. The **pipeline** processes it in the background: it segments the text, extracts semantic units, integrates them, and builds a navigable **concept tree**.
+3. It generates **slides** from the tree with structured content (script, relevance, narrative, and exercises).
+4. A **RAG** engine (LanceDB) indexes the content for semantic search.
 
-Todo corre **en local**: la base de datos (SQLite), los vectores (LanceDB) y el servidor (Next.js) viven en la máquina del usuario. La única llamada externa es al LLM (OpenRouter), con la API key que aporta el usuario.
+Everything runs **locally**: the database (SQLite), vectors (LanceDB), and server (Next.js) live on the user's machine. The only external call is to the LLM (OpenRouter), using the user's API key.
 
 ---
 
-## Arranque rápido (TL;DR)
+## Quick start (TL;DR)
 
 ```powershell
-# 1. Instalar dependencias
+# 1. Install dependencies
 pnpm install
 
-# 2. Configurar entorno (copia la plantilla y rellena tu API key opcional)
+# 2. Configure the environment (copy the template and optionally add your API key)
 Copy-Item .env.example .env
 
-# 3. Arrancar todo el stack local (docling + DB + Next dev en :3001)
+# 3. Start the complete local stack (Docling + DB + Next dev on :3001)
 pnpm local
 ```
 
 Abre http://localhost:3001 · Salud del servicio: http://localhost:3001/api/health
 
-Detalle completo en **[Primeros pasos](./README.GETTING-STARTED.md)**.
+See **[Getting started](./README.GETTING-STARTED.md)** for the complete guide.
 
 ---
 
-## Mapa del repositorio (nivel 1)
+## Repository map (level 1)
 
 ```
 aizea/
-├── app/            → Next.js App Router: páginas (UI) + rutas API REST
-├── components/     → Componentes React (curso, slides, árbol, banner, ui)
-├── lib/            → Núcleo (arquitectura hexagonal) — ver README.MODULES.md
-│   ├── domain/          lógica de negocio pura
-│   ├── application/     casos de uso + puertos (interfaces)
-│   ├── infrastructure/  implementaciones (Prisma, LanceDB, OpenRouter…)
-│   ├── composition/     inyección de dependencias (container)
+├── app/            → Next.js App Router: pages (UI) + REST API routes
+├── components/     → React components (course, slides, tree, banner, UI)
+├── lib/            → Core (hexagonal architecture) — see README.MODULES.md
+│   ├── domain/          pure business logic
+│   ├── application/     use cases + ports (interfaces)
+│   ├── infrastructure/  implementations (Prisma, LanceDB, OpenRouter…)
+│   ├── composition/     dependency injection (container)
 │   ├── actions/         server actions de Next
 │   ├── client/          data-layer tipado (ApiClient)
-│   ├── stores/          estado cliente (Zustand)
-│   └── types/           tipos compartidos
+│   ├── stores/          client state (Zustand)
+│   └── types/           shared types
 ├── prisma/         → schema + migraciones + dev.db
-├── src-tauri/      → shell de escritorio (Rust): supervisión, sidecar Node
-├── scripts/        → arranque local, build MSI, utilidades/QA
+├── src-tauri/      → desktop shell (Rust): supervision, Node sidecar
+├── scripts/        → local startup, MSI build, QA utilities
 ├── tests/          → suite (unit + integration)
-└── docs/           → documentación histórica de versiones + consultoría
+└── docs/           → historical version documentation + consulting
 ```
 
 ---
 
-## Convenciones del proyecto
+## Project conventions
 
-- **Idioma:** UI, mensajes y documentación en **español**; código y comentarios en inglés.
-- **Gestor de paquetes:** `pnpm` (con `node-linker=hoisted`, requerido para el build standalone en Windows).
-- **Type-safety estricta:** prohibido `as any`, `@ts-ignore`. Todo cambio pasa `tsc --noEmit` + la suite verde.
-- **Arquitectura hexagonal:** el dominio no conoce la infraestructura; se conectan por puertos en `lib/application/ports/`.
+- **Language:** UI, messages, and documentation are in **English**; code and comments are in English.
+- **Package manager:** `pnpm` (with `node-linker=hoisted`, required for the standalone Windows build).
+- **Strict type safety:** `as any` and `@ts-ignore` are prohibited. Every change passes `tsc --noEmit` and the full suite.
+- **Hexagonal architecture:** the domain does not know about infrastructure; they connect through ports in `lib/application/ports/`.
 
-Ver los detalles en **[Arquitectura](./README.ARCHITECTURE.md)**.
+See the details in **[Architecture](./README.ARCHITECTURE.md)**.

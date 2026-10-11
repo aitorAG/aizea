@@ -31,6 +31,9 @@ Resources/
 baseline-*.png
 *.pdf
 
+# Local installer binaries (too large for normal Git history)
+local install file/
+
 # dev HTML dumps
 dev-test-home.html
 tmp-*.log

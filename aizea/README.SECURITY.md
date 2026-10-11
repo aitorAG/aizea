@@ -1,51 +1,51 @@
-# Seguridad y distribución
+# Security and distribution
 
-[◄ Índice](./README.md) · Anterior: [Testing](./README.TESTING.md)
+[◄ Index](./README.md) · Previous: [Testing](./README.TESTING.md)
 
-Cifrado de secretos, política de contenido y firma del instalador.
+Secret encryption, content policy, and installer signing.
 
 ---
 
-## Cifrado de la API key en reposo
+## API-key encryption at rest
 
-La API key de OpenRouter se guarda **cifrada** en la fila `Settings` (antes era plaintext). Módulo: [`lib/infrastructure/crypto/secret-cipher.ts`](./lib/infrastructure/crypto/secret-cipher.ts).
+The OpenRouter API key is stored **encrypted** in the `Settings` row (it was previously plaintext). Module: [`lib/infrastructure/crypto/secret-cipher.ts`](./lib/infrastructure/crypto/secret-cipher.ts).
 
 - **Algoritmo:** AES-256-GCM, clave derivada con scrypt.
 - **Envelope versionado autodescriptivo:** `enc:v1:<iv>:<tag>:<ciphertext>` (base64url).
-- **Retrocompatible:** un valor sin el prefijo `enc:v1:` se trata como plaintext legacy y se devuelve tal cual (migración perezosa, sin romper claves existentes). Se re-cifra al siguiente guardado.
-- **Idempotente:** cifrar algo ya cifrado es no-op; el auth-tag detecta manipulación o clave errónea.
+- **Backward-compatible:** a value without the `enc:v1:` prefix is treated as legacy plaintext and returned as-is (lazy migration without breaking existing keys). It is re-encrypted on the next save.
+- **Idempotent:** encrypting an already encrypted value is a no-op; the auth tag detects tampering or an incorrect key.
 
-### Dónde se cifra/descifra (3 puntos)
+### Where encryption/decryption occurs (3 points)
 
-| Punto | Acción |
+| Location | Action |
 |---|---|
 | `PrismaSettingsRepository.upsert` | **Cifra** antes de escribir en la DB |
 | `PrismaSettingsRepository.get` | **Descifra** al leer |
 | `config-service.readDbSettings` | **Descifra** (este camino lee `db` directo, sin pasar por el repo) |
 
-### Secreto maestro
+### Master secret
 
-`resolveMasterSecret` usa `AIZEA_SECRET_KEY` (env) si existe; si no, un fallback constante (documentado como más débil).
+`resolveMasterSecret` uses `AIZEA_SECRET_KEY` (env) if present; otherwise, a constant fallback (documented as weaker).
 
-> **Threat model honesto:** protege contra inspección casual del `db.sqlite`, backups y fugas accidentales. **No** aísla el secreto de un atacante con binario + máquina (una app local debe poder descifrar su propio secreto). El aislamiento real requeriría el keychain del SO (trabajo futuro). Aun así, es una mejora real y proporcionada sobre plaintext.
+> **Honest threat model:** protects against casual inspection of `db.sqlite`, backups, and accidental leaks. It does **not** isolate the secret from an attacker with the binary and machine (a local app must be able to decrypt its own secret). True isolation would require the OS keychain (future work). Even so, this is a real and proportionate improvement over plaintext.
 
 ---
 
-## Content-Security-Policy y cabeceras
+## Content Security Policy and headers
 
-La ventana Tauri carga `http://localhost:1422` (contenido servido por **Next sobre HTTP**), no el protocolo de assets de Tauri. Por eso la CSP se entrega como **cabeceras de respuesta HTTP de Next**, configuradas en [`next.config.ts`](./next.config.ts) (`async headers()`).
+The Tauri window loads `http://localhost:1422` (content served by **Next over HTTP**), not Tauri's asset protocol. Therefore CSP is delivered as **Next HTTP response headers**, configured in [`next.config.ts`](./next.config.ts) (`async headers()`).
 
 Directivas (env-aware):
 
 - `default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`
 - `script-src 'self' 'unsafe-inline'` (Next inyecta bootstrap inline; `'unsafe-eval'` solo en dev para React Refresh)
-- `connect-src 'self'` (las llamadas a OpenRouter/docling son server-side Node→externo, no browser→externo; en dev se añade `ws:` para HMR)
+- `connect-src 'self'` (calls to OpenRouter/Docling are server-side Node-to-external, not browser-to-external; `ws:` is added in dev for HMR)
 
 Cabeceras adicionales: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`.
 
 ---
 
-## Supervisión del backend (escritorio)
+## Backend supervision (desktop)
 
 El lanzador Rust ([`src-tauri/src/lib.rs`](./src-tauri/src/lib.rs)) supervisa el sidecar Node:
 
@@ -53,27 +53,27 @@ El lanzador Rust ([`src-tauri/src/lib.rs`](./src-tauri/src/lib.rs)) supervisa el
 - **Logs** de stdout/stderr a `%APPDATA%\AIzea\logs\server.log`.
 - **Health-poll** de `/api/health` (en vez de un `sleep` ciego) antes de abrir la ventana.
 
-Estos helpers están gated a `not(debug_assertions)` → se validan con `cargo check --release`.
+These helpers are gated by `not(debug_assertions)` → they are validated with `cargo check --release`.
 
 ---
 
-## Firma del instalador y auto-updater
+## Installer signing and auto-updater
 
-**No incluidos** (decisión deliberada). El proyecto es de uso personal/no comercial, así que el auto-updater firmado y el code signing se **eliminaron por completo** para que `pnpm build:msi` termine limpio sin requerir claves ni certificados.
+**Not included** (deliberate decision). The project is for personal/non-commercial use, so the signed auto-updater and code signing were **removed entirely** so `pnpm build:msi` completes cleanly without keys or certificates.
 
-- El instalador (`.msi`/`.exe`) **no está firmado**: al instalarlo, Windows SmartScreen mostrará un aviso de "editor desconocido" que se acepta manualmente. Es esperado y no afecta al funcionamiento.
-- **No hay auto-actualización**: para actualizar, se recompila y reinstala.
+- The installer (`.msi`/`.exe`) is **not signed**: Windows SmartScreen will show an "unknown publisher" warning during installation, which must be accepted manually. This is expected and does not affect operation.
+- **There is no auto-update**: rebuild and reinstall to update.
 
-Si en el futuro se quisiera distribución comercial, habría que reañadir `tauri-plugin-updater`, un **certificado Authenticode** de una CA (DigiCert/Sectigo), una **clave de firma** (`TAURI_SIGNING_PRIVATE_KEY`) como secreto de CI, y un **endpoint de releases**. No es el caso hoy.
+If commercial distribution were desired in the future, `tauri-plugin-updater`, an **Authenticode certificate** from a CA (DigiCert/Sectigo), a **signing key** (`TAURI_SIGNING_PRIVATE_KEY`) as a CI secret, and a **release endpoint** would need to be added again. That is not the case today.
 
 ---
 
-## Buenas prácticas al contribuir
+## Contribution best practices
 
-- No commitear `.env`, claves ni `db.sqlite` con datos reales.
-- Tratar la salida de PDFs/LLM como entrada no confiable (validar en los límites).
+- Do not commit `.env`, keys, or `db.sqlite` containing real data.
+- Treat PDF/LLM output as untrusted input (validate at boundaries).
 - No exponer valores de secretos en logs (referenciar por nombre de clave).
 
 ---
 
-[◄ Volver al índice](./README.md)
+[◄ Back to index](./README.md)

@@ -2,9 +2,9 @@
 
 # 🎓 AIzea
 
-### De tus PDFs a diapositivas y árboles conceptuales, con IA — 100% en tu ordenador.
+### From PDFs to slides and concept trees with AI, 100% on your computer.
 
-Aplicación de escritorio que transforma material didáctico en PDF en **árboles conceptuales navegables** y **diapositivas listas para proyectar**, con **búsqueda semántica (RAG)** local. Sin nube: tus datos nunca salen de tu máquina.
+Desktop application that transforms PDF teaching material into **navigable concept trees** and **presentation-ready slides**, with local **semantic search (RAG)**. No cloud: your data never leaves your machine.
 
 <br />
 
@@ -28,152 +28,159 @@ Aplicación de escritorio que transforma material didáctico en PDF en **árbole
 
 ---
 
-## ✨ Qué es AIzea
+## ✨ What Is AIzea
 
-AIzea es una herramienta para **docentes y estudiantes** que convierte apuntes y libros en PDF en material didáctico estructurado, sin trabajo manual.
+AIzea is a tool for **teachers and students** that turns notes and books in PDF format into structured teaching material without manual work.
 
-Le das un PDF de una asignatura y AIzea:
+Give AIzea a course PDF and it:
 
-1. **Lo entiende** — segmenta el texto, extrae las ideas clave (unidades semánticas) y construye un **árbol conceptual** navegable del tema.
-2. **Lo enseña** — genera **diapositivas** con guion, relevancia, narrativa para el profesor y ejercicios, más un diseño HTML listo para proyectar en el aula.
-3. **Lo recuerda** — indexa todo en un motor de **búsqueda semántica (RAG)** para que encuentres cualquier concepto al instante.
+1. **Understands it**: segments the text, extracts key ideas (semantic units), and builds a navigable **concept tree** for the topic.
+2. **Teaches it**: generates **slides** with a script, relevance, teacher narrative, and exercises, plus HTML ready for classroom projection.
+3. **Remembers it**: indexes everything in a **semantic search (RAG)** engine so you can find any concept instantly.
 
-Todo corre **en local**: la base de datos (SQLite), los vectores (LanceDB) y el servidor viven en tu ordenador. La única llamada externa es al modelo de lenguaje (vía [OpenRouter](https://openrouter.ai)), con **tu propia clave de API**.
+Everything runs **locally**: the database (SQLite), vectors (LanceDB), and server live on your computer. The only external call is to the language model (through [OpenRouter](https://openrouter.ai)), using **your own API key**.
 
 ---
 
-## 🚀 Características
+## 🚀 Features
 
-| | Característica | Qué hace |
+| | Feature | What it does |
 |:---:|:---|:---|
 | 📄 | **Ingesta de PDF** | Analiza el layout con [Docling](https://github.com/DS4SD/docling) (o un fallback de texto plano) y extrae texto, estructura y figuras. |
-| 🌳 | **Árbol conceptual** | Segmentación → unidades semánticas → integración → árbol de temas navegable, con granularidad ajustable. |
-| 🖼️ | **Extracción de figuras** | Recupera imágenes reales del PDF. Para diagramas vectoriales sin imagen embebida, **rasteriza y recorta** la figura desde el propio PDF (in-process, sin dependencias externas). |
-| 🎬 | **Generación de diapositivas** | Contenido estructurado (guion, relevancia, narrativa, ejercicios) + diseño HTML por IA. Generación por lotes en paralelo. |
-| 📐 | **Ajuste automático** | Las diapositivas se **auto-escalan** para caber siempre en A4 apaisado (1123×794): sin recortes ni scroll, en pantalla y en el PDF. |
-| ∑ | **Fórmulas en HTML** | Renderiza LaTeX con **KaTeX embebido (100% offline)** — funciona sin internet dentro del `.exe`. |
-| 🔍 | **Búsqueda semántica (RAG)** | Indexa el contenido en [LanceDB](https://lancedb.com) para búsqueda por significado, no solo por palabras. |
-| 📤 | **Exportación** | Exporta a **PDF** (A4, una diapositiva por página) o **HTML** autocontenido. |
+| 🌳 | **Concept tree** | Segmentation → semantic units → integration → navigable topic tree, with adjustable granularity. |
+| 🖼️ | **Figure extraction** | Recovers real images from the PDF. For vector diagrams without an embedded image, **rasterizes and crops** the figure from the PDF itself (in-process, with no external dependencies). |
+| 🎬 | **Slide generation** | Structured content (script, relevance, narrative, exercises) + AI-generated HTML design. Parallel batch generation. |
+| 📐 | **Automatic fitting** | Slides **auto-scale** to always fit landscape A4 (1123×794): no cropping or scrolling, on screen or in the PDF. |
+| ∑ | **HTML formulas** | Renders LaTeX with **embedded KaTeX (100% offline)**, working without internet inside the `.exe`. |
+| 🔍 | **Semantic search (RAG)** | Indexes content in [LanceDB](https://lancedb.com) for meaning-based search, not just keywords. |
+| 📤 | **Export** | Exports to **PDF** (A4, one slide per page) or self-contained **HTML**. |
 | 🔒 | **Privacidad primero** | Todo el procesamiento y almacenamiento es local. Tu clave de API se cifra en reposo. |
 | 🖥️ | **App de escritorio** | Instalador nativo de Windows (MSI/EXE) con [Tauri 2](https://tauri.app); no requiere navegador ni servidor externo. |
 
 ---
 
-## 📦 Instalación (usuarios)
+## 📦 Installation (users)
 
-AIzea se distribuye como aplicación de escritorio para **Windows (x64)**.
+AIzea is distributed as a **Windows (x64)** desktop application.
 
-1. Descarga el instalador desde la [**página de Releases**](https://github.com/aitorAG/aizea/releases):
-   - **`AIzea_x.y.z_x64-setup.exe`** — instalador NSIS, **por usuario, sin permisos de administrador** (recomendado).
-   - **`AIzea_x.y.z_x64_es-ES.msi`** — instalador MSI (despliegue corporativo).
-2. Ejecuta el instalador y abre AIzea.
-3. La primera vez, ve a **Ajustes** e introduce tu clave de API de [OpenRouter](https://openrouter.ai/settings/keys) (necesaria para la generación con IA).
+1. Download the installer from the [**Releases page**](https://github.com/aitorAG/aizea/releases):
+   - **`AIzea_x.y.z_x64-setup.exe`**: NSIS installer, **per-user and does not require administrator permissions** (recommended).
+   - **`AIzea_x.y.z_x64_es-ES.msi`**: MSI installer (enterprise deployment).
+2. Run the installer and open AIzea.
+3. On first launch, open **Settings** and enter your [OpenRouter](https://openrouter.ai/settings/keys) API key (required for AI generation).
 
-> 💡 AIzea funciona sin conexión salvo por las llamadas al modelo de lenguaje. Los PDFs, la base de datos y los índices nunca salen de tu equipo.
+> AIzea works offline except for language-model calls. PDFs, the database, and indexes never leave your computer.
 
 ---
 
-## 🧭 Cómo funciona
+## 🧭 How It Works
 
 ```
-        Subes un PDF a un curso
+         Upload a PDF to a course
                  │
                  ▼
    ┌──────────────────────────────┐
-   │  Pipeline (en segundo plano)  │   cola persistente + worker
+    │  Pipeline (background)         │   persistent queue + worker
    ├──────────────────────────────┤
-   │  1. Segmentación del texto    │
-   │  2. Unidades semánticas       │
-   │  3. Integración               │
-   │  4. Árbol conceptual          │
+    │  1. Text segmentation         │
+    │  2. Semantic units             │
+    │  3. Integration                │
+    │  4. Concept tree               │
    └──────────────┬───────────────┘
                   │
         ┌─────────┴──────────┐
         ▼                    ▼
-   Árbol navegable      RAG (LanceDB)
+    Navigable tree       RAG (LanceDB)
         │                    │
         ▼                    ▼
-   Diapositivas         Búsqueda
-   (contenido + HTML     semántica
-    + figuras)
+    Slides               Semantic
+    (content + HTML      search
+     + figures)
         │
         ▼
-   Exportar a PDF / HTML
+    Export to PDF / HTML
 ```
 
-El pipeline es **resumible**: si se interrumpe, retoma donde iba al reiniciar. La generación de diapositivas corre bajo demanda o por lotes en paralelo.
+The pipeline is **resumable**: if interrupted, it resumes where it stopped after restart. Slide generation runs on demand or in parallel batches.
 
 ---
 
-## 🏗️ Stack y arquitectura
+## 🏗️ Stack and Architecture
 
-**AIzea** es una app **[Tauri 2](https://tauri.app)** (shell nativo en **Rust**) que embebe un servidor **[Next.js 15](https://nextjs.org)** (App Router, React 19, TypeScript) como sidecar Node. La persistencia es **[Prisma](https://www.prisma.io) + SQLite** y los vectores **[LanceDB](https://lancedb.com)**; la IA vía **[OpenRouter](https://openrouter.ai)**.
+**AIzea** is a **[Tauri 2](https://tauri.app)** app (native **Rust** shell) embedding a **[Next.js 15](https://nextjs.org)** server (App Router, React 19, TypeScript) as a Node sidecar. Persistence uses **[Prisma](https://www.prisma.io) + SQLite**, vectors use **[LanceDB](https://lancedb.com)**, and AI uses **[OpenRouter](https://openrouter.ai)**.
 
-El código sigue una **arquitectura hexagonal** (puertos y adaptadores): el dominio es puro y no conoce la infraestructura; ambos se conectan por interfaces.
+The code follows **hexagonal architecture** (ports and adapters): the domain is pure and does not know about infrastructure; they connect through interfaces.
 
 ```
 UI (app/ + components/ + stores)
         │  server actions / ApiClient
 Application (casos de uso + PUERTOS)
-        │  depende solo de interfaces
-Domain (lógica de negocio PURA)
+         │  depends only on interfaces
+Domain (PURE business logic)
         ▲  implementan los puertos
-Infrastructure (Prisma · LanceDB · OpenRouter · pdfium · cola)
+Infrastructure (Prisma · LanceDB · OpenRouter · pdfium · queue)
         ▲  cablea todo
-Composition Root (inyección de dependencias)
+Composition Root (dependency injection)
 ```
 
-📚 **Documentación técnica completa** en [`aizea/README.md`](./aizea/README.md): [arquitectura](./aizea/README.ARCHITECTURE.md), [módulos](./aizea/README.MODULES.md), [pipeline](./aizea/README.PIPELINE.md), [datos](./aizea/README.DATA.md), [API](./aizea/README.API.md), [seguridad](./aizea/README.SECURITY.md) y [testing](./aizea/README.TESTING.md).
+📚 **Complete technical documentation** is available in [`aizea/README.md`](./aizea/README.md): [architecture](./aizea/README.ARCHITECTURE.md), [modules](./aizea/README.MODULES.md), [pipeline](./aizea/README.PIPELINE.md), [data](./aizea/README.DATA.md), [API](./aizea/README.API.md), [security](./aizea/README.SECURITY.md), and [testing](./aizea/README.TESTING.md).
+
+### Current local installer
+
+The `local install file/` directory contains the current local installer files:
+
+- `local install file/AIzea_0.19.2_x64_es-ES.msi`
+- `local install file/AIzea_0.19.2_x64-setup.exe`
 
 ---
 
-## 🛠️ Desarrollo
+## 🛠️ Development
 
-Requisitos: **Node.js 20+**, **pnpm 11+**, **Docker** (opcional, para el parser Docling) y **Rust 1.77+** (solo para compilar el escritorio).
+Requirements: **Node.js 20+**, **pnpm 11+**, **Docker** (optional, for the Docling parser), and **Rust 1.77+** (only for building the desktop app).
 
 ```bash
-# 1. Instalar dependencias (dispara prisma generate)
+# 1. Install dependencies (triggers prisma generate)
 pnpm install
 
-# 2. Crear el .env a partir de la plantilla
+# 2. Create .env from the template
 cp .env.example .env   # o Copy-Item en PowerShell
 
-# 3. Arrancar todo el stack local (Docling + DB + Next dev en :3001)
+# 3. Start the complete local stack (Docling + DB + Next dev on :3001)
 pnpm local
 ```
 
-Abre **http://localhost:3001**. Guía detallada en [Primeros pasos](./aizea/README.GETTING-STARTED.md).
+Open **http://localhost:3001**. See [Getting started](./aizea/README.GETTING-STARTED.md) for the detailed guide.
 
-### Comandos útiles
+### Useful commands
 
-| Comando | Qué hace |
+| Command | What it does |
 |:---|:---|
-| `pnpm local` | Levanta Docling + sincroniza DB + arranca Next dev |
-| `pnpm dev` | Solo Next.js dev |
+| `pnpm local` | Starts Docling, synchronizes the DB, and starts Next dev |
+| `pnpm dev` | Next.js dev only |
 | `pnpm test` | Suite de tests (Vitest) |
 | `pnpm typecheck` | `tsc --noEmit` (type-safety estricta) |
-| `pnpm build` | Build de producción de Next.js |
-| `pnpm build:msi` | Genera el instalador de escritorio (MSI + EXE) — ver [Compilar](./aizea/README.BUILD.md) |
+| `pnpm build` | Next.js production build |
+| `pnpm build:msi` | Generates the desktop installer (MSI + EXE) — see [Build](./aizea/README.BUILD.md) |
 | `pnpm tauri:dev` | Ventana Tauri contra el dev server |
 
-> El proyecto es **type-safe estricto** (prohibido `as any` / `@ts-ignore`) y todo cambio pasa `tsc --noEmit` + la suite verde.
+> The project is **strictly type-safe** (`as any` / `@ts-ignore` are prohibited), and every change must pass `tsc --noEmit` and the full test suite.
 
 ---
 
-## 🤝 Contribuir
+## 🤝 Contributing
 
-Las contribuciones son bienvenidas. Antes de abrir un PR:
+Contributions are welcome. Before opening a PR:
 
-1. Asegúrate de que `pnpm typecheck` y `pnpm test` pasan en verde.
-2. Sigue las convenciones del proyecto: UI y documentación en **español**, código y comentarios en **inglés**; arquitectura hexagonal (el dominio no importa infraestructura).
-3. Describe el cambio y cómo lo verificaste.
+1. Make sure `pnpm typecheck` and `pnpm test` pass.
+2. Follow the project conventions: UI and documentation are in **English**, code and comments are in **English**, and the domain does not import infrastructure.
+3. Describe the change and how you verified it.
 
 ---
 
 <div align="center">
 
-**AIzea** — Convierte tus apuntes en conocimiento estructurado.
+**AIzea** — Turns your notes into structured knowledge.
 
-Hecho con Next.js, Tauri y Rust.
+Built with Next.js, Tauri, and Rust.
 
 </div>

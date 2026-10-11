@@ -1,106 +1,106 @@
-# Primeros pasos
+# Getting started
 
-[◄ Volver al índice](./README.md) · Siguiente: [Compilar el escritorio ►](./README.BUILD.md)
+[◄ Back to index](./README.md) · Next: [Build the desktop app ►](./README.BUILD.md)
 
-Cómo instalar y arrancar AIzea en modo desarrollo.
+How to install and start AIzea in development mode.
 
 ---
 
-## Requisitos
+## Requirements
 
-| Herramienta | Versión | Nota |
+| Tool | Version | Note |
 |---|---|---|
-| **Node.js** | ≥ 18 (recomendado 20+) | Runtime de Next.js |
+| **Node.js** | ≥ 18 (20+ recommended) | Next.js runtime |
 | **pnpm** | 11+ | Gestor de paquetes del proyecto |
-| **Docker Desktop** | cualquiera reciente | Solo para **docling-serve** (parser de PDFs). Opcional pero recomendado |
-| **Rust** | ≥ 1.77 (1.97+ recomendado) | Solo si vas a compilar el escritorio — ver [BUILD](./README.BUILD.md) |
+| **Docker Desktop** | any recent version | Only for **docling-serve** (PDF parser). Optional but recommended |
+| **Rust** | ≥ 1.77 (1.97+ recommended) | Only to build the desktop app — see [Build](./README.BUILD.md) |
 
-> Sin Docker, la app arranca igual pero la **subida de PDFs** usa un fallback de texto plano (sin análisis de layout ni figuras).
+> Without Docker, the app still starts, but **PDF uploads** use a plain-text fallback (without layout analysis or figures).
 
 ---
 
-## Instalación
+## Installation
 
 ```powershell
-# 1. Instalar dependencias (dispara `prisma generate` vía postinstall)
+# 1. Install dependencies (triggers `prisma generate` through postinstall)
 pnpm install
 
-# 2. Crear el .env a partir de la plantilla
+# 2. Create .env from the template
 Copy-Item .env.example .env
 ```
 
 ### Variables de entorno (`.env`)
 
 ```ini
-# API key de OpenRouter (https://openrouter.ai/settings/keys)
-# También configurable en la app en /settings. Puede quedar vacía al arrancar.
+# OpenRouter API key (https://openrouter.ai/settings/keys)
+# Can also be configured in the app at /settings. May be empty at startup.
 OPENROUTER_API_KEY=
 
-# Modelo LLM por defecto (opcional)
+# Default LLM model (optional)
 OPENROUTER_MODEL=deepseek/deepseek-chat
 
-# URL de Docling para parsing avanzado (opcional; sin él usa parsing básico)
+# Docling URL for advanced parsing (optional; basic parsing is used without it)
 DOCLING_BASE_URL=http://127.0.0.1:5001
 
-# Base de datos SQLite (relativa a prisma/)
+# SQLite database (relative to prisma/)
 DATABASE_URL="file:./dev.db"
 ```
 
-Detalle de cómo se resuelve la config (DB > env > defaults) en [Datos y persistencia](./README.DATA.md).
+See [Data and persistence](./README.DATA.md) for configuration resolution (DB > env > defaults).
 
 ---
 
-## Arrancar en local
+## Start locally
 
-### Opción recomendada — todo el stack de un tirón
+### Recommended option — complete stack
 
 ```powershell
 pnpm local
 ```
 
-El script [`scripts/start-local.cjs`](./scripts/start-local.cjs) orquesta, en orden:
+The [`scripts/start-local.cjs`](./scripts/start-local.cjs) script orchestrates, in order:
 
-1. Levanta **docling-serve** en Docker (`:5001`) y espera a que reporte *healthy* (~1 min en frío).
-2. `prisma generate` + `prisma db push` contra `dev.db` (idempotente).
-3. Arranca **Next.js dev** en http://localhost:3001.
+1. Starts **docling-serve** in Docker (`:5001`) and waits for it to report *healthy* (~1 minute on a cold start).
+2. Runs `prisma generate` + `prisma db push` against `dev.db` (idempotent).
+3. Starts **Next.js dev** at http://localhost:3001.
 
-Este camino **no** toca `AIZEA_DATA_DIR`: todos los datos quedan en el repo (`dev.db`, `public/uploads`, `lancedb-data`).
+This path does **not** use `AIZEA_DATA_DIR`: all data remains in the repository (`dev.db`, `public/uploads`, `lancedb-data`).
 
-### Opciones granulares
+### Individual commands
 
-| Comando | Qué hace |
+| Command | What it does |
 |---|---|
-| `pnpm dev` | Solo Next.js dev (sin docling ni sincronización de DB) |
-| `pnpm docling:up` / `docling:down` | Arranca/para docling-serve aparte |
-| `pnpm docling:logs` | Sigue los logs de docling |
-| `pnpm docling:check` | Verifica que docling responde |
-| `pnpm db:push` | Sincroniza el schema Prisma con la DB |
-| `pnpm db:studio` | Abre Prisma Studio (inspector visual de la DB) |
-| `pnpm tauri:dev` | Ventana Tauri contra el dev server |
+| `pnpm dev` | Next.js dev only (without Docling or DB synchronization) |
+| `pnpm docling:up` / `docling:down` | Starts/stops docling-serve separately |
+| `pnpm docling:logs` | Follows Docling logs |
+| `pnpm docling:check` | Checks that Docling responds |
+| `pnpm db:push` | Synchronizes the Prisma schema with the DB |
+| `pnpm db:studio` | Opens Prisma Studio (visual DB inspector) |
+| `pnpm tauri:dev` | Tauri window against the dev server |
 
 ---
 
-## Verificar que arrancó
+## Verify startup
 
 - **App:** http://localhost:3001
-- **Salud (readiness):** http://localhost:3001/api/health → debe devolver
+- **Health (readiness):** http://localhost:3001/api/health → should return
   ```json
-  { "status": "ok", "db": true, "version": "0.2.0", "timestamp": 1234567890 }
+  { "status": "ok", "db": true, "version": "0.19.2", "timestamp": 1234567890 }
   ```
 
-El endpoint `/api/health` también dispara el **bootstrap del worker** (recupera runs interrumpidos y drena la cola). Ver [Pipeline](./README.PIPELINE.md).
+The `/api/health` endpoint also triggers **worker bootstrap** (recovers interrupted runs and drains the queue). See [Pipeline](./README.PIPELINE.md).
 
 ---
 
-## Problemas comunes
+## Common problems
 
-| Síntoma | Causa / solución |
+| Symptom | Cause / solution |
 |---|---|
-| Errores `lancedb ... not supported in the browser` | Ya resuelto en el código (era un `instrumentation.ts` mal ubicado). Si reaparece, asegúrate de que no existe `instrumentation.ts` en la raíz |
-| La subida de PDF falla | Docker/docling-serve no está arriba → `pnpm docling:up` |
-| `@prisma/client did not initialize` | `pnpm db:generate` (o reinstala; el `postinstall` lo hace) |
-| Puerto 3001 ocupado | Otro dev server vivo → mátalo o usa `PORT=3002 pnpm dev` |
+| `lancedb ... not supported in the browser` errors | Already fixed in the code (caused by a misplaced `instrumentation.ts`). If it reappears, ensure there is no root `instrumentation.ts` |
+| PDF upload fails | Docker/docling-serve is not running → `pnpm docling:up` |
+| `@prisma/client did not initialize` | Run `pnpm db:generate` (or reinstall; postinstall does this) |
+| Port 3001 is occupied | Another dev server is running → stop it or use `PORT=3002 pnpm dev` |
 
 ---
 
-[◄ Volver al índice](./README.md) · Siguiente: [Compilar el escritorio ►](./README.BUILD.md)
+[◄ Back to index](./README.md) · Next: [Build the desktop app ►](./README.BUILD.md)
