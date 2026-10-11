@@ -14,7 +14,7 @@ The pipeline **does not block** the user's request. When the user clicks "genera
 startPipelineAction(courseId)
    │  validates course + checks for materials (NO_MATERIALS if none)
    ▼
-IJobQueue.enqueue({ courseId })  ──►  devuelve { enqueued:true, runId }  [retorna YA]
+IJobQueue.enqueue({ courseId })  ──►  returns { enqueued:true, runId }  [returns NOW]
    │
    ▼  (fire-and-forget)
 PipelineWorker.pump()  ──►  claimNext() ──► processCourse() ──► markCompleted/Failed/Cancelled
