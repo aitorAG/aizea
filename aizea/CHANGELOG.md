@@ -2,6 +2,23 @@
 
 All notable changes to AIzea are documented in this file.
 
+## [0.19.2] - 2026-10-11
+
+### Fixed
+- El build del instalador ya no permite ejecuciones concurrentes sobre el
+  mismo directorio Tauri/WiX, evitando bloqueos de archivos durante el bundle.
+
+## [0.19.1] - 2026-10-11
+
+### Changed
+- Optimizado el empaquetado del instalador: los uploads, figuras y artefactos
+  locales ya no se incluyen en el payload de release.
+- Añadida validación del payload standalone para detectar mapas de fuente,
+  tests y dependencias de desarrollo antes de invocar Tauri.
+- La base SQLite del instalador se genera desde el schema de Prisma y se valida
+  de forma determinista, sin depender de `prisma/dev.db`.
+- Eliminada la generación redundante de Prisma durante el build del instalador.
+
 ## [0.19.0] - 2026-10-11
 
 ### Added

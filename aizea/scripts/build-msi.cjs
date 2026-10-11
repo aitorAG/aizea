@@ -6,21 +6,21 @@
 // standalone server with a bundled Node.js runtime. This script does
 // every preparation step the Tauri bundler needs, in order:
 //
-//   1. Regenerate the Prisma client (safe / idempotent).
-//   2. Build the Next.js standalone server (`next build`).
-//   3. Copy the static assets the standalone server does NOT include
+//   1. Generate Prisma and the inline KaTeX assets, then build the Next.js
+//      standalone server.
+//   2. Copy the static assets the standalone server does NOT include
 //      by itself:
 //        - .next/static  -> .next/standalone/.next/static
 //        - public        -> .next/standalone/public
 //      (Next.js documents this as a required manual step for
 //       `output: "standalone"`.)
-//   4. Seed a pre-migrated SQLite DB into the standalone folder so the
+//   3. Seed a schema-valid SQLite DB into the standalone folder so the
 //      first launch has a ready schema (copied to %APPDATA% on first
 //      run by the Rust launcher).
-//   5. Copy the Node.js runtime next to the app as a Tauri sidecar
+//   4. Copy the Node.js runtime next to the app as a Tauri sidecar
 //      (binaries/node-x86_64-pc-windows-msvc.exe) so the target machine
 //      does NOT need Node.js installed.
-//   6. Run `tauri build` to produce the .msi and NSIS .exe installers.
+//   5. Run `tauri build` to produce the .msi and NSIS .exe installers.
 //
 // The result is a fully self-contained installer: no Node.js, no Python,
 // no docling-serve required on the target machine. PDF parsing uses the
@@ -31,11 +31,27 @@
 // Usage:  npm run build:msi
 
 const { spawnSync } = require("child_process");
-const { existsSync, mkdirSync, copyFileSync, cpSync, rmSync } = require("fs");
+const {
+  existsSync,
+  mkdirSync,
+  copyFileSync,
+  cpSync,
+  rmSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} = require("fs");
 const { join } = require("path");
+const {
+  assertStandalonePayload,
+  copyReleasePublicAssets,
+} = require("./release-payload.cjs");
 
 const ROOT = join(__dirname, "..");
 const STANDALONE = join(ROOT, ".next", "standalone");
+const NEXT_CLI = join(ROOT, "node_modules", "next", "dist", "bin", "next");
+const TAURI_CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js");
+const BUILD_LOCK = join(ROOT, ".next", "installer-build.lock");
 
 function log(msg) {
   console.log(`\x1b[36m[build:msi]\x1b[0m ${msg}`);
@@ -47,23 +63,82 @@ function fail(msg) {
 
 function run(cmd, args, opts = {}) {
   log(`$ ${cmd} ${args.join(" ")}`);
-  const r = spawnSync(cmd, args, {
+  const executable =
+    cmd === "node"
+      ? process.execPath
+      : process.platform === "win32"
+        ? `${cmd}.cmd`
+        : cmd;
+  const r = spawnSync(executable, args, {
     stdio: "inherit",
-    shell: true,
+    shell: false,
     cwd: ROOT,
     ...opts,
   });
+  if (r.error) {
+    fail(`Could not start command: ${r.error.message}`);
+  }
   if (r.status !== 0) {
     fail(`Command failed (exit ${r.status}): ${cmd} ${args.join(" ")}`);
   }
 }
 
-// --- 1. Prisma client -------------------------------------------------
-run("npx", ["prisma", "generate"]);
+function runNodeScript(script, args = [], opts = {}) {
+  run("node", [script, ...args], opts);
+}
 
-// --- 2. Next.js standalone build --------------------------------------
+function acquireBuildLock() {
+  mkdirSync(join(ROOT, ".next"), { recursive: true });
+  if (existsSync(BUILD_LOCK)) {
+    const previousPid = Number.parseInt(readFileSync(BUILD_LOCK, "utf8"), 10);
+    if (Number.isInteger(previousPid) && previousPid > 0) {
+      try {
+        process.kill(previousPid, 0);
+        fail(`Another installer build is already running (PID ${previousPid}).`);
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+    rmSync(BUILD_LOCK, { force: true });
+  }
+  writeFileSync(BUILD_LOCK, `${process.pid}\n`, { flag: "wx" });
+  const release = () => {
+    try {
+      if (existsSync(BUILD_LOCK) && readFileSync(BUILD_LOCK, "utf8").trim() === String(process.pid)) {
+        rmSync(BUILD_LOCK, { force: true });
+      }
+    } catch {
+      // The build result is already determined; cleanup is best effort.
+    }
+  };
+  process.once("exit", release);
+  process.once("SIGINT", () => {
+    release();
+    process.exit(130);
+  });
+  process.once("SIGTERM", () => {
+    release();
+    process.exit(143);
+  });
+}
+
+acquireBuildLock();
+
+function removeDevelopmentDatabases() {
+  const prismaDir = join(STANDALONE, "prisma");
+  if (!existsSync(prismaDir)) return;
+  for (const name of readdirSync(prismaDir)) {
+    if (!/\.db(?:-(?:wal|shm|journal))?$/i.test(name)) continue;
+    rmSync(join(prismaDir, name), { force: true });
+    log(`  removed development database: prisma/${name}`);
+  }
+}
+
+// --- 1. Next.js standalone build --------------------------------------
 log("Building Next.js standalone (this can take a few minutes)…");
-run("npx", ["next", "build"]);
+runNodeScript("scripts/prisma.cjs", ["generate"]);
+runNodeScript("scripts/build-katex-inline.cjs");
+runNodeScript(NEXT_CLI, ["build"]);
 
 if (!existsSync(join(STANDALONE, "server.js"))) {
   fail(
@@ -72,11 +147,11 @@ if (!existsSync(join(STANDALONE, "server.js"))) {
   );
 }
 
-// --- 3. Copy static assets into the standalone folder -----------------
+// --- 3. Stage release-safe static assets into standalone ----------------
 // `output: "standalone"` intentionally omits .next/static and public;
 // they must be copied next to server.js for the server to serve CSS/JS
 // and public files. https://nextjs.org/docs/app/api-reference/config/next-config-js/output
-log("Copying .next/static and public into standalone…");
+log("Copying .next/static and release-safe public assets into standalone…");
 const staticSrc = join(ROOT, ".next", "static");
 const staticDest = join(STANDALONE, ".next", "static");
 if (existsSync(staticSrc)) {
@@ -88,10 +163,8 @@ if (existsSync(staticSrc)) {
 
 const publicSrc = join(ROOT, "public");
 const publicDest = join(STANDALONE, "public");
-if (existsSync(publicSrc)) {
-  rmSync(publicDest, { recursive: true, force: true });
-  cpSync(publicSrc, publicDest, { recursive: true });
-}
+const stagedPublic = copyReleasePublicAssets(publicSrc, publicDest);
+log(`  staged public: ${stagedPublic.join(", ") || "none"}`);
 
 // --- 3b. Remove the dev .env from the standalone folder ---------------
 // The .env file is a DEV artifact: it contains DATABASE_URL="file:./dev.db"
@@ -134,37 +207,17 @@ for (const ext of ["", "-wal", "-shm", "-journal"]) {
   const stub = join(prismaClientDir, `dev.db${ext}`);
   if (existsSync(stub)) rmSync(stub, { force: true });
 }
-// The Rust launcher copies this to %APPDATA%/AIzea/db.sqlite on first
-// run so the schema is ready without running prisma migrate offline.
-//
-// CRITICAL: SQLite uses WAL mode by default. Recent schema changes
-// (new tables, columns) live in the 8MB+ -wal file alongside dev.db.
-// If we copy only dev.db, those changes are lost and the installed app
-// crashes with "table main.X does not exist". We force a WAL checkpoint
-// FIRST so everything is flushed into the main .db file, THEN copy.
-log("Flushing WAL into dev.db (checkpoint)…");
-run("node", ["scripts/wal-checkpoint.cjs"]);
-
-log("Seeding pre-migrated db.sqlite into standalone…");
-const devDb = join(ROOT, "prisma", "dev.db");
-if (existsSync(devDb)) {
-  copyFileSync(devDb, join(STANDALONE, "db.sqlite"));
-  // Remove any stale WAL/SHM sidecars from previous builds.
-  for (const ext of ["-wal", "-shm"]) {
-    const f = join(STANDALONE, `db.sqlite${ext}`);
-    if (existsSync(f)) rmSync(f, { force: true });
-  }
-  // CRITICAL: dev.db carries the developer's test data (courses, materials…).
-  // Wipe every row from the COPY so a fresh install starts EMPTY. This keeps
-  // the schema (tables/columns) but removes all data. Never touches dev.db.
-  log("Emptying installer db.sqlite (ship schema, zero data)…");
-  run("node", ["scripts/seed-installer-db.cjs"]);
-} else {
-  log(
-    "WARN: prisma/dev.db not found — the installer will start with an " +
-      "empty DB. Run `npm run db:push` first if you want a seeded schema."
-  );
+// --- 4. Prepare the installer database from schema, never dev.db --------
+const releaseDb = join(STANDALONE, "db.sqlite");
+for (const ext of ["", "-wal", "-shm", "-journal"]) {
+  const file = `${releaseDb}${ext}`;
+  if (existsSync(file)) rmSync(file, { force: true });
 }
+const releaseDbUrl = `file:${releaseDb.replace(/\\/g, "/")}`;
+log("Creating deterministic release database from Prisma schema…");
+runNodeScript("scripts/prisma.cjs", ["--database-url", releaseDbUrl, "db", "push", "--skip-generate"]);
+runNodeScript("scripts/seed-installer-db.cjs", [releaseDb]);
+removeDevelopmentDatabases();
 
 // --- 4b. Prune non-Windows-x64 platform binaries ---------------------
 // pnpm's `node-linker=hoisted` layout (required so Next.js standalone can
@@ -224,6 +277,12 @@ pruneForeignPlatforms("@esbuild", ["win32-x64"]);
 // sharp-libvips-* packages (linux/darwin only) are safe to drop.
 pruneForeignPlatforms("@img", ["win32-x64"]);
 
+// --- 5b. Validate the complete payload before handing it to Tauri --------
+// This catches accidental tracing of dev dependencies and any data/test
+// artifacts that could otherwise become part of the installer.
+log("Validating standalone release payload…");
+assertStandalonePayload(STANDALONE, { log });
+
 // --- 5. Bundle the Node.js runtime as a Tauri sidecar -----------------
 // The sidecar must be named with the target triple so Tauri picks it up
 // and strips the suffix, placing `node.exe` next to the main exe.
@@ -238,7 +297,7 @@ log(`  node runtime: ${nodeExe} -> ${sidecarDest}`);
 
 // --- 6. Tauri build ---------------------------------------------------
 log("Running tauri build (compiles Rust + bundles MSI/NSIS)…");
-run("npx", ["tauri", "build"]);
+runNodeScript(TAURI_CLI, ["build"]);
 
 log("DONE. Installers are in src-tauri/target/release/bundle/");
 log("  MSI  : src-tauri/target/release/bundle/msi/AIzea_*_x64_*.msi");
