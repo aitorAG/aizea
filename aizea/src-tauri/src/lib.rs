@@ -33,6 +33,20 @@ async fn save_file(path: String, data: String) -> Result<(), String> {
     std::fs::write(&path, data).map_err(|e| e.to_string())
 }
 
+/// Save a BINARY file from a base64-encoded payload.
+///
+/// `save_file` writes its `data` argument as UTF-8 text, which corrupts binary
+/// formats (e.g. .pptx / .xlsx / .docx are ZIP containers). This command
+/// decodes base64 to raw bytes first, so binary exports land on disk intact.
+#[tauri::command]
+async fn save_file_base64(path: String, data: String) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+    let bytes = BASE64
+        .decode(&data)
+        .map_err(|e| format!("Invalid base64: {}", e))?;
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn open_file_dialog(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -299,7 +313,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![extract_pdf, save_file, open_file_dialog])
+        .invoke_handler(tauri::generate_handler![extract_pdf, save_file, save_file_base64, open_file_dialog])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

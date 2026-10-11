@@ -2,7 +2,18 @@
 
 All notable changes to AIzea are documented in this file.
 
-## [0.9.1] — 2026-08-12
+## [0.18.0] — 2026-10-11
+
+### Added
+- Bilingual Spanish/English UI with persisted `aizea-locale` preference.
+- Centralized upload storage for web and Tauri desktop runtimes.
+- Release metadata parity verification for package, lockfile, changelog, and Tauri configuration.
+
+### Fixed
+- Hardened direct uploads against invalid file types, oversized files, and path traversal.
+- Added binary-safe desktop file export support.
+
+## [0.9.1] - 2026-08-12
 
 Endurecimiento del diseño de render/export de diapositivas: cierra cuatro
 fallas de diseño detectadas en la auditoría del auto-fit.

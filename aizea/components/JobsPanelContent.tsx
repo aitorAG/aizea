@@ -49,6 +49,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 import { useToast } from "@/components/toast";
 import { getJobTypeMeta } from "@/lib/utils/job-labels";
 import { formatElapsed } from "@/lib/utils/format-time";
@@ -141,6 +142,7 @@ function groupByCourse(
  *  (red for failed, amber for cancelled, emerald for completed,
  *  primary for running). */
 function StatusPill({ status }: { status: ProcessingStatus }) {
+  const t = useTranslations();
   if (status === "completed") {
     return (
       <span
@@ -149,7 +151,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
         className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-700"
       >
         <CheckCircle2 className="h-3 w-3" />
-        Listo
+        {t("ready")}
       </span>
     );
   }
@@ -161,7 +163,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
         className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-red-700"
       >
         <AlertTriangle className="h-3 w-3" />
-        Falló
+        {t("failed")}
       </span>
     );
   }
@@ -173,7 +175,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
         className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-amber-800"
       >
         <StopCircle className="h-3 w-3" />
-        Cancelado
+        {t("cancelled")}
       </span>
     );
   }
@@ -184,7 +186,7 @@ function StatusPill({ status }: { status: ProcessingStatus }) {
       className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-primary"
     >
       <Loader2 className="h-3 w-3 animate-spin" />
-      En curso
+      {t("inProgress")}
     </span>
   );
 }
@@ -196,6 +198,7 @@ export function JobsPanelContent({
   disableActivePolling = false,
 }: JobsPanelContentProps) {
   const { toast } = useToast();
+  const t = useTranslations();
   const [tab, setTab] = useState<Tab>("active");
   const [activeRows, setActiveRows] = useState<ActiveJob[]>([]);
   const [finishedRows, setFinishedRows] = useState<ActiveJob[]>([]);
@@ -400,7 +403,7 @@ export function JobsPanelContent({
       {/* Tab bar */}
       <div
         role="tablist"
-        aria-label="Pestañas de trabajos"
+        aria-label={t("jobsTabs")}
         className={cn(
           "flex shrink-0 items-center gap-1 border-b border-border bg-muted/30 px-2 py-2"
         )}
@@ -412,7 +415,7 @@ export function JobsPanelContent({
           count={activeCount}
           testid="tab-active"
           icon={<Activity className="h-3.5 w-3.5" />}
-          label="Activos"
+          label={t("activeJobs")}
         />
         <TabButton
           active={tab === "finished"}
@@ -420,7 +423,7 @@ export function JobsPanelContent({
           count={finishedCount}
           testid="tab-finished"
           icon={<Inbox className="h-3.5 w-3.5" />}
-          label="Finalizados"
+          label={t("finishedJobs")}
         />
       </div>
 
@@ -436,7 +439,7 @@ export function JobsPanelContent({
         {loading ? (
           <EmptyState
             icon={<Loader2 className="h-5 w-5 animate-spin" />}
-            title="Cargando…"
+            title={t("loading")}
             variant={variant}
           />
         ) : visibleRows.length === 0 ? (
@@ -448,11 +451,11 @@ export function JobsPanelContent({
                 <Inbox className="h-5 w-5" />
               )
             }
-            title={tab === "active" ? "Sin trabajos activos" : "Sin trabajos finalizados"}
+            title={tab === "active" ? t("noActiveJobs") : t("noFinishedJobs")}
             description={
               tab === "active"
-                ? "Cuando inicies un trabajo aparecerá aquí."
-                : "Los trabajos completados o cancelados recientes aparecerán aquí. Los errores permanecen visibles durante 24 h."
+                ? t("noActiveJobsDescription")
+                : t("noFinishedJobsDescription")
             }
             variant={variant}
           />
@@ -592,6 +595,7 @@ function JobRow({
   onRetry,
   onRemove,
 }: JobRowProps) {
+  const t = useTranslations();
   const meta = getJobTypeMeta(row.phase);
   const Icon = meta.icon;
   const isActive = row.status === "running" || row.status === "pending";
@@ -665,7 +669,7 @@ function JobRow({
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(progress)}
-                aria-label="Progreso"
+                aria-label={t("progress")}
               >
                 <div
                   className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
@@ -699,7 +703,7 @@ function JobRow({
               type="button"
               onClick={() => setErrorExpanded((v) => !v)}
               aria-expanded={errorExpanded}
-              title={errorExpanded ? "Contraer" : "Ver el error completo"}
+              title={errorExpanded ? t("common.collapse") : t("common.expand")}
               data-testid="job-error"
               className={cn(
                 "mt-1 block w-full text-left text-[10px] text-red-700",
@@ -710,7 +714,7 @@ function JobRow({
               {row.error}
               {!errorExpanded && (
                 <span className="ml-1 font-medium underline decoration-dotted">
-                  (más)
+                   ({t("common.expand")})
                 </span>
               )}
             </button>
@@ -727,10 +731,10 @@ function JobRow({
                 disabled={pending}
                 variant="stop"
                 testid="action-stop"
-                title="Detener trabajo"
+                 title={t("stopJob")}
                 icon={<Square className="h-3 w-3" fill="currentColor" />}
               >
-                Detener
+                {t("stop")}
               </IconButton>
             )}
             {isRetryable && row.courseId && (
@@ -739,10 +743,10 @@ function JobRow({
                 disabled={pending}
                 variant="retry"
                 testid="action-retry"
-                title="Volver a ejecutar el pipeline"
+                title={t("retryPipeline")}
                 icon={<RefreshCcw className="h-3 w-3" />}
               >
-                Reintentar
+                {t("retry")}
               </IconButton>
             )}
             <IconButton
@@ -750,9 +754,9 @@ function JobRow({
               disabled={pending}
               variant="remove"
               testid="action-remove"
-              title="Quitar de la lista"
+              title={t("removeFromList")}
               icon={<X className="h-3 w-3" />}
-              srLabel="Quitar de la lista"
+              srLabel={t("removeFromList")}
             />
           </div>
         </div>

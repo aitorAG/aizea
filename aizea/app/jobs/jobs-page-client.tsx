@@ -10,9 +10,11 @@ import { ArrowLeft, Activity, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JobsPanelContent } from "@/components/JobsPanelContent";
 import { useJobsUIStore } from "@/lib/stores/useJobsUIStore";
+import { useTranslations } from "@/components/LocaleProvider";
 
 export function JobsPageClient() {
   const setActiveCount = useJobsUIStore((s) => s.setActiveCount);
+  const t = useTranslations();
 
   return (
     <div className="space-y-6">
@@ -23,16 +25,16 @@ export function JobsPageClient() {
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          Volver al inicio
+          {t("backHome")}
         </Link>
         <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
               <Activity className="h-5 w-5 text-primary" />
-              Trabajos
+              {t("jobs")}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Estado de los pipelines y trabajos de generación en curso.
+              {t("jobsDescription")}
             </p>
           </div>
           <Button
@@ -43,7 +45,7 @@ export function JobsPageClient() {
             data-testid="jobs-page-open-sidebar"
           >
             <Inbox className="h-4 w-4" />
-            Abrir panel lateral
+            {t("openJobs")}
           </Button>
         </div>
       </div>

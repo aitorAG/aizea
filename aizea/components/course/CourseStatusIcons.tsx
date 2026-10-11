@@ -35,6 +35,7 @@
 import Link from "next/link";
 import { Network, Presentation } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface CourseStatusIconsProps {
   /** The course id — used to build the navigation hrefs. */
@@ -64,21 +65,20 @@ export function CourseStatusIcons({
   hasTree,
   hasSlides,
 }: CourseStatusIconsProps) {
+  const t = useTranslations();
   return (
     <div
       data-testid="course-status-icons"
       className="flex items-center gap-1 border-l border-border pl-3"
       role="group"
-      aria-label="Estado de los recursos derivados del curso"
+      aria-label={t("course.status.ariaLabel")}
     >
       <Link
         href={`/courses/${courseId}/tree`}
         data-testid="course-status-tree"
         data-exists={hasTree ? "true" : "false"}
         aria-label={
-          hasTree
-            ? "Árbol conceptual (creado) — abrir"
-            : "Árbol conceptual (no creado) — abrir"
+          hasTree ? t("course.status.treeReady") : t("course.status.treeMissing")
         }
         className={statusLinkClass(hasTree)}
       >
@@ -89,9 +89,7 @@ export function CourseStatusIcons({
         data-testid="course-status-slides"
         data-exists={hasSlides ? "true" : "false"}
         aria-label={
-          hasSlides
-            ? "Diapositivas (creado) — abrir"
-            : "Diapositivas (no creado) — abrir"
+          hasSlides ? t("course.status.slidesReady") : t("course.status.slidesMissing")
         }
         className={statusLinkClass(hasSlides)}
       >

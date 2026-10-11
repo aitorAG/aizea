@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface SpinnerProps extends React.HTMLAttributes<SVGSVGElement> {
   size?: "sm" | "default" | "lg";
@@ -11,13 +12,14 @@ const sizeMap = {
 } as const;
 
 function Spinner({ size = "default", className, ...props }: SpinnerProps) {
+  const t = useTranslations();
   return (
     <svg
       className={cn("animate-spin text-current", sizeMap[size], className)}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
-      aria-label="Cargando"
+      aria-label={t("loading")}
       {...props}
     >
       <circle

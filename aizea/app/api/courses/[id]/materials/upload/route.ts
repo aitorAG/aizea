@@ -18,6 +18,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { container } from "@/lib/composition/container";
 
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx", "odt", "rtf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
+const ALLOWED_MIME = new Set(["", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]);
+
 // Node runtime: we read the FormData via standard Web APIs and
 // `arrayBuffer()` to get a Buffer for the use case.
 export const runtime = "nodejs";
@@ -46,10 +50,22 @@ export async function POST(
     );
   }
 
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const isImage = file.type.startsWith("image/") && extension !== "";
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: "File too large" }, { status: 413 });
+  }
+  if (!/^[a-z0-9]{1,5}$/.test(extension) || !ALLOWED_EXTENSIONS.has(extension)) {
+    return NextResponse.json({ error: "Unsupported file extension" }, { status: 400 });
+  }
+  if (!ALLOWED_MIME.has(file.type.toLowerCase()) && !isImage) {
+    return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
+  }
+
   // Match the server action's filename pattern: `<timestamp>_<name>`.
   // This keeps DB rows consistent regardless of which entry point
   // the client uses.
-  const filename = `${Date.now()}_${file.name}`;
+  const filename = `${Date.now()}_${crypto.randomUUID()}.${extension}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
   try {

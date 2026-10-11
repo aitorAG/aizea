@@ -32,6 +32,7 @@ import {
   testConnectionAction,
 } from "@/lib/actions/settings";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 export interface SettingsFormInitial {
   apiKey: string;
@@ -47,6 +48,7 @@ interface SettingsFormProps {
 
 export function SettingsForm({ initial }: SettingsFormProps) {
   const { toast } = useToast();
+  const t = useTranslations();
   const [pending, startTransition] = useTransition();
   const [showKey, setShowKey] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -61,7 +63,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
   const [testMessage, setTestMessage] = useState<string | null>(null);
 
   const apiKeyPlaceholder = initial.apiKeyPresent
-    ? "•••••••• (dejar vacío para conservar)"
+    ? t("keepApiKey")
     : "sk-or-v1-...";
 
   async function handleTestConnection() {
@@ -78,7 +80,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
         setTestMessage(
           result.label
             ? `Conexión correcta${result.label ? ` (${result.label})` : ""}.`
-            : "Conexión correcta. Tu clave funciona."
+            : t("connectionTestSuccess")
         );
       } else {
         setTestResult(false);
@@ -86,7 +88,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
       }
     } catch {
       setTestResult(false);
-      setTestMessage("No se pudo realizar la comprobación. Inténtalo de nuevo.");
+      setTestMessage(t("connectionTestFailed"));
     } finally {
       setTesting(false);
     }
@@ -105,13 +107,13 @@ export function SettingsForm({ initial }: SettingsFormProps) {
       });
       if (result.ok) {
         toast({
-          title: "Configuración guardada",
-          description: "Los nuevos valores se aplicarán en la siguiente generación.",
+          title: t("settingsSaved"),
+          description: t("settingsSavedDescription"),
         });
         setApiKey("");
       } else {
         toast({
-          title: "Error al guardar",
+          title: t("settingsSaveError"),
           description: result.error,
           variant: "error",
         });
@@ -126,7 +128,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
           htmlFor="apiKey"
           className="block text-sm font-medium text-foreground"
         >
-          Clave de API de OpenRouter
+           {t("apiKey")}
         </label>
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -152,15 +154,15 @@ export function SettingsForm({ initial }: SettingsFormProps) {
             variant="outline"
             size="default"
             onClick={() => setShowKey((s) => !s)}
-            aria-label={showKey ? "Ocultar clave" : "Mostrar clave"}
+             aria-label={showKey ? t("hideApiKey") : t("showApiKey")}
           >
             {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
           {initial.apiKeyPresent
-            ? "Ya hay una clave guardada. Escribe una nueva para reemplazarla, o deja el campo vacío para mantener la actual."
-            : "Pega aquí tu clave de OpenRouter (empieza por sk-or-v1-)."}
+             ? t("apiKeyHintPresent")
+             : t("apiKeyHintMissing")}
         </p>
       </div>
 
@@ -180,7 +182,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
           ) : (
             <PlugZap className="h-4 w-4" />
           )}
-          Probar conexión
+           {testing ? t("testingConnection") : t("testConnection")}
         </Button>
         {testResult !== null && (
           <p
@@ -208,9 +210,9 @@ export function SettingsForm({ initial }: SettingsFormProps) {
       <details className="group rounded-lg border border-border bg-muted/20" data-testid="advanced-settings">
         <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
           <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
-          Ajustes avanzados
+           {t("settingsAdvanced")}
           <span className="ml-auto text-xs font-normal text-muted-foreground">
-            Modelos y servicios — no hace falta tocarlos
+             {t("settingsAdvancedHint")}
           </span>
         </summary>
         <div className="space-y-4 border-t border-border px-4 py-4">
@@ -218,7 +220,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
             id="chatModel"
             name="chatModel"
             type="text"
-            label="Modelo de chat (IA de texto)"
+             label={t("chatModel")}
             value={chatModel}
             onChange={(e) => setChatModel(e.target.value)}
             placeholder="deepseek/deepseek-chat"
@@ -230,7 +232,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
             id="embedModel"
             name="embedModel"
             type="text"
-            label="Modelo de embeddings (búsqueda semántica)"
+             label={t("embedModel")}
             value={embedModel}
             onChange={(e) => setEmbedModel(e.target.value)}
             placeholder="openai/text-embedding-3-small"
@@ -242,7 +244,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
             id="doclingBaseUrl"
             name="doclingBaseUrl"
             type="text"
-            label="URL del servicio de análisis de PDFs (Docling)"
+             label={t("doclingBaseUrl")}
             value={doclingBaseUrl}
             onChange={(e) => setDoclingBaseUrl(e.target.value)}
             placeholder="http://127.0.0.1:5001"
@@ -255,7 +257,7 @@ export function SettingsForm({ initial }: SettingsFormProps) {
       <div className="flex justify-end">
         <Button type="submit" loading={pending} data-testid="settings-submit">
           <Save className="h-4 w-4" />
-          {pending ? "Guardando..." : "Aplicar"}
+           {pending ? t("applying") : t("apply")}
         </Button>
       </div>
     </form>

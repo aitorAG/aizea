@@ -6,6 +6,8 @@
 // at call time when the key is absent, which surfaces a clear error in
 // the UI.
 
+import { getDatabaseUrl } from "@/lib/paths";
+
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey && process.env.NODE_ENV !== "test") {
   console.warn(
@@ -15,7 +17,6 @@ if (!apiKey && process.env.NODE_ENV !== "test") {
 }
 
 const model = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-chat";
-const databaseUrl = process.env.DATABASE_URL ?? "file:./dev.db";
 // 250 MB en bytes. Mantener en sincronia con next.config.ts (bodySizeLimit).
 const bodySizeLimit = 262144000;
 
@@ -38,7 +39,7 @@ export const config: AppConfig = {
     model,
   },
   database: {
-    url: databaseUrl,
+    url: getDatabaseUrl(),
   },
   upload: {
     bodySizeLimit,

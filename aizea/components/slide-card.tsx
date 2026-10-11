@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface SlideCardProps {
   id: string;
@@ -24,6 +25,7 @@ function SlideCard({ id, order, title, description, onEdit, onDelete }: SlideCar
   const [editDesc, setEditDesc] = useState(description);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const t = useTranslations();
 
   async function handleSave() {
     if (!editTitle.trim()) return;
@@ -86,19 +88,19 @@ function SlideCard({ id, order, title, description, onEdit, onDelete }: SlideCar
 
       <Dialog open={editOpen} onClose={() => setEditOpen(false)}>
         <DialogHeader>
-          <DialogTitle>Editar diapositiva</DialogTitle>
-          <DialogDescription>Modifica el título y la descripción de la diapositiva.</DialogDescription>
+          <DialogTitle>{t("slides.editSlide")}</DialogTitle>
+          <DialogDescription>{t("slides.editSlideHint")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 mt-4">
           <Input
             id="slide-title"
-            label="Título"
+            label={t("common.title")}
             value={editTitle}
             onChange={(e) => setEditTitle(e.target.value)}
           />
           <div className="space-y-1.5">
             <label htmlFor="slide-desc" className="block text-sm font-medium text-foreground">
-              Descripción
+              {t("slides.descriptionLabel")}
             </label>
             <Textarea
               id="slide-desc"
@@ -110,27 +112,27 @@ function SlideCard({ id, order, title, description, onEdit, onDelete }: SlideCar
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
-            Cancelar
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleSave} loading={saving} disabled={!editTitle.trim()}>
-            Guardar
+            {t("common.save")}
           </Button>
         </DialogFooter>
       </Dialog>
 
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
         <DialogHeader>
-          <DialogTitle>Eliminar diapositiva</DialogTitle>
+          <DialogTitle>{t("slides.deleteSlide")}</DialogTitle>
           <DialogDescription>
-            ¿Estás seguro de que quieres eliminar &quot;{title}&quot;? Esta acción no se puede deshacer.
+            {t("slides.deleteSlideDescription")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>
-            Cancelar
+            {t("common.cancel")}
           </Button>
           <Button variant="destructive" onClick={handleDelete} loading={deleting}>
-            Eliminar
+            {t("common.delete")}
           </Button>
         </DialogFooter>
       </Dialog>

@@ -7,6 +7,7 @@
 // because it replaces the root layout when it activates.
 
 import { DefaultErrorFallback } from "@/components/ErrorBoundary/ErrorBoundary";
+import { LocaleProvider } from "@/components/LocaleProvider";
 
 export default function GlobalError({
   error,
@@ -18,9 +19,11 @@ export default function GlobalError({
   return (
     <html lang="es">
       <body>
-        <div className="flex min-h-screen items-center justify-center p-6">
-          <DefaultErrorFallback error={error} reset={reset} />
-        </div>
+        <LocaleProvider locale="es">
+          <div className="flex min-h-screen items-center justify-center p-6">
+            <DefaultErrorFallback error={error} reset={reset} />
+          </div>
+        </LocaleProvider>
       </body>
     </html>
   );

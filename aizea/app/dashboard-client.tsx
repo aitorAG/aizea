@@ -21,6 +21,7 @@ import { revalidateDashboard } from "@/lib/actions/revalidate";
 import { useCourseAdapter } from "@/lib/adapters/useCourseAdapter";
 import { CourseStatusIcons } from "@/components/course/CourseStatusIcons";
 import type { CourseListItem } from "./page";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface DashboardClientProps {
   courses: CourseListItem[];
@@ -31,6 +32,7 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
   const router = useRouter();
   const { toast } = useToast();
   const courseAdapter = useCourseAdapter();
+  const t = useTranslations();
 
   // Create dialog state
   const [createOpen, setCreateOpen] = useState(false);
@@ -166,8 +168,8 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar cursos…"
-              aria-label="Buscar cursos"
+              placeholder={t("dashboard.search")}
+              aria-label={t("dashboard.searchLabel")}
               className="pl-9"
               data-testid="course-search"
             />
@@ -175,7 +177,7 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
         )}
         <Button onClick={() => setCreateOpen(true)} className={courses.length === 0 ? "ml-auto" : ""}>
           <Plus className="h-4 w-4" />
-          Nuevo Curso
+          {t("newCourse")}
         </Button>
       </div>
 
@@ -183,20 +185,20 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
       {courses.length === 0 ? (
         <EmptyState
           icon={<BookOpen className="h-8 w-8" />}
-          title="Sin cursos aún"
-          description="Crea tu primer curso para comenzar a generar materiales con IA."
+          title={t("noCourses")}
+          description={t("noCoursesDescription")}
           action={
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              Crear curso
+              {t("createCourse")}
             </Button>
           }
         />
       ) : filteredCourses.length === 0 ? (
         <EmptyState
           icon={<Search className="h-8 w-8" />}
-          title="Sin resultados"
-          description={`Ningún curso coincide con "${query.trim()}".`}
+          title={t("dashboard.noResultsTitle")}
+          description={t("dashboard.noResultsDescription", { query: query.trim() })}
         />
       ) : (
         <div className="space-y-3">
@@ -221,14 +223,14 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
                     <div className="mt-1 flex items-center gap-2">
                       <Badge variant="secondary" className="gap-1">
                         <Layers className="h-3 w-3" />
-                        {course.slideCount} diapositivas
+                        {t("dashboard.slideCount", { count: course.slideCount })}
                       </Badge>
                       <Badge variant="outline" className="gap-1">
                         <FileText className="h-3 w-3" />
-                        {course.materialCount} materiales
+                        {t("dashboard.materialCount", { count: course.materialCount })}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        Actualizado el {formatDate(course.updatedAt)}
+                        {t("dashboard.updated", { date: formatDate(course.updatedAt) })}
                       </span>
                     </div>
                   </div>
@@ -252,7 +254,7 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
                     onClick={() => openEdit(course)}
                   >
                     <Edit className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Editar</span>
+                    <span className="hidden sm:inline">{t("edit")}</span>
                   </Button>
                   <Button
                     variant="ghost"
@@ -272,17 +274,16 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
       {/* Create Course Dialog */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)}>
         <DialogHeader>
-          <DialogTitle>Nuevo Curso</DialogTitle>
+          <DialogTitle>{t("dashboard.newCourseTitle")}</DialogTitle>
           <DialogDescription>
-            Introduce un nombre para tu nuevo curso. Podrás añadir materiales y
-            generar diapositivas después.
+            {t("dashboard.newCourseDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4">
           <Input
             id="new-course-name"
-            label="Nombre del curso"
-            placeholder="Ej: Matemáticas Discretas — Unidad 3"
+            label={t("courseName")}
+            placeholder={t("courseNameExample")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             disabled={creating}
@@ -298,10 +299,10 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
             }}
             disabled={creating}
           >
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>
-            Crear Curso
+            {t("createCourse")}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -314,16 +315,16 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
         }}
       >
         <DialogHeader>
-          <DialogTitle>Renombrar curso</DialogTitle>
+          <DialogTitle>{t("renameCourse")}</DialogTitle>
           <DialogDescription>
-            Cambia el nombre del curso &quot;{editTarget?.name}&quot;.
+            {t("dashboard.renameDescription", { name: editTarget?.name ?? "" })}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4">
           <Input
             id="edit-course-name"
-            label="Nuevo nombre"
-            placeholder="Nombre del curso"
+            label={t("newName")}
+            placeholder={t("courseName")}
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             disabled={editing}
@@ -336,14 +337,14 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
             onClick={() => setEditTarget(null)}
             disabled={editing}
           >
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button
             onClick={handleEdit}
             loading={editing}
             disabled={!editName.trim() || editName.trim() === editTarget?.name}
           >
-            Guardar
+            {t("save")}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -356,11 +357,9 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
         }}
       >
         <DialogHeader>
-          <DialogTitle>Eliminar curso</DialogTitle>
+          <DialogTitle>{t("deleteCourse")}</DialogTitle>
           <DialogDescription>
-            ¿Estás seguro de que quieres eliminar &quot;{deleteTarget?.name}&quot;?
-            Se borrarán todos sus materiales, diapositivas y figuras. Esta acción
-            no se puede deshacer.
+            {t("dashboard.deleteDescription", { name: deleteTarget?.name ?? "" })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -369,14 +368,14 @@ function DashboardClient({ courses, updateCourseName }: DashboardClientProps) {
             onClick={() => setDeleteTarget(null)}
             disabled={deleting}
           >
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button
             variant="destructive"
             onClick={handleDelete}
             loading={deleting}
           >
-            Eliminar
+            {t("delete")}
           </Button>
         </DialogFooter>
       </Dialog>

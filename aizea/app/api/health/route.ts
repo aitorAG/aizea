@@ -20,6 +20,7 @@ import { checkHealth } from "@/lib/application/health";
 import { container } from "@/lib/composition/container";
 import { bootstrapWorkerOnce } from "@/lib/infrastructure/queue/worker-bootstrap";
 import { reconcileSchema } from "@/lib/infrastructure/persistence/schema-reconciler";
+import { reconcileStartupStateOnce } from "@/lib/infrastructure/pipeline/startup-reconciler";
 
 // Always dynamic: readiness must reflect the live process, never a cache.
 export const dynamic = "force-dynamic";
@@ -52,10 +53,12 @@ export async function GET(): Promise<NextResponse> {
   // first. Not awaited by the response: readiness must not block on either.
   if (report.status === "ok") {
     void reconcileSchemaOnce().then(() =>
-      bootstrapWorkerOnce({
-        recover: () => container.pipelineWorker.recover(),
-        pump: () => container.pipelineWorker.pump(),
-      })
+      reconcileStartupStateOnce().then(() =>
+        bootstrapWorkerOnce({
+          recover: () => container.pipelineWorker.recover(),
+          pump: () => container.pipelineWorker.pump(),
+        })
+      )
     );
   }
 

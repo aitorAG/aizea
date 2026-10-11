@@ -6,11 +6,12 @@ import { GlobalPipelineBanner } from "@/components/PipelineProgress/GlobalPipeli
 import { NavJobsButton } from "@/components/NavJobsButton";
 import { JobsSidebar } from "@/components/JobsSidebar";
 import { Home, Settings } from "lucide-react";
+import { getRequestLocale } from "@/lib/i18n-server";
+import { translate } from "@/lib/i18n";
+import { LocaleProvider } from "@/components/LocaleProvider";
+import { LanguageSelector } from "@/components/LanguageSelector";
 
-export const metadata: Metadata = {
-  title: "AIzea — Preparación de Materiales Docentes",
-  description:
-    "Asistente IA para generar diapositivas, narrativas y ejercicios a partir de libros de texto en PDF.",
+const sharedMetadata: Metadata = {
   applicationName: "AIzea",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
@@ -27,20 +28,31 @@ export const metadata: Metadata = {
   },
 };
 
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getRequestLocale();
+  return {
+    ...sharedMetadata,
+    title: translate(locale, "appTitle"),
+    description: translate(locale, "appDescription"),
+  };
+}
+
 export const viewport: Viewport = {
   themeColor: "#3b82f6",
   width: "device-width",
   initialScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await getRequestLocale();
   return (
-    <html lang="es">
+    <html lang={locale}>
       <body className="min-h-screen bg-background">
+        <LocaleProvider locale={locale}>
         {/*
          * Global pipeline progress banner — fixed at the bottom of every
          * page. Renders nothing when no job is active in the store, so
@@ -67,7 +79,7 @@ export default function RootLayout({
                 className="flex items-center gap-1.5 hover:text-foreground transition-colors"
               >
                 <Home className="h-4 w-4" />
-                <span className="hidden sm:inline">Inicio</span>
+                <span className="hidden sm:inline">{translate(locale, "home")}</span>
               </Link>
               {/* v1.11 — Jobs nav button. Client component; opens
                   the right-side drawer on click and shows a hover
@@ -79,8 +91,9 @@ export default function RootLayout({
                 data-testid="nav-settings"
               >
                 <Settings className="h-4 w-4" />
-                <span className="hidden sm:inline">Configuración</span>
+                <span className="hidden sm:inline">{translate(locale, "settings")}</span>
               </Link>
+              <LanguageSelector />
             </nav>
           </div>
         </header>
@@ -90,6 +103,7 @@ export default function RootLayout({
             pop the drawer open. Renders nothing when closed. */}
         <JobsSidebar />
         <Toaster />
+        </LocaleProvider>
       </body>
     </html>
   );

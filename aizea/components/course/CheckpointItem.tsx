@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useTranslations } from "@/components/LocaleProvider";
 
 export type CheckpointState = "completed" | "current" | "upcoming";
 
@@ -85,6 +86,7 @@ export function CheckpointItem({
   const isCurrent = state === "current";
   const isCompleted = state === "completed";
   const isUnavailable = !available;
+  const t = useTranslations();
 
   // The disabled case: render a span, not a Link. We still show the
   // icon + label so the user understands the phase exists; the red
@@ -163,7 +165,7 @@ export function CheckpointItem({
         // Screen readers announce this as "Detalle, unavailable,
         // dimmed" (the third param of aria-disabled is the "dimmed"
         // hint that's part of the spec).
-        aria-label={`${label} (no disponible — genera el recurso primero)`}
+        aria-label={t("course.checkpoints.unavailable", { label })}
         className={baseClassName}
       >
         {content}
@@ -179,7 +181,7 @@ export function CheckpointItem({
       data-state={state}
       data-available="true"
       aria-current={isCurrent ? "page" : undefined}
-      aria-label={`${label}${isCurrent ? " (página actual)" : ""}`}
+      aria-label={isCurrent ? t("course.checkpoints.current", { label }) : label}
       className={baseClassName}
     >
       {content}

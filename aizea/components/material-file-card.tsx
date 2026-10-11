@@ -3,6 +3,7 @@
 import { FileText, FileImage, File, Eye, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "@/components/LocaleProvider";
 
 interface MaterialFileCardProps {
   filename: string;
@@ -57,6 +58,7 @@ function MaterialFileCard({
   onPreview,
   deleting = false,
 }: MaterialFileCardProps) {
+  const t = useTranslations();
   // Strip the timestamp prefix for display (format: "1234567890_originalname.pdf")
   const displayName = filename.replace(/^\d+_/, "");
 
@@ -88,7 +90,7 @@ function MaterialFileCard({
           className="h-8 text-muted-foreground hover:text-foreground"
         >
           <Eye className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Previsualizar</span>
+          <span className="hidden sm:inline">{t("materials.preview")}</span>
         </Button>
         <Button
           variant="ghost"

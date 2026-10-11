@@ -5,6 +5,8 @@ import { getCourseStatus } from "@/lib/utils/course-status";
 import { getSettingsAction } from "@/lib/actions/settings";
 import { KeyRound } from "lucide-react";
 import { DashboardClient } from "./dashboard-client";
+import { getRequestLocale } from "@/lib/i18n-server";
+import { translate } from "@/lib/i18n";
 
 export const revalidate = 60;
 
@@ -28,6 +30,7 @@ async function updateCourseName(id: string, name: string) {
 }
 
 export default async function DashboardPage() {
+  const locale = await getRequestLocale();
   const [courses, settings] = await Promise.all([
     db.course.findMany({
       orderBy: { updatedAt: "desc" },
@@ -66,7 +69,7 @@ export default async function DashboardPage() {
           <span className="text-primary">AI</span>zea
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Preparación de Materiales Docentes
+          {translate(locale, "appSubtitle")}
         </p>
       </div>
 
