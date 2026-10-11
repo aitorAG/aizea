@@ -30,10 +30,11 @@ const ALLOWED_MIME = new Set(["application/pdf", "", "application/octet-stream"]
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    if (!file) {
+    const entry = formData.get("file");
+    if (!(entry instanceof File)) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
+    const file = entry;
 
     if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json(

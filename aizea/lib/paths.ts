@@ -21,7 +21,11 @@
  *     lancedb-data/      ← LanceDB vector store
  */
 
-import { join } from "node:path";
+import { join } from "path";
+
+const LOCAL_DATABASE_URL = "file:./dev.db";
+
+export type DatabaseEnvironment = Record<string, string | undefined>;
 
 /** Root data directory — writable in all deployment modes. */
 export function getDataDir(): string {
@@ -48,8 +52,26 @@ export function getLanceDbDir(): string {
 /**
  * Path to the SQLite database file.
  * In desktop mode: <appData>/db.sqlite
- * In web/dev mode: uses DATABASE_URL env var (Prisma default).
+ * In web/dev mode: the default is prisma/dev.db; explicit SQLite URLs are
+ * retained for tests and CI.
  */
 export function getDbPath(): string {
+  const databaseUrl = getDatabaseUrl();
+  if (databaseUrl.startsWith("file:")) {
+    const filePath = databaseUrl.slice("file:".length);
+    return filePath.startsWith("/")
+      ? filePath
+      : join(process.cwd(), "prisma", filePath);
+  }
   return join(getDataDir(), "db.sqlite");
+}
+
+/** Resolve the SQLite URL used by the application and its configuration. */
+export function getDatabaseUrl(
+  env: DatabaseEnvironment = process.env
+): string {
+  if (env.AIZEA_DATA_DIR) {
+    return `file:${join(env.AIZEA_DATA_DIR, "db.sqlite").replace(/\\/g, "/")}`;
+  }
+  return env.DATABASE_URL ?? LOCAL_DATABASE_URL;
 }

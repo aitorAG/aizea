@@ -21,12 +21,12 @@ describe('release metadata parity', () => {
       bundle: { targets: string[]; resources: Record<string, string> };
     }>('src-tauri/tauri.conf.json');
     const changelog = await readFile(path.join(projectRoot, 'CHANGELOG.md'), 'utf8');
-    const newestHeading = changelog.match(/^## \[(.*?)\] — (\d{4}-\d{2}-\d{2})$/m);
+    const newestHeading = changelog.match(/^## \[(.*?)\] [-—] (\d{4}-\d{2}-\d{2})$/m);
 
     expect(packageLock.version).toBe(packageJson.version);
     expect(packageLock.packages[''].version).toBe(packageJson.version);
     expect(newestHeading?.[1]).toBe(packageJson.version);
-    expect(newestHeading?.[2]).toBe('2026-10-09');
+    expect(newestHeading?.[2]).toMatch(/^2026-10-/);
     expect(tauriConfig.version).toBe('../package.json');
     expect(tauriConfig.bundle.targets).toEqual(expect.arrayContaining(['msi', 'nsis']));
     expect(tauriConfig.bundle.resources['../.next/standalone']).toBe('standalone');

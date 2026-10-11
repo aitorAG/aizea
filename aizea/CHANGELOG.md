@@ -2,7 +2,7 @@
 
 All notable changes to AIzea are documented in this file.
 
-## [0.16.2] — 2026-10-09
+## [0.19.0] - 2026-10-11
 
 ### Added
 - Bilingual UI localization across the application.

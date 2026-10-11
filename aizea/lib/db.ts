@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { getDbPath } from "@/lib/paths";
+import { getDatabaseUrl } from "@/lib/paths";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
@@ -20,15 +20,7 @@ function createPrismaClient(): PrismaClient {
   // desktop build this caused Prisma to open a stale 4KB dev.db
   // inside .prisma/client/ that lacked the TopicNode and Slide
   // tables, crashing every dynamic route.
-  const datasourceUrl =
-    process.env.DATABASE_URL ??
-    (process.env.AIZEA_DATA_DIR
-      ? `file:${getDbPath().replace(/\\/g, "/")}`
-      : undefined);
-
-  return new PrismaClient(
-    datasourceUrl ? { datasourceUrl } : undefined
-  );
+  return new PrismaClient({ datasourceUrl: getDatabaseUrl() });
 }
 
 export const db = globalForPrisma.prisma ?? createPrismaClient();
