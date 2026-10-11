@@ -1,179 +1,151 @@
-<div align="center">
+# AIZEA
 
-# 🎓 AIzea
+[![Status: Public Alpha](https://img.shields.io/badge/status-public%20alpha-orange.svg)](./aizea/CHANGELOG.md)
+[![Next.js 15](https://img.shields.io/badge/Next.js-15-000000.svg?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![React 19](https://img.shields.io/badge/React-19-149ECA.svg?logo=react&logoColor=white)](https://react.dev/)
+[![TypeScript 5.7](https://img.shields.io/badge/TypeScript-5.7-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg?logo=tauri&logoColor=white)](https://tauri.app/)
 
-### De tus PDFs a diapositivas y árboles conceptuales, con IA — 100% en tu ordenador.
+> A local-first desktop workspace that turns teaching PDFs into conceptual trees, searchable course knowledge, and AI-assisted slide decks.
 
-Aplicación de escritorio que transforma material didáctico en PDF en **árboles conceptuales navegables** y **diapositivas listas para proyectar**, con **búsqueda semántica (RAG)** local. Sin nube: tus datos nunca salen de tu máquina.
+**Public alpha.** AIZEA is actively developed. Workflows, APIs, stored data, and generated output may change, and the application is not presented as production-ready software.
 
-<br />
+## Start here
 
-[![Release](https://img.shields.io/github/v/release/aitorAG/aizea?color=369eff&labelColor=black&logo=github&style=flat-square)](https://github.com/aitorAG/aizea/releases)
-[![Windows](https://img.shields.io/badge/Windows-MSI%20%2F%20EXE-0078D6?labelColor=black&logo=windows&logoColor=white&style=flat-square)](https://github.com/aitorAG/aizea/releases)
-[![Stars](https://img.shields.io/github/stars/aitorAG/aizea?color=ffcb47&labelColor=black&style=flat-square)](https://github.com/aitorAG/aizea/stargazers)
-[![Issues](https://img.shields.io/github/issues/aitorAG/aizea?color=ff80eb&labelColor=black&style=flat-square)](https://github.com/aitorAG/aizea/issues)
-[![Last commit](https://img.shields.io/github/last-commit/aitorAG/aizea?color=8ae8ff&labelColor=black&style=flat-square)](https://github.com/aitorAG/aizea/commits)
+- **Product website:** [aitorAG.github.io/aizea](https://aitorag.github.io/aizea/)
+- **Windows releases:** [GitHub Releases](https://github.com/aitorAG/aizea/releases)
+- **Detailed technical guide:** [aizea/README.md](./aizea/README.md)
+- **Changelog:** [aizea/CHANGELOG.md](./aizea/CHANGELOG.md)
 
-<br />
+## What AIZEA does
 
-![Next.js](https://img.shields.io/badge/Next.js%2015-black?style=flat-square&logo=next.js)
-![React](https://img.shields.io/badge/React%2019-20232A?style=flat-square&logo=react&logoColor=61DAFB)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Tauri](https://img.shields.io/badge/Tauri%202-24C8DB?style=flat-square&logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust&logoColor=white)
-![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat-square&logo=prisma&logoColor=white)
-![Tailwind](https://img.shields.io/badge/Tailwind-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+1. Upload a teaching PDF to a course.
+2. Parse and segment the document, extract semantic units, integrate concepts, and build a navigable conceptual tree.
+3. Review, rename, move, and edit the tree, including conversational tree editing.
+4. Generate explanation and exercise slides with scripts, relevance, narrative, figures, and HTML designs.
+5. Search the course locally through LanceDB semantic retrieval (RAG).
+6. Export reviewed material to PDF or self-contained HTML.
 
-</div>
+The database, uploads, vector index, and processing pipeline run locally. AI generation and embeddings use the OpenRouter provider with the user's API key.
 
----
+## Features
 
-## ✨ Qué es AIzea
+| Feature | Description |
+|---|---|
+| PDF ingestion | Docling preserves layout and figures when available; a text-only fallback keeps the workflow usable without Docling. |
+| Conceptual tree | A persistent pipeline turns source material into a navigable, editable hierarchy of topics and subtopics. |
+| Figure extraction | Embedded and vector figures can be extracted or rasterized from the source PDF. |
+| Slide generation | Creates structured explanation and exercise content plus editable HTML slide designs. |
+| Local semantic search | LanceDB indexes course content for meaning-based retrieval. |
+| Desktop application | Tauri 2 packages the Next.js/Node application for Windows. |
+| Export | Produces A4 PDF slides and self-contained HTML output. |
 
-AIzea es una herramienta para **docentes y estudiantes** que convierte apuntes y libros en PDF en material didáctico estructurado, sin trabajo manual.
+## Quick start
 
-Le das un PDF de una asignatura y AIzea:
+Run these commands from `aizea/`:
 
-1. **Lo entiende** — segmenta el texto, extrae las ideas clave (unidades semánticas) y construye un **árbol conceptual** navegable del tema.
-2. **Lo enseña** — genera **diapositivas** con guion, relevancia, narrativa para el profesor y ejercicios, más un diseño HTML listo para proyectar en el aula.
-3. **Lo recuerda** — indexa todo en un motor de **búsqueda semántica (RAG)** para que encuentres cualquier concepto al instante.
-
-Todo corre **en local**: la base de datos (SQLite), los vectores (LanceDB) y el servidor viven en tu ordenador. La única llamada externa es al modelo de lenguaje (vía [OpenRouter](https://openrouter.ai)), con **tu propia clave de API**.
-
----
-
-## 🚀 Características
-
-| | Característica | Qué hace |
-|:---:|:---|:---|
-| 📄 | **Ingesta de PDF** | Analiza el layout con [Docling](https://github.com/DS4SD/docling) (o un fallback de texto plano) y extrae texto, estructura y figuras. |
-| 🌳 | **Árbol conceptual** | Segmentación → unidades semánticas → integración → árbol de temas navegable, con granularidad ajustable. |
-| 🖼️ | **Extracción de figuras** | Recupera imágenes reales del PDF. Para diagramas vectoriales sin imagen embebida, **rasteriza y recorta** la figura desde el propio PDF (in-process, sin dependencias externas). |
-| 🎬 | **Generación de diapositivas** | Contenido estructurado (guion, relevancia, narrativa, ejercicios) + diseño HTML por IA. Generación por lotes en paralelo. |
-| 📐 | **Ajuste automático** | Las diapositivas se **auto-escalan** para caber siempre en A4 apaisado (1123×794): sin recortes ni scroll, en pantalla y en el PDF. |
-| ∑ | **Fórmulas en HTML** | Renderiza LaTeX con **KaTeX embebido (100% offline)** — funciona sin internet dentro del `.exe`. |
-| 🔍 | **Búsqueda semántica (RAG)** | Indexa el contenido en [LanceDB](https://lancedb.com) para búsqueda por significado, no solo por palabras. |
-| 📤 | **Exportación** | Exporta a **PDF** (A4, una diapositiva por página) o **HTML** autocontenido. |
-| 🔒 | **Privacidad primero** | Todo el procesamiento y almacenamiento es local. Tu clave de API se cifra en reposo. |
-| 🖥️ | **App de escritorio** | Instalador nativo de Windows (MSI/EXE) con [Tauri 2](https://tauri.app); no requiere navegador ni servidor externo. |
-
----
-
-## 📦 Instalación (usuarios)
-
-AIzea se distribuye como aplicación de escritorio para **Windows (x64)**.
-
-1. Descarga el instalador desde la [**página de Releases**](https://github.com/aitorAG/aizea/releases):
-   - **`AIzea_x.y.z_x64-setup.exe`** — instalador NSIS, **por usuario, sin permisos de administrador** (recomendado).
-   - **`AIzea_x.y.z_x64_es-ES.msi`** — instalador MSI (despliegue corporativo).
-2. Ejecuta el instalador y abre AIzea.
-3. La primera vez, ve a **Ajustes** e introduce tu clave de API de [OpenRouter](https://openrouter.ai/settings/keys) (necesaria para la generación con IA).
-
-> 💡 AIzea funciona sin conexión salvo por las llamadas al modelo de lenguaje. Los PDFs, la base de datos y los índices nunca salen de tu equipo.
-
----
-
-## 🧭 Cómo funciona
-
-```
-        Subes un PDF a un curso
-                 │
-                 ▼
-   ┌──────────────────────────────┐
-   │  Pipeline (en segundo plano)  │   cola persistente + worker
-   ├──────────────────────────────┤
-   │  1. Segmentación del texto    │
-   │  2. Unidades semánticas       │
-   │  3. Integración               │
-   │  4. Árbol conceptual          │
-   └──────────────┬───────────────┘
-                  │
-        ┌─────────┴──────────┐
-        ▼                    ▼
-   Árbol navegable      RAG (LanceDB)
-        │                    │
-        ▼                    ▼
-   Diapositivas         Búsqueda
-   (contenido + HTML     semántica
-    + figuras)
-        │
-        ▼
-   Exportar a PDF / HTML
-```
-
-El pipeline es **resumible**: si se interrumpe, retoma donde iba al reiniciar. La generación de diapositivas corre bajo demanda o por lotes en paralelo.
-
----
-
-## 🏗️ Stack y arquitectura
-
-**AIzea** es una app **[Tauri 2](https://tauri.app)** (shell nativo en **Rust**) que embebe un servidor **[Next.js 15](https://nextjs.org)** (App Router, React 19, TypeScript) como sidecar Node. La persistencia es **[Prisma](https://www.prisma.io) + SQLite** y los vectores **[LanceDB](https://lancedb.com)**; la IA vía **[OpenRouter](https://openrouter.ai)**.
-
-El código sigue una **arquitectura hexagonal** (puertos y adaptadores): el dominio es puro y no conoce la infraestructura; ambos se conectan por interfaces.
-
-```
-UI (app/ + components/ + stores)
-        │  server actions / ApiClient
-Application (casos de uso + PUERTOS)
-        │  depende solo de interfaces
-Domain (lógica de negocio PURA)
-        ▲  implementan los puertos
-Infrastructure (Prisma · LanceDB · OpenRouter · pdfium · cola)
-        ▲  cablea todo
-Composition Root (inyección de dependencias)
-```
-
-📚 **Documentación técnica completa** en [`aizea/README.md`](./aizea/README.md): [arquitectura](./aizea/README.ARCHITECTURE.md), [módulos](./aizea/README.MODULES.md), [pipeline](./aizea/README.PIPELINE.md), [datos](./aizea/README.DATA.md), [API](./aizea/README.API.md), [seguridad](./aizea/README.SECURITY.md) y [testing](./aizea/README.TESTING.md).
-
----
-
-## 🛠️ Desarrollo
-
-Requisitos: **Node.js 20+**, **pnpm 11+**, **Docker** (opcional, para el parser Docling) y **Rust 1.77+** (solo para compilar el escritorio).
-
-```bash
-# 1. Instalar dependencias (dispara prisma generate)
+```powershell
 pnpm install
-
-# 2. Crear el .env a partir de la plantilla
-cp .env.example .env   # o Copy-Item en PowerShell
-
-# 3. Arrancar todo el stack local (Docling + DB + Next dev en :3001)
+Copy-Item .env.example .env
 pnpm local
 ```
 
-Abre **http://localhost:3001**. Guía detallada en [Primeros pasos](./aizea/README.GETTING-STARTED.md).
+`pnpm local` starts the optional Docling service, generates the Prisma client, synchronizes the SQLite schema, and starts Next.js at [http://localhost:3001](http://localhost:3001). Docker is required for the all-in-one command. Without Docker, use `pnpm dev` and the text fallback will be used.
 
-### Comandos útiles
+Check readiness at [http://localhost:3001/api/health](http://localhost:3001/api/health).
 
-| Comando | Qué hace |
-|:---|:---|
-| `pnpm local` | Levanta Docling + sincroniza DB + arranca Next dev |
-| `pnpm dev` | Solo Next.js dev |
-| `pnpm test` | Suite de tests (Vitest) |
-| `pnpm typecheck` | `tsc --noEmit` (type-safety estricta) |
-| `pnpm build` | Build de producción de Next.js |
-| `pnpm build:msi` | Genera el instalador de escritorio (MSI + EXE) — ver [Compilar](./aizea/README.BUILD.md) |
-| `pnpm tauri:dev` | Ventana Tauri contra el dev server |
+Requirements:
 
-> El proyecto es **type-safe estricto** (prohibido `as any` / `@ts-ignore`) y todo cambio pasa `tsc --noEmit` + la suite verde.
+- Node.js 18 or newer; Node.js 20+ recommended.
+- pnpm 11+.
+- Docker Desktop for the optional Docling parser.
+- Rust 1.77+ and Microsoft Visual C++ Build Tools for Windows desktop builds.
 
----
+## Configuration
 
-## 🤝 Contribuir
+Copy `.env.example` to `.env`. Keep API keys, databases, uploads, source PDFs, and generated private material out of commits.
 
-Las contribuciones son bienvenidas. Antes de abrir un PR:
+| Variable | Purpose | Default or example |
+|---|---|---|
+| `OPENROUTER_API_KEY` | Chat, JSON, and embedding requests | Empty |
+| `OPENROUTER_MODEL` | Default chat model | `deepseek/deepseek-chat` |
+| `DOCLING_BASE_URL` | Local Docling service | `http://127.0.0.1:5001` |
+| `DATABASE_URL` | Prisma SQLite connection string | `file:./dev.db` |
+| `OPENROUTER_EMBED_MODEL` | Embedding model override | `openai/text-embedding-3-small` |
+| `AIZEA_SECRET_KEY` | Encrypts the stored provider key | Recommended |
 
-1. Asegúrate de que `pnpm typecheck` y `pnpm test` pasan en verde.
-2. Sigue las convenciones del proyecto: UI y documentación en **español**, código y comentarios en **inglés**; arquitectura hexagonal (el dominio no importa infraestructura).
-3. Describe el cambio y cómo lo verificaste.
+AI-generated trees, summaries, and slides require human review. Content sent to OpenRouter may be processed by the provider and its model path; review the applicable terms before uploading confidential or regulated material.
 
----
+## Documentation index
 
-<div align="center">
+The repository root is the central entry point. Current technical documentation remains next to the application under `aizea/` so implementation links stay valid.
 
-**AIzea** — Convierte tus apuntes en conocimiento estructurado.
+### Current technical guides
 
-Hecho con Next.js, Tauri y Rust.
+- [Getting started](./aizea/README.GETTING-STARTED.md): environment setup, local startup, health checks, and troubleshooting.
+- [Desktop build](./aizea/README.BUILD.md): Windows MSI/NSIS packaging, sidecar layout, and release caveats.
+- [Architecture](./aizea/README.ARCHITECTURE.md): hexagonal layers, ports, adapters, composition, and process model.
+- [Modules and folders](./aizea/README.MODULES.md): repository map and responsibilities.
+- [Pipeline](./aizea/README.PIPELINE.md): persistent queue, worker phases, cancellation, recovery, and guarantees.
+- [API](./aizea/README.API.md): REST routes, server actions, and the typed client.
+- [Data and persistence](./aizea/README.DATA.md): SQLite, Prisma, LanceDB, models, and configuration precedence.
+- [Testing](./aizea/README.TESTING.md): Vitest, Playwright, test structure, and quality checks.
+- [Security and distribution](./aizea/README.SECURITY.md): key encryption, CSP, desktop supervision, and installer caveats.
 
-</div>
+### Project records and historical design notes
+
+These documents are retained as project history and are not the canonical operational guide:
+
+- [Product brief](./aizea/docs/PRODUCT.md)
+- [Architecture consulting report](./aizea/docs/INFORME-CONSULTORIA-ARQUITECTURA.md)
+- [Conceptual-tree strategy](./docs/ARBOL-CONCEPTUAL-analisis-y-estrategia.md)
+- [Versioned design and planning notes](./aizea/docs/)
+
+## Architecture at a glance
+
+```text
+Next.js UI and API
+        |
+Application use cases and ports
+        |
+Pure domain logic
+        |
+Infrastructure adapters: Prisma, SQLite, LanceDB, OpenRouter, PDF parsing, queue
+        |
+Tauri 2 / Rust desktop shell
+```
+
+The persistent flow is:
+
+```text
+PDF upload -> SQLite material -> Docling or text fallback
+  -> persistent queue -> segmentation and extraction
+  -> concept integration -> conceptual tree
+  -> LanceDB index -> editable slides -> PDF or HTML export
+```
+
+## Useful commands
+
+```powershell
+pnpm dev
+pnpm docling:up
+pnpm docling:check
+pnpm docling:logs
+pnpm docling:down
+pnpm db:push
+pnpm db:studio
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm test:e2e
+pnpm build:msi
+pnpm tauri:dev
+```
+
+## Contributing
+
+Before opening a pull request, run the checks relevant to your change, describe what changed and how it was verified, and keep secrets, real user data, generated databases, and private PDFs out of commits. Follow the architecture documented above: domain code must not depend on infrastructure implementations.
+
+## License and readiness
+
+The package is currently a public alpha. Windows installers are unsigned and do not auto-update; consult the [changelog](./aizea/CHANGELOG.md) and [desktop build guide](./aizea/README.BUILD.md) for current release context.

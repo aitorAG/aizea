@@ -1,69 +1,69 @@
 # Testing
 
-[◄ Índice](./README.md) · Anterior: [Datos](./README.DATA.md) · Siguiente: [Seguridad ►](./README.SECURITY.md)
+[◄ Index](./README.md) · Previous: [Data](./README.DATA.md) · Next: [Security ►](./README.SECURITY.md)
 
-Cómo correr y estructurar la suite de tests. Estado actual: **889 tests verdes**.
+How to run and structure the test suite.
 
 ---
 
-## Comandos
+## Commands
 
-| Comando | Qué corre |
+| Command | What it runs |
 |---|---|
-| `pnpm test` | Suite completa (Vitest, una pasada) |
-| `pnpm test:watch` | Vitest en modo watch |
-| `pnpm typecheck` | `tsc --noEmit` (chequeo de tipos) |
-| `pnpm test:e2e` | End-to-end con Playwright |
-| `pnpm test:e2e:smoke` | Solo los E2E marcados `@smoke` |
-| `cargo check --release` | (en `src-tauri/`) valida el Rust del build release |
+| `pnpm test` | Full suite (Vitest, single run) |
+| `pnpm test:watch` | Vitest in watch mode |
+| `pnpm typecheck` | `tsc --noEmit` (type checking) |
+| `pnpm test:e2e` | End-to-end tests with Playwright |
+| `pnpm test:e2e:smoke` | Only E2E tests marked `@smoke` |
+| `cargo check --release` | (in `src-tauri/`) validates Rust for the release build |
 
 Config: [`vitest.config.ts`](./vitest.config.ts) · [`playwright.config.ts`](./playwright.config.ts).
 
 ---
 
-## Estructura (`tests/`)
+## Structure (`tests/`)
 
-| Carpeta | Nº ficheros | Contenido |
+| Folder | Contents |
 |---|---|---|
-| `tests/unit/` | 69 | Lógica pura, servicios, stores, componentes React (jsdom) |
-| `tests/integration/` | 11 | Rutas API, pipeline extremo-a-extremo, DB real de prueba |
-| `tests/verification/` | 3 | Verificaciones de más alto nivel |
-| `tests/fixtures/` | — | Datos de apoyo |
+| `tests/unit/` | Pure logic, services, stores, React components (jsdom) |
+| `tests/integration/` | API routes, end-to-end pipeline, real test database |
+| `tests/verification/` | Higher-level verification |
+| `tests/fixtures/` | Supporting data |
 
-E2E de Playwright en [`e2e/`](./e2e/) (`critical-flow.spec.ts`).
-
----
-
-## Tipos de test y patrones
-
-### Unit (Node o jsdom)
-
-- **Lógica pura**: se inyectan dependencias (fetch, reloj, puertos) para determinismo. Ej.: [`secret-cipher.test.ts`](./tests/unit/infrastructure/secret-cipher.test.ts), [`api-client.test.ts`](./tests/unit/client/api-client.test.ts), [`health.test.ts`](./tests/unit/health.test.ts).
-- **Componentes React**: cabecera `// @vitest-environment jsdom` + `@testing-library/react`. Ej.: [`error-boundary.test.tsx`](./tests/unit/error-boundary.test.tsx).
-- **Stores**: el `usePipelineStore` incluye tests de la poda acotada (`MAX_JOBS`).
-
-### Integration (DB real de prueba)
-
-Reconstruyen una SQLite temporal **replayando el SQL de la migración** y ejercitan el código real:
-
-- [`pipeline-queue.test.ts`](./tests/integration/pipeline-queue.test.ts) — **el gate del pipeline**: no bloquea, drena, cancelable, fallo aislado, resumible.
-- [`pipeline-rest-api.test.ts`](./tests/integration/pipeline-rest-api.test.ts), [`courses-rest-api.test.ts`](./tests/integration/courses-rest-api.test.ts) — rutas REST (mapeo de status + shape).
-- `server-actions.test.ts` — server actions con container mockeado.
-
-> Como los tests replayan `migration.sql`, **no** se introducen tablas nuevas a la ligera: la cola del pipeline reusa `ProcessingJob`. Ver [Datos](./README.DATA.md#migraciones).
+Playwright E2E tests are in [`e2e/`](./e2e/) (`critical-flow.spec.ts`).
 
 ---
 
-## Reglas de calidad
+## Test types and patterns
 
-- Todo cambio pasa `tsc --noEmit` **y** la suite verde antes de darse por hecho.
-- Prohibido `as any`, `@ts-ignore`, `@ts-expect-error`.
-- Nunca se borra un test que falla para "ponerlo en verde"; los tests pasan como **consecuencia** de código correcto.
-- Los tests de integración limpian sus DBs temporales (`test-*.db`).
+### Unit (Node or jsdom)
+
+- **Pure logic**: dependencies (fetch, clock, ports) are injected for determinism. E.g.: [`secret-cipher.test.ts`](./tests/unit/infrastructure/secret-cipher.test.ts), [`api-client.test.ts`](./tests/unit/client/api-client.test.ts), [`health.test.ts`](./tests/unit/health.test.ts).
+- **React components**: `// @vitest-environment jsdom` header + `@testing-library/react`. E.g.: [`error-boundary.test.tsx`](./tests/unit/error-boundary.test.tsx).
+- **Stores**: `usePipelineStore` includes tests for bounded pruning (`MAX_JOBS`).
+
+### Integration (real test database)
+
+They rebuild a temporary SQLite database by **replaying the migration SQL** and exercise the real code:
+
+- [`pipeline-queue.test.ts`](./tests/integration/pipeline-queue.test.ts) — **the pipeline gate**: non-blocking, drains, cancellable, isolated failures, resumable.
+- [`pipeline-rest-api.test.ts`](./tests/integration/pipeline-rest-api.test.ts), [`courses-rest-api.test.ts`](./tests/integration/courses-rest-api.test.ts) — REST routes (status mapping + shape).
+- `server-actions.test.ts` — server actions with a mocked container.
+
+> Because the tests replay `migration.sql`, **do not** add new tables casually: the pipeline queue reuses `ProcessingJob`. See [Data](./README.DATA.md#migraciones).
 
 ---
 
-## Ejecutar un test concreto
+## Quality rules
+
+- Every change must pass `tsc --noEmit` **and** the full green suite before it is considered complete.
+- `as any`, `@ts-ignore`, and `@ts-expect-error` are prohibited.
+- Never delete a failing test to "make it green"; tests pass as a **consequence** of correct code.
+- Integration tests clean up their temporary databases (`test-*.db`).
+
+---
+
+## Run a specific test
 
 ```powershell
 pnpm exec vitest run tests/integration/pipeline-queue.test.ts
@@ -72,4 +72,4 @@ pnpm exec vitest run tests/unit/client/api-client.test.ts
 
 ---
 
-[◄ Índice](./README.md) · Anterior: [Datos](./README.DATA.md) · Siguiente: [Seguridad ►](./README.SECURITY.md)
+[◄ Index](./README.md) · Previous: [Data](./README.DATA.md) · Next: [Security ►](./README.SECURITY.md)
