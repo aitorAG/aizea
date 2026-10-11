@@ -12,7 +12,7 @@ if (fsBtn > 0) {
   await p.locator('[data-testid="toggle-fullscreen"]').click().catch(() => {});
   await p.waitForTimeout(500);
   // Take screenshot while fullscreen
-  await p.screenshot({ path: "C:/Users/PC/Proyectos/AIzea/aizea/.test-artifacts/evidence/v1.8/2.3-fullscreen.png" });
+  await p.screenshot({ path: "C:/Users/PC/Proyectos/AIzea/aizea/.omo/evidence/v1.8/2.3-fullscreen.png" });
   // Check if body is white
   const bodyVisible = await p.evaluate(() => {
     const body = document.body;

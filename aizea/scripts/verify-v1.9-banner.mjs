@@ -16,7 +16,7 @@ import { PrismaClient } from "@prisma/client";
 
 const COURSE = "7bfaafd7-5b4c-41b5-bd5d-b2275dac15ba";
 const BASE = "http://localhost:3100";
-const EVIDENCE_DIR = "C:/Users/PC/Proyectos/AIzea/aizea/.test-artifacts/evidence/v1.9";
+const EVIDENCE_DIR = "C:/Users/PC/Proyectos/AIzea/aizea/.omo/evidence/v1.9";
 const SCREENSHOT = `${EVIDENCE_DIR}/1-banner.png`;
 const REPORT = `${EVIDENCE_DIR}/v1.9-report.json`;
 

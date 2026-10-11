@@ -17,7 +17,7 @@
 //   4. Poll the DB until TopicNodes appear (the unified tree).
 //   5. Verify the tree has nodes (concepts from BOTH materials).
 //   6. Save a screenshot to
-//      .test-artifacts/evidence/v1.5/wave-2/2.5-all-materials.png
+//      .omo/evidence/v1.5/wave-2/2.5-all-materials.png
 //
 // Pre-req: dev server running on http://localhost:3000 and the
 // Prisma DB reachable.
@@ -29,7 +29,7 @@ import { PrismaClient } from "@prisma/client";
 
 const EVIDENCE_DIR = join(
   process.cwd(),
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "v1.5",
   "wave-2"

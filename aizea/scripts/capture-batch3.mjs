@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const EVIDENCE_DIR = resolve(process.cwd(), ".test-artifacts", "evidence", "v1.5", "batch3");
+const EVIDENCE_DIR = resolve(process.cwd(), ".omo", "evidence", "v1.5", "batch3");
 if (!existsSync(EVIDENCE_DIR)) mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 const SERVER = "http://localhost:3000";

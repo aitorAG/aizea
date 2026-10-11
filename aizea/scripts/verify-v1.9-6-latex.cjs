@@ -21,15 +21,15 @@
  * which polls for `.katex` elements; both are tested here.
  *
  * Output:
- *   .test-artifacts/evidence/v1.9/6-latex.png        — screenshot of rendered slide
- *   .test-artifacts/evidence/v1.9/6-latex.pdf        — captured PDF
- *   .test-artifacts/evidence/v1.9/6-latex.json       — pass/fail summary
+ *   .omo/evidence/v1.9/6-latex.png        — screenshot of rendered slide
+ *   .omo/evidence/v1.9/6-latex.pdf        — captured PDF
+ *   .omo/evidence/v1.9/6-latex.json       — pass/fail summary
  */
 const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
 
-const EVIDENCE = path.resolve(__dirname, "..", ".test-artifacts", "evidence", "v1.9");
+const EVIDENCE = path.resolve(__dirname, "..", ".omo", "evidence", "v1.9");
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const SCREENSHOT_LATEX = path.join(EVIDENCE, "6-latex.png");

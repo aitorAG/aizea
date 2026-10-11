@@ -29,7 +29,7 @@ import { PrismaClient } from "@prisma/client";
 
 const EVIDENCE_DIR = join(
   process.cwd(),
-  ".test-artifacts",
+  ".omo",
   "evidence",
   "v1.9"
 );
@@ -169,7 +169,7 @@ async function main() {
 
   // Capture a screenshot WITH the toast still on screen, so the
   // evidence shows the toast in flight (this is the requested
-  // .test-artifacts/evidence/v1.9/3-generate-slides.png).
+  // .omo/evidence/v1.9/3-generate-slides.png).
   await page.screenshot({
     path: join(EVIDENCE_DIR, "3-generate-slides.png"),
     fullPage: false,
